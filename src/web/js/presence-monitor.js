@@ -3,6 +3,7 @@
 // 촬영 진행 코드는 isPresent()와 subscribe()로 "인식됨 / 인식 안됨"만 본다.
 // 좌표·점수는 밖으로 알리지 않는다. getDebugSnapshot()은 D 개발용 화면 전용이다.
 
+import { createDetectorKeeper } from './detector-keeper.js';
 import { createFaceDetector } from './face-detector.js';
 import {
   classifyFaces,
@@ -16,13 +17,12 @@ export const DetectorStatus = Object.freeze({
   LOADING: 'loading', // 감지기 생성 중
   RUNNING: 'running', // 감지 중
   PAUSED: 'paused', // 카메라 준비 안 됨 또는 페이지 숨김
-  ERROR: 'error', // 감지기 생성 실패, 또는 감지가 계속 실패함 (미리보기는 계속 동작)
+  ERROR: 'error', // 감지기 없음: 생성 실패 또는 계속 실패해 버림. 재생성을 기다린다 (미리보기는 계속 동작)
 });
 
-// 감지가 이 횟수(15fps 기준 약 1초) 연속 실패하면 오류 상태로 두고 느린 간격으로 다시 시도한다.
-// 예: WebGL을 쓸 수 없으면 CPU delegate도 생성은 되지만 매 프레임 감지에 실패한다.
+// 감지가 이 횟수(15fps 기준 약 1초) 연속 실패하면 감지기를 닫고 다시 만든다.
+// 예: 실행 중 WebGL 컨텍스트 손실. WebGL을 아예 쓸 수 없으면 CPU delegate도 생성은 되지만 매 프레임 실패한다.
 const MAX_CONSECUTIVE_FAILURES = 15;
-const FAILED_RETRY_MS = 1000;
 const FPS_WINDOW_MS = 1000;
 const AVERAGE_WEIGHT = 0.1; // 감지 시간 이동 평균 가중치
 
@@ -30,22 +30,26 @@ const AVERAGE_WEIGHT = 0.1; // 감지 시간 이동 평균 가중치
  * @param {{ video: HTMLVideoElement,
  *   camera: { isReady: () => boolean, subscribe: (listener: Function) => Function },
  *   detection: { bundlePath: string, wasmPath: string, modelPath: string, delegates: string[],
- *     detectorMinConfidence: number, maxFps: number, inputMaxSize: number },
+ *     detectorMinConfidence: number, maxFps: number, inputMaxSize: number, detectorRetryMs: number },
  *   presence: { region: object, minFaceHeight: number, maxFaceHeight: number, minScore: number,
  *     presentHoldMs: number, absentGraceMs: number },
- *   stageAspect: number, mirror: boolean }} options
+ *   stageAspect: number, mirror: boolean,
+ *   createDetector?: () => Promise<object> }} options  createDetector는 바꿔 끼울 때만 (기본 face-detector.js)
  */
-export function createPresenceMonitor({ video, camera, detection, presence: initialSettings, stageAspect, mirror }) {
+export function createPresenceMonitor({
+  video, camera, detection, presence: initialSettings, stageAspect, mirror,
+  createDetector = () => createFaceDetector({ ...detection, minDetectionConfidence: detection.detectorMinConfidence }),
+}) {
   const listeners = new Set();
   const canvas = document.createElement('canvas');
   const context = canvas.getContext('2d', { alpha: false });
 
   let settings = initialSettings; // 판정 설정. setSettings()로 바꾸면 다음 감지부터 반영된다
   let started = false;
-  let detector = null;
-  let status = DetectorStatus.LOADING;
-  let error = '';
   let timer = null;
+  let cameraWasReady = false;
+  let cameraEverReady = false; // 처음 준비되는 것은 재연결이 아니다
+  let pageWasVisible = true;
   let lastTimestamp = 0;
   let presence = initialPresenceState;
   let publicState = Object.freeze({ present: false });
@@ -60,6 +64,15 @@ export function createPresenceMonitor({ video, camera, detection, presence: init
   let lastDetectionError = '';
   let recentTicks = [];
 
+  // 생성에 실패하거나 감지기를 버리면 detectorRetryMs 뒤 다시 만든다. 결과가 나오면 루프 상태를 다시 맞춘다.
+  const keeper = createDetectorKeeper({ create: createDetector, retryMs: detection.detectorRetryMs, onChange: sync });
+
+  function status() {
+    if (keeper.isCreating()) return DetectorStatus.LOADING;
+    if (keeper.get() === null) return keeper.getError() ? DetectorStatus.ERROR : DetectorStatus.LOADING;
+    return timer !== null ? DetectorStatus.RUNNING : DetectorStatus.PAUSED;
+  }
+
   function notify() {
     if (publicState.present === presence.present) return;
     publicState = Object.freeze({ present: presence.present });
@@ -67,17 +80,24 @@ export function createPresenceMonitor({ video, camera, detection, presence: init
   }
 
   function canRun() {
-    return detector !== null && camera.isReady() && !document.hidden
+    return started && keeper.get() !== null && camera.isReady() && !document.hidden
       && video.videoWidth > 0 && video.videoHeight > 0;
   }
 
-  // 카메라·페이지 상태가 바뀔 때마다 부른다.
+  // 카메라·페이지·감지기 상태가 바뀔 때마다 부른다.
   function sync() {
+    if (!started) return;
+    // 카메라가 다시 준비되거나 페이지가 다시 보이면, 감지기가 없을 때 재시도 간격을 기다리지 않고 바로 만든다.
+    const cameraReady = camera.isReady();
+    const pageVisible = !document.hidden;
+    const recovered = (cameraReady && !cameraWasReady && cameraEverReady) || (pageVisible && !pageWasVisible);
+    cameraWasReady = cameraReady;
+    if (cameraReady) cameraEverReady = true;
+    pageWasVisible = pageVisible;
+    if (recovered && keeper.get() === null && !keeper.isCreating()) keeper.ensure();
+
     if (canRun()) {
-      if (timer === null) {
-        status = DetectorStatus.RUNNING;
-        timer = setTimeout(tick, 0);
-      }
+      if (timer === null) timer = setTimeout(tick, 0);
     } else {
       pause();
     }
@@ -87,7 +107,6 @@ export function createPresenceMonitor({ video, camera, detection, presence: init
   function pause() {
     clearTimeout(timer);
     timer = null;
-    if (detector !== null) status = DetectorStatus.PAUSED;
     presence = initialPresenceState;
     faces = [];
     recentTicks = [];
@@ -104,7 +123,6 @@ export function createPresenceMonitor({ video, camera, detection, presence: init
     try {
       detectOnce();
       consecutiveFailures = 0;
-      if (status === DetectorStatus.ERROR) status = DetectorStatus.RUNNING;
     } catch (detectionError) {
       // 실패한 프레임은 "없음"으로 판정한다. 계속 실패하면 유예 시간 뒤 인식 안됨이 된다.
       detectionErrors += 1;
@@ -116,9 +134,14 @@ export function createPresenceMonitor({ video, camera, detection, presence: init
       if (consecutiveFailures === 1 || consecutiveFailures === MAX_CONSECUTIVE_FAILURES) {
         console.warn('[presence] detection failed', consecutiveFailures, detectionError);
       }
-      if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) status = DetectorStatus.ERROR;
+      if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+        // 감지기를 닫고 버린다. keeper가 detectorRetryMs 뒤 새로 만들고, onChange(sync)로 루프가 멈춘다.
+        consecutiveFailures = 0;
+        keeper.discard(`detection kept failing: ${lastDetectionError}`);
+        return;
+      }
     }
-    const interval = status === DetectorStatus.ERROR ? FAILED_RETRY_MS : 1000 / detection.maxFps;
+    const interval = 1000 / detection.maxFps;
     timer = setTimeout(tick, Math.max(0, interval - (performance.now() - tickStart)));
   }
 
@@ -139,7 +162,7 @@ export function createPresenceMonitor({ video, camera, detection, presence: init
     // detectForVideo 타임스탬프는 항상 증가해야 한다.
     const timestamp = Math.max(detectStart, lastTimestamp + 1);
     lastTimestamp = timestamp;
-    const detected = detector.detect(canvas, timestamp);
+    const detected = keeper.get().detect(canvas, timestamp);
     const now = performance.now();
 
     drawMs = detectStart - drawStart;
@@ -154,21 +177,15 @@ export function createPresenceMonitor({ video, camera, detection, presence: init
     notify();
   }
 
-  async function start() {
+  function start() {
     if (started) return;
     started = true;
-    try {
-      detector = await createFaceDetector({ ...detection, minDetectionConfidence: detection.detectorMinConfidence });
-      status = DetectorStatus.PAUSED;
-    } catch (createError) {
-      status = DetectorStatus.ERROR;
-      error = createError?.message ?? String(createError);
-      console.warn('[presence] face detector unavailable', createError);
-      return;
-    }
+    cameraWasReady = camera.isReady();
+    cameraEverReady = cameraWasReady;
+    pageWasVisible = !document.hidden;
     camera.subscribe(sync);
     document.addEventListener('visibilitychange', sync);
-    sync();
+    keeper.ensure();
   }
 
   return {
@@ -188,16 +205,20 @@ export function createPresenceMonitor({ video, camera, detection, presence: init
     /** D 개발용 화면 전용. 촬영 진행 코드에서 쓰지 않는다. */
     getDebugSnapshot() {
       const now = performance.now();
+      const detector = keeper.get();
+      const currentStatus = status();
       return {
-        status,
-        error,
+        status: currentStatus,
+        error: keeper.getError(),
+        createAttempts: keeper.getAttempts(),
+        retryScheduled: keeper.isRetryScheduled(),
         delegate: detector?.delegate ?? '-',
         delegateFailures: detector?.failures ?? [],
         input: `${canvas.width}x${canvas.height}`,
         detectMs,
         averageDetectMs,
         drawMs,
-        fps: status === DetectorStatus.RUNNING ? recentTicks.length * (1000 / FPS_WINDOW_MS) : 0,
+        fps: currentStatus === DetectorStatus.RUNNING ? recentTicks.length * (1000 / FPS_WINDOW_MS) : 0,
         maxFps: detection.maxFps,
         detectionErrors,
         consecutiveFailures,
