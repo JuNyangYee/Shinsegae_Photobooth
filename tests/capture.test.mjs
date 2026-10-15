@@ -33,27 +33,37 @@ describe('computeCaptureCrop', () => {
 });
 
 // 캔버스·Object URL 흉내
-function fakeEnvironment({ blobOk = true } = {}) {
+//   context: 'ok' | 'null'(getContext가 null) | 'draw-throws'(drawImage 예외)
+//   blob: 'ok' | 'null'(toBlob이 null) | 'never'(콜백이 오지 않음) | 'manual'(테스트가 콜백 시점을 정함)
+export function fakeEnvironment({ context = 'ok', blob = 'ok' } = {}) {
   const canvases = [];
   const revoked = [];
+  const blobCallbacks = [];
   let nextUrl = 1;
   return {
     canvases,
     revoked,
+    blobCallbacks,
     createCanvas() {
       const calls = [];
       const canvas = {
         width: 300,
         height: 150,
         calls,
-        getContext: () => ({
+        getContext: () => (context === 'null' ? null : {
           translate: (...args) => calls.push(['translate', ...args]),
           scale: (...args) => calls.push(['scale', ...args]),
-          drawImage: (...args) => calls.push(['drawImage', ...args.slice(1)]),
+          drawImage: (...args) => {
+            if (context === 'draw-throws') throw new Error('drawImage failed');
+            calls.push(['drawImage', ...args.slice(1)]);
+          },
         }),
         toBlob(callback, type, quality) {
           calls.push(['toBlob', type, quality]);
-          queueMicrotask(() => callback(blobOk ? { size: 1234, type } : null));
+          const respond = () => callback(blob === 'null' ? null : { size: 1234, type });
+          if (blob === 'ok' || blob === 'null') queueMicrotask(respond);
+          else if (blob === 'manual') blobCallbacks.push(respond);
+          // 'never': 콜백이 오지 않는다
         },
       };
       canvases.push(canvas);
@@ -63,17 +73,24 @@ function fakeEnvironment({ blobOk = true } = {}) {
       createObjectURL: () => `blob:fake/${nextUrl++}`,
       revokeObjectURL: (url) => revoked.push(url),
     },
+    /** 픽셀 버퍼가 남은 캔버스 수 */
+    liveCanvasCount: () => canvases.filter((c) => c.width * c.height > 0).length,
   };
 }
 
-function setup({ videoWidth = 1920, videoHeight = 1080, mirror = true, blobOk } = {}) {
-  const env = fakeEnvironment({ blobOk });
+const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+function setup({ videoWidth = 1920, videoHeight = 1080, mirror = true, context, blob, effect, frameAge = 10 } = {}) {
+  const env = fakeEnvironment({ context, blob });
   const video = { videoWidth, videoHeight };
+  let time = 100000;
+  const frame = { at: time - frameAge, count: 42 };
   const capture = createCapture({
     video, stageAspect: STAGE, mirror, type: 'image/jpeg', quality: 0.92,
-    createCanvas: env.createCanvas, urls: env.urls,
+    maxFrameAgeMs: 500, getFrameInfo: () => frame,
+    effect, createCanvas: env.createCanvas, urls: env.urls, now: () => time,
   });
-  return { env, video, capture };
+  return { env, video, capture, frame, setTime: (t) => { time = t; } };
 }
 
 describe('createCapture', () => {
@@ -92,6 +109,7 @@ describe('createCapture', () => {
     const stats = capture.getStats();
     assert.equal(stats.liveCanvases, 0);
     assert.equal(stats.liveUrls, 1);
+    assert.equal(stats.pending, 0);
     assert.equal(stats.last.width, 608);
     assert.equal(stats.last.source, '1920x1080');
   });
@@ -111,7 +129,11 @@ describe('createCapture', () => {
     assert.deepEqual(env.revoked, ['blob:fake/1']);
     assert.equal(capture.getStats().liveUrls, 1);
     capture.release(second);
-    assert.deepEqual(capture.getStats(), { ...capture.getStats(), taken: 2, released: 2, liveUrls: 0, liveCanvases: 0 });
+    const stats = capture.getStats();
+    assert.equal(stats.taken, 2);
+    assert.equal(stats.released, 2);
+    assert.equal(stats.liveUrls, 0);
+    assert.equal(stats.liveCanvases, 0);
   });
 
   it('영상이 없으면 바로 예외, 캔버스를 만들지 않는다', () => {
@@ -121,10 +143,111 @@ describe('createCapture', () => {
   });
 
   it('인코딩이 실패해도 캔버스는 비우고 URL은 만들지 않는다', async () => {
-    const { env, capture } = setup({ blobOk: false });
+    const { env, capture } = setup({ blob: 'null' });
     await assert.rejects(capture.take(), /toBlob returned null/);
     assert.equal(env.canvases[0].width, 0);
     assert.equal(capture.getStats().liveCanvases, 0);
     assert.equal(capture.getStats().liveUrls, 0);
+  });
+});
+
+describe('createCapture: 예외 경로 정리 (검수 A)', () => {
+  for (const context of ['null', 'draw-throws']) {
+    it(`캔버스를 만든 뒤 그리기 단계에서 실패해도(${context}) 캔버스를 비운다`, () => {
+      const { env, capture } = setup({ context });
+      for (let i = 0; i < 20; i += 1) {
+        assert.throws(() => capture.take(), context === 'null' ? /2d context unavailable/ : /drawImage failed/);
+      }
+      assert.equal(env.canvases.length, 20);
+      assert.equal(env.liveCanvasCount(), 0);
+      assert.equal(capture.getStats().liveCanvases, 0);
+      assert.match(capture.getStats().lastError, context === 'null' ? /2d context/ : /drawImage/);
+    });
+  }
+});
+
+describe('createCapture: 취소 경계 (검수 B)', () => {
+  it('인코딩 중 abort되면 기다리지 않고 실패하고 캔버스를 바로 비운다. 늦은 콜백은 URL을 만들지 않는다', async () => {
+    const { env, capture } = setup({ blob: 'manual' });
+    const controller = new AbortController();
+    const result = capture.take({ signal: controller.signal });
+    await flush();
+    assert.equal(env.liveCanvasCount(), 1); // 인코딩 중
+    controller.abort(new Error('capture timeout'));
+    await assert.rejects(result, /capture timeout/);
+    assert.equal(env.liveCanvasCount(), 0);
+    assert.equal(capture.getStats().pending, 1); // toBlob 콜백은 아직
+    env.blobCallbacks[0](); // 늦게 도착
+    await flush();
+    assert.equal(capture.getStats().pending, 0);
+    assert.equal(capture.getStats().liveUrls, 0);
+  });
+
+  it('toBlob 콜백이 오지 않으면 abort 뒤 캔버스는 비우고, 다음 촬영은 캔버스를 만들지 않고 실패한다 (쌓이지 않음)', async () => {
+    const { env, capture } = setup({ blob: 'never' });
+    const controller = new AbortController();
+    const result = capture.take({ signal: controller.signal });
+    await flush();
+    controller.abort(new Error('timeout'));
+    await assert.rejects(result);
+    for (let i = 0; i < 8; i += 1) assert.throws(() => capture.take(), /capture busy/);
+    assert.equal(env.canvases.length, 1);
+    assert.equal(env.liveCanvasCount(), 0);
+  });
+
+  it('효과 단계도 같은 신호를 받고, 신호를 무시해 늦게 새 캔버스를 돌려줘도 그 캔버스를 비운다', async () => {
+    const env2 = fakeEnvironment();
+    let received = null;
+    let finishEffect;
+    const effect = (canvas, { signal }) => {
+      received = signal;
+      return new Promise((resolve) => {
+        finishEffect = () => {
+          const out = env2.createCanvas();
+          out.width = canvas.width || 608;
+          out.height = 1080;
+          resolve(out);
+        };
+      });
+    };
+    const { env, capture } = setup({ effect });
+    const controller = new AbortController();
+    const result = capture.take({ signal: controller.signal });
+    await flush();
+    assert.equal(received, controller.signal);
+    controller.abort(new Error('reset'));
+    await assert.rejects(result, /reset/);
+    assert.equal(env.liveCanvasCount(), 0);
+    finishEffect();
+    await flush();
+    assert.equal(env2.liveCanvasCount(), 0);
+    assert.equal(capture.getStats().pending, 0);
+  });
+
+  it('이미 abort된 신호면 효과·인코딩 전에 실패하고 정리한다', async () => {
+    const { env, capture } = setup();
+    const controller = new AbortController();
+    controller.abort(new Error('already'));
+    await assert.rejects(capture.take({ signal: controller.signal }), /already/);
+    await flush();
+    assert.equal(env.liveCanvasCount(), 0);
+    assert.equal(capture.getStats().liveUrls, 0);
+  });
+});
+
+describe('createCapture: 정지 프레임 거부 (검수 C)', () => {
+  it('마지막 새 프레임이 maxFrameAgeMs보다 오래되면 캔버스를 만들지 않고 실패한다', () => {
+    const { env, capture, frame, setTime } = setup({ frameAge: 10 });
+    setTime(frame.at + 501);
+    assert.throws(() => capture.take(), /stale frame: no new camera frame for 501ms/);
+    assert.equal(env.canvases.length, 0);
+    setTime(frame.at + 500);
+    assert.doesNotThrow(() => capture.take());
+  });
+
+  it('프레임을 한 번도 받지 않았으면 실패한다', () => {
+    const { capture, frame } = setup();
+    frame.at = null;
+    assert.throws(() => capture.take(), /stale frame/);
   });
 });

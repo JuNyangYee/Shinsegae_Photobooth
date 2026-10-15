@@ -62,7 +62,9 @@ export function createCameraMonitor({ video, preferredLabel, idealResolution, re
   let retryTimer = null;
   let deviceChangeTimer = null;
   let stallTimer = null;
-  let lastFrameAt = 0;
+  let lastFrameAt = 0; // 프레임 정지 판정용. 페이지가 숨겨진 동안에는 판정하지 않으려고 현재 시각으로 밀어 둔다
+  let presentedAt = null; // 실제로 새 프레임을 받은 마지막 시각 (performance.now()). 촬영 직전 확인용
+  let presentedFrames = 0; // 받은 새 프레임 누적 수 (프레임 세대). 감지 루프가 같은 프레임을 다시 세지 않게
   let frameCallbackId = null;
   let cancelFirstFrameWait = null;
   let permissionStatus = null;
@@ -83,6 +85,8 @@ export function createCameraMonitor({ video, preferredLabel, idealResolution, re
   function requestFrame(callback) {
     frameCallbackId = video.requestVideoFrameCallback(() => {
       frameCallbackId = null;
+      presentedAt = performance.now();
+      presentedFrames += 1;
       callback();
     });
   }
@@ -309,6 +313,8 @@ export function createCameraMonitor({ video, preferredLabel, idealResolution, re
     start,
     getState: () => state,
     isReady: () => state.status === CameraStatus.READY,
+    /** 마지막 새 프레임 시각(performance.now() 기준, 없으면 null)과 누적 프레임 수. 영상 내용은 내보내지 않는다. */
+    getFrameInfo: () => ({ at: presentedAt, count: presentedFrames }),
     /** 상태가 바뀔 때마다 호출한다. 등록 즉시 현재 상태로 한 번 호출한다. 해제 함수를 돌려준다. */
     subscribe(listener) {
       listeners.add(listener);

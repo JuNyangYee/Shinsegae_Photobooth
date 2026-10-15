@@ -63,5 +63,8 @@ export const config = Object.freeze({
   capture: Object.freeze({
     type: 'image/jpeg',
     quality: 0.92,
+    // 촬영 직전 이 시간 안에 새 카메라 프레임이 없으면 정지 화면으로 보고 촬영 실패로 처리한다 (가안).
+    // 카메라 끊김 판정(stallTimeoutMs 3초)보다 짧아야 그 사이의 정지 화면을 걸러낸다. 30fps면 프레임 간격 약 33ms.
+    maxFrameAgeMs: 500,
   }),
 });

@@ -50,7 +50,9 @@ const presence = createPresenceMonitor({
   mirror: config.mirror,
 });
 
-const capture = createCapture({ video, stageAspect, mirror: config.mirror, ...config.capture });
+const capture = createCapture({
+  video, stageAspect, mirror: config.mirror, ...config.capture, getFrameInfo: camera.getFrameInfo,
+});
 
 // 촬영 한 사이클. 시작·취소·초기화는 session.request() 한 곳으로 들어간다 (키보드와 auto-start.js).
 const session = createSession({
