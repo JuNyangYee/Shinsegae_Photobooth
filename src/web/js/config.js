@@ -50,4 +50,18 @@ export const config = Object.freeze({
 
   // "인식됨 / 인식 안됨" 임시 표시 (최종 디자인 전 기본 UI)
   showPresenceIndicator: true,
+
+  // 촬영 한 사이클 시간 (단위 ms, captureTimeoutMs 외 사용자 확정 2026-10-15)
+  session: Object.freeze({
+    countdownSeconds: 3, // 3·2·1 뒤 한 장
+    resultMs: 10000, // 결과 표시 시간. 인쇄 연동 뒤에는 "출력 완료 확인 후" 시간이 된다
+    cooldownMs: 5000, // 대기로 돌아온 뒤 시작 요청을 무시하는 시간
+    captureTimeoutMs: 5000, // 결과 이미지 만들기(효과·인코딩) 제한 시간. 넘으면 대기로 (가안)
+  }),
+
+  // 결과 이미지 형식 (가안). 크기는 미리보기에 보이는 9:16 영역의 원본 해상도 그대로다.
+  capture: Object.freeze({
+    type: 'image/jpeg',
+    quality: 0.92,
+  }),
 });
