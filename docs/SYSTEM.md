@@ -1,10 +1,10 @@
 # SYSTEM — 기술 구조와 제약
 
-> 실제로 만든 부분은 "구현됨"으로, 아직 만들지 않은 계획은 "가안"으로 표시한다. 구현 범위는 1단계(정적 서버, 9:16 반전 미리보기, 카메라 상태·자동 회복), 2-1(MediaPipe 로컬 라이브러리 배치), 2-2(얼굴 감지와 인식 상태), 2-3(운영자용 인식 범위 조절), 3-1(촬영 상태 기계와 키보드 수동 시작 한 사이클), 3-2(인식 결과로 자동 시작·이탈 취소), 3-3(3단계 검수 반영), 4-1(감지기 안정성·장애 안내), 4-2(현장 실행 스크립트)까지다. 사진 효과·인쇄는 아직 없다.
+> 실제로 만든 부분은 "구현됨"으로, 아직 만들지 않은 계획은 "가안"으로 표시한다. 구현 범위는 1단계(정적 서버, 9:16 반전 미리보기, 카메라 상태·자동 회복), 2-1(MediaPipe 로컬 라이브러리 배치), 2-2(얼굴 감지와 인식 상태), 2-3(운영자용 인식 범위 조절), 3-1(촬영 상태 기계와 키보드 수동 시작 한 사이클), 3-2(인식 결과로 자동 시작·이탈 취소), 3-3(3단계 검수 반영), 4-1(감지기 안정성·장애 안내), 4-2(현장 실행 스크립트), 4-3(조절값 파일 저장·자동 촬영 일시정지)까지다. 사진 효과·인쇄는 아직 없다.
 
 **목차**
 
-1. 전체 구성 — 구성도, 참고 구조, 폴더, 정적 서버, CSP, 스크립트 인코딩, 현장 실행 스크립트
+1. 전체 구성 — 구성도, 참고 구조, 폴더, 정적 서버, 조절값 파일 API, CSP, 스크립트 인코딩, 현장 실행 스크립트
 2. 코드 책임 구분 — 반복 오류 로그 제한
 3. 카메라와 영상 — OBS, 화면 배치, 좌우 반전, 권한, 카메라 상태와 자동 회복
 4. 촬영 상태 — 촬영 한 사이클, 실패와 취소 경계, 운영자 단축키, 자동 시작과 이탈 취소, 출력 연동 참고
@@ -55,12 +55,13 @@ Launch.bat                  현장 실행 (OBS → 서버 → Chrome 키오스�
 Shutdown.bat                키오스크 Chrome·서버 종료 → bin/shutdown.ps1
 Setup-Startup.bat           시작 프로그램 바로가기 등록·제거(-Remove) → bin/setup-startup.ps1
 settings.example.ini        현장 설정 예시 (커밋). settings.ini는 여기서 만들어지고 Git에서 제외
+config/presence.local.json  운영자 조절값 파일 (4-3). 서버 API만 쓴다. Git에서 제외. 현장 PC를 옮길 때 복사
 bin/
   common.ps1                실행 스크립트 공용 (로그, 설정, 프로그램 탐색, 프로세스 식별·종료)
   launch.ps1                현장 실행
   shutdown.ps1              종료
   setup-startup.ps1         시작 프로그램 등록
-  server/serve.ps1          정적 서버 (구현됨)
+  server/serve.ps1          정적 서버, 조절값 파일 API (구현됨)
 src/web/                    (구현됨)
   index.html
   css/app.css
@@ -72,7 +73,8 @@ src/web/                    (구현됨)
   js/presence.js            인식 판정 순수 함수 (좌표 변환, 인정 조건, 시간 안정화)
   js/presence-monitor.js    감지 루프, 인식 상태 구독 (isPresent·subscribe), 판정 설정 교체 (setSettings)
   js/presence-settings.js   판정 설정 검증·정규화·저장 형식, 영역 이동·크기 조절 계산 (순수 함수)
-  js/presence-tuning.js     운영자용 인식 범위 조절 화면 (R 키), localStorage 저장
+  js/presence-tuning.js     운영자용 인식 범위 조절 화면 (R 키), 저장은 조절값 파일로
+  js/settings-file.js       조절값 파일 API 클라이언트, 시작할 때 불러오기 순서(파일 → localStorage 옮기기 → 기본값)
   js/region-drag.js         인식 영역 마우스 끌기 (이동·크기 조절, 끌기 종료 조건)
   js/detector-keeper.js     감지기 생성·재시도(간격 늘림·상한)·폐기 후 재생성 (한 번에 하나만), 감지기 상태(DetectorHealth)
   js/guidance.js            관람객 안내 규칙: 카메라·감지기 상태 → "준비 중"/"직원 문의" (순수 함수)
@@ -92,6 +94,7 @@ tests/detector-keeper.test.mjs    감지기 재생성·재시도 간격·상태 
 tests/face-detector.test.mjs      사전 확인·생성 실패 정리 Node 테스트 (가짜 bundle·fetch·캔버스·document), 모델 SHA-256 기록 대조
 tests/guidance.test.mjs           안내 규칙 Node 테스트
 tests/log-limit.test.mjs          로그 제한 Node 테스트
+tests/settings-file.test.mjs      조절값 불러오기 순서·마이그레이션·시간 초과, API 클라이언트 Node 테스트
 lib/mediapipe/              MediaPipe 런타임·모델 (구현됨, 커밋 대상. 직접 고치지 않고 스크립트로 갱신)
   tasks-vision/vision_bundle.mjs
   tasks-vision/wasm/        vision_wasm_internal.{js,wasm}, vision_wasm_nosimd_internal.{js,wasm}
@@ -111,11 +114,46 @@ package-lock.json
 - 실행: `powershell -NoProfile -ExecutionPolicy Bypass -File bin\server\serve.ps1 [-Port 8765]`. 기본 포트 8765.
 - Windows PowerShell 5.1 `Net.HttpListener`에 `http://localhost:<Port>/` 접두사만 등록한다. `+`·`*` 접두사는 쓰지 않는다(관리자 권한 불필요). 이 접두사는 `Host` 헤더 기준 라우팅일 뿐이어서 `127.0.0.1`로 접속하면 http.sys가 400을 돌려주지만, 이 PC의 다른 IP로 `Host: localhost`를 보내는 요청은 받아들인다.
 - 그래서 파일을 제공하기 전에 요청한 쪽 주소(`RemoteEndPoint.Address`)가 루프백(IPv4 `127.0.0.0/8`, IPv6 `::1`, IPv4-mapped 포함)인지 확인하고, 아니면 403으로 거절한다. 같은 PC의 브라우저만 쓸 수 있다.
-- 경로 매핑: `/` → `src/web/index.html`, `/lib/*` → 저장소 `lib/`(폴더가 없으면 404), 나머지 → `src/web/`.
+- 경로 매핑: `/` → `src/web/index.html`, `/lib/*` → 저장소 `lib/`(폴더가 없으면 404), `/local-api/*` → 아래 "조절값 파일 API", 나머지 → `src/web/`.
 - 경로 탈출 차단: URL 디코딩 후 역슬래시·`:`·제어 문자·와일드카드 문자, `.`으로 시작하거나 `.`·공백으로 끝나는 경로 조각(`..`, 숨김 파일 포함)을 400으로 거절한다. 마지막으로 실제 경로가 루트 안에 있는지 다시 확인한다(벗어나면 403). 루트를 벗어나는 일부 URL은 http.sys가 스크립트보다 먼저 403으로 막는다.
 - MIME: html, js, mjs, css, json, svg, png, jpg/jpeg, webp, woff2, wasm, tflite, task. 그 외는 `application/octet-stream`.
-- 모든 응답에 `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`. GET·HEAD만 허용(그 외 405).
+- 모든 응답에 `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`. 정적 파일은 GET·HEAD만 허용(그 외 405).
 - Ctrl+C로 종료한다. 요청 대기를 짧게 끊어 기다리므로 Ctrl+C가 바로 반영되고 리스너를 닫는다.
+- 요청은 한 번에 하나씩 처리한다(단일 루프). 한 요청이 실패해도 500으로 답하고 다음 요청을 받는다.
+
+### 조절값 파일 API (구현됨, 4-3)
+
+운영자 조절값(5절 "인식 범위 조절")을 브라우저 프로필이 아니라 저장소 안 파일에 둔다. 프로필을 바꾸거나 새로 만들어도 같은 값을 쓰고, 현장 PC를 옮길 때 파일 하나만 복사하면 되게 하기 위해서다(사용자 결정 2026-10-15).
+
+| 항목 | 내용 |
+|---|---|
+| 경로 | `/local-api/presence-settings` **정확히 이 URL만**(대소문자·쿼리·끝 `/`·퍼센트 인코딩 변형은 404). 그 밖의 `/local-api/*`도 404 |
+| 저장 파일 | `config/presence.local.json` 하나로 고정. 클라이언트가 파일 이름·경로를 정할 수 없다. `.gitignore`의 `/config/*.local.json`, 임시 파일 `/config/*.tmp` |
+| `GET` | 파일이 있으면 200 `application/json; charset=utf-8`(저장한 바이트 그대로), 없으면 404 |
+| `PUT` | 아래 조건을 모두 만족하면 원자적으로 쓰고 204. 아니면 4xx와 짧은 이유(본문·서버 로그) |
+| 그 밖 | 405 `Allow: GET, PUT` (`OPTIONS`·`POST`·`DELETE`·`HEAD` 포함) |
+
+**CSRF 방어.** 루프백 제한(위)은 같은 PC의 다른 웹페이지가 브라우저를 통해 `localhost`로 요청을 보내는 것을 막지 못한다. 그래서 `PUT`은 이 페이지의 같은 출처 `fetch`처럼 보일 때만 받는다.
+
+| 조건 | 거절 |
+|---|---|
+| `X-Photobooth: 1` 헤더 | 403 |
+| `Content-Type: application/json` (`charset`이 있으면 `utf-8`만) | 415 |
+| `Host`가 `localhost:<port>` | 403 (그 밖의 호스트 이름은 http.sys가 먼저 400) |
+| `Origin`이 있으면 `http://localhost:<port>`와 같음 | 403 |
+| `Sec-Fetch-Site`가 있으면 `same-origin` | 403 |
+
+- 커스텀 헤더와 JSON 형식 때문에 다른 출처의 요청은 브라우저가 먼저 사전 요청(`OPTIONS`)을 보낸다. 서버는 405로 답하고 CORS 허용 헤더(`Access-Control-Allow-*`)를 어떤 응답에도 보내지 않으므로, 브라우저가 실제 `PUT`을 보내지 않는다. 헤더 없이 보낼 수 있는 단순 요청(`no-cors`)은 위 조건에서 거절된다.
+- `Origin`·`Sec-Fetch-Site`가 없는 요청(브라우저가 아닌 같은 PC 프로그램)은 받는다. 같은 PC의 프로그램은 파일을 직접 쓸 수도 있으므로 막을 대상이 아니다.
+- DNS 리바인딩(다른 도메인 이름을 `127.0.0.1`로 돌리는 공격)은 `Host`가 달라 http.sys가 400으로 막고, 스크립트도 `Host`를 다시 확인한다.
+
+**본문 검사와 쓰기**
+
+- 본문은 16KB(16384바이트) 상한이다. `Content-Length`가 크거나, 길이를 밝히지 않은(chunked) 본문이 상한을 넘으면 413. 읽을 때도 상한까지만 읽는다.
+- 엄격한 UTF-8로 풀리지 않으면 400. `JavaScriptSerializer`로 풀어 JSON **객체**가 아니면(배열·문자열·숫자·빈 본문·뒤에 붙은 문자) 400.
+- 값의 의미는 검사하지 않는다. 범위·형식은 클라이언트의 `presence-settings.js` 정규화가 맡는다(아래 "불러오기 검증"). 그래서 어떤 내용이 저장돼 있어도 화면은 안전하게 불러온다. `JavaScriptSerializer`는 표준보다 너그러운 JSON도 받을 수 있는데, 그런 내용은 브라우저 `JSON.parse`에서 실패해 기본값으로 불러온다.
+- **원자적 쓰기:** 같은 폴더의 임시 파일(`presence.local.json.<guid>.tmp`)에 쓰고 디스크까지 flush한 뒤 `File.Replace`(처음이면 `File.Move`)로 바꾼다. 읽는 쪽은 항상 이전 파일이나 새 파일 전체를 본다. 다른 프로세스가 잠깐 잡고 있어 실패하면 50ms 간격으로 5번까지 다시 시도하고, 끝내 실패하면 500으로 답한다. 임시 파일은 성공·실패와 관계없이 지운다.
+- PowerShell 5.1은 문자열 매개변수에 넘긴 `$null`을 빈 문자열로 바꾼다. 그래서 `File.Replace`의 백업 경로는 `[NullString]::Value`로 넘긴다(검증 중 발견, 로그 12).
 
 ### 외부 전송 차단: CSP (구현됨)
 
@@ -359,7 +397,7 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 - **회차 식별자:** 시작과 강제 초기화마다 `round`를 올린다. 사진 만들기 결과가 도착했을 때 회차가 같고 아직 `capturing`일 때만 결과로 보이고, 아니면 바로 `releasePhoto()`로 정리한다.
 - **카운트다운 시각:** 숫자는 시작 시각 기준 1초마다 바꾼다. 타이머가 늦게 불려도 늦음이 쌓이지 않는다.
 - **결과 종료 시계:** `startResultClock()` 한 곳에서만 시작한다. 지금은 결과 표시에 들어갈 때 부른다. 인쇄를 연동하면 이 호출을 "출력 완료 확인" 시점으로 옮긴다(아래 "출력 연동 시 참고 흐름").
-- **강제 초기화에 쿨타임을 두지 않는 이유:** 쿨타임은 방금 결과를 본 사람이 같은 자리에서 바로 다시 찍히는 것을 막는 장치다. 강제 초기화는 운영자가 꼬인 진행을 풀거나 시험할 때 쓰므로, 누른 즉시 다시 시작할 수 있는 편이 낫다고 봤다. 쿨타임 중에 누르면 남은 쿨타임도 없앤다. 단, 자동 시작은 레벨 판정이라 `X` 직후에도 인식된 사람이 있으면 곧바로 새 회차가 시작된다. **`X`는 촬영을 멈추는 수단이 아니다.** 자동 촬영을 막으려면 `R` 조절 화면을 연다(운영자용 일시정지 키는 4단계에서 정한다).
+- **강제 초기화에 쿨타임을 두지 않는 이유:** 쿨타임은 방금 결과를 본 사람이 같은 자리에서 바로 다시 찍히는 것을 막는 장치다. 강제 초기화는 운영자가 꼬인 진행을 풀거나 시험할 때 쓰므로, 누른 즉시 다시 시작할 수 있는 편이 낫다고 봤다. 쿨타임 중에 누르면 남은 쿨타임도 없앤다. 단, 자동 시작은 레벨 판정이라 `X` 직후에도 인식된 사람이 있으면 곧바로 새 회차가 시작된다. **`X`는 촬영을 멈추는 수단이 아니다.** 자동 촬영을 멈추려면 `P`(자동 촬영 일시정지, 4-3)를 누른다.
 - **카운트다운 취소에 쿨타임을 두지 않는 이유:** 사진을 찍지 않았으므로 다시 찍히는 것을 막을 대상이 없다.
 - **설정값 (`config.session`):** `countdownSeconds` 3, `resultMs` 10000, `cooldownMs` 5000 (확정). `captureTimeoutMs` 5000 (가안: 효과·인코딩이 끝나지 않을 때 화면이 멈추지 않게 하는 안전값. 효과가 정해지면 처리 시간 목표에 맞춰 다시 정한다). `failureRetryMs` 5000, `failureRetryMaxMs` 60000 (가안: 촬영 실패 뒤 자동 시작을 쉬는 시간, 아래).
 - 결과 표시 시간(확정): 출력 완료 확인 후 10초. 인쇄 연동 전에는 결과 표시 시작 시점부터 10초로 대체한다.
@@ -387,9 +425,18 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 | `R` | 인식 범위 조절 화면 (`Esc`로도 닫음) |
 | `S` | 수동 촬영 시작 (`session.request('start', 'key')`). Start/Shoot |
 | `X` | 강제 초기화 (`session.request('reset', 'key')`) |
+| `P` | 자동 촬영 일시정지·다시 켜기 (4-3). Pause |
 
 - `Space`·`Enter`는 쓰지 않는다. `R` 조절 화면의 버튼에 포커스가 있으면 그 버튼을 누르게 되기 때문이다.
 - `R` 조절 화면이 열려 있어도 `S` 수동 시작은 된다. 인식에 의한 자동 시작만 막는다(아래).
+
+**자동 촬영 일시정지 `P` (구현됨, 4-3, 사용자 결정 2026-10-15)**
+
+- 누르면 자동 촬영을 멈추고, 다시 누르면 켠다. 판정은 `decideAutoRequest()`의 `paused` 조건 하나다(아래 표).
+- 멈추는 순간 인식으로 시작된 카운트다운이 있으면 취소한다(쿨타임 없이 대기). 사람이 계속 서 있어도 다시 시작하지 않는다.
+- `S` 수동 촬영은 일시정지 중에도 된다. 수동 카운트다운 중에 멈춰도 그 회차는 이어진다.
+- **저장하지 않는다.** 새로고침·재시작하면 자동 촬영이 다시 켜진다. 무인 현장에서 운영자가 해제를 잊어도 재시작으로 회복되게 하기 위해서다.
+- 일시정지 중에는 9:16 영역 오른쪽 위에 작은 운영자 표시 "자동 촬영 일시정지 (P)"를 둔다(가안, `config.showPauseIndicator`로 끈다). D 화면 `auto` 줄 앞에 `PAUSED (P)`가 붙는다.
 
 ### 자동 시작과 이탈 취소 (구현됨, 3-2)
 
@@ -399,8 +446,9 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 
 | 상태 기계 | 조건 | 요청 |
 |---|---|---|
-| `idle` | 인식됨 + 카메라 준비 + 페이지 보임 + 조절 화면 닫힘 + 촬영 실패 대기 아님 | `start` |
-| `idle` | 하나라도 아님 | 없음. D `auto` 줄에 이유(`idle, not present`, `blocked: camera-not-ready`·`page-hidden`·`tuning-open`·`capture-failed (retry wait)`) |
+| `idle` | 일시정지 아님 + 조절값 불러오기 끝남 + 인식됨 + 카메라 준비 + 페이지 보임 + 조절 화면 닫힘 + 촬영 실패 대기 아님 | `start` |
+| `idle` | 하나라도 아님 | 없음. D `auto` 줄에 이유(`blocked: auto paused (P)`·`settings-loading`, `idle, not present`, `blocked: camera-not-ready`·`page-hidden`·`tuning-open`·`capture-failed (retry wait)`). 일시정지·불러오기 중은 사람이 없어도 그 이유를 먼저 보인다 |
+| `countdown` (출처 `presence`) | 일시정지 | `cancel` (`auto paused during countdown`) → 쿨타임 없이 대기 |
 | `countdown` (출처 `presence`) | 인식 안됨 | `cancel` → 쿨타임 없이 대기 |
 | `countdown` (출처 `key`) | 무엇이든 | 없음. 수동 회차는 인식 상태로 취소하지 않는다(사람 없이 시험 촬영) |
 | `capturing`·`result`·`cooldown` | 무엇이든 | 없음. 감지는 돌지만 결과를 보지 않는다. 촬영 순간에는 인식과 관계없이 찍는다 |
@@ -409,12 +457,14 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
   - 인식 상태가 바뀔 때(`presence.subscribe`)
   - 상태 기계가 알릴 때(`session.subscribe`): 대기 진입(쿨타임 종료·취소·초기화), 카메라 준비 변화, 페이지 보임 변화
   - 조절 화면을 닫을 때(`main.js`가 `evaluate('tuning-closed')`)
+  - 일시정지를 켜고 끌 때(`paused (P)`·`resumed (P)`), 조절값을 다 불러왔을 때(`settings-loaded`) (4-3)
 - **카메라 준비·페이지 보임은 상태 기계 스냅숏 값을 쓴다.** 카메라 모듈을 따로 구독하면, 상태 기계가 카메라 준비를 받기 전에 평가해 시작 요청이 무시되고 다시 평가되지 않을 수 있다. 그래서 상태 기계가 먼저 받아 알린 값으로 판정한다.
 - **시작은 한 번만:** 시작이 받아들여지면 상태가 `countdown`이 되어 같은 순간의 다른 계기는 요청을 보내지 않는다. 판정과 상태 기계가 같은 값을 보므로 무시되는 시작 요청도 보내지 않는다(테스트로 확인). 요청이 상태 기계 알림을 일으켜 다시 불리면(재진입) 지금 평가를 끝낸 뒤 한 번 더 평가한다.
 - **이탈 유예를 따로 두지 않는다.** "인식 안됨"이 되는 데 이미 `absentGraceMs`(기본 1초)가 걸린다. 짧은 누락은 여기서 흡수하고, 설정값을 늘리지 않는다.
 - **취소 뒤 반복 없음:** 취소는 "인식 안됨"이 된 순간에 일어나므로, 대기에서 다시 평가해도 인식 안됨이라 시작하지 않는다. 다시 "인식됨"(`presentHoldMs`, 기본 0.5초)이 되어야 새 회차가 시작된다.
 - **조절 화면:** 열려 있는 동안 자동 시작을 막는다. 운영자가 범위를 맞추는 중에 촬영이 시작되지 않게 하기 위해서다. 열기만으로 진행 중인 회차를 취소하지는 않는다(자동 회차는 이탈하면 그대로 취소된다). 닫을 때 사람이 서 있으면 바로 시작될 수 있다.
-- **강제 초기화(`X`) 뒤:** 대기로 들어오며 평가하므로, 사람이 서 있으면 바로 자동으로 다시 시작한다. `X`는 촬영 중지 수단이 아니다. 자동 촬영을 멈추려면 `R` 조절 화면을 연다.
+- **강제 초기화(`X`) 뒤:** 대기로 들어오며 평가하므로, 사람이 서 있으면 바로 자동으로 다시 시작한다. `X`는 촬영 중지 수단이 아니다. 자동 촬영을 멈추려면 `P`를 누른다.
+- **조절값 불러오기 (4-3):** 시작할 때 조절값 파일을 다 불러올 때까지(최대 약 3초) 자동 시작을 막는다. 그 사이 감지 루프는 기본값으로 돌지만, 불러온 값을 넣는 순간 기준이 바뀌어 인식 상태를 처음부터 다시 잰다. 그래서 기본값으로 잠깐 인식됐다가 시작되는 일이 없다.
 - **D 화면:** `session` 줄에 회차 출처(`by presence`·`by key`), `auto` 줄에 마지막 판정 이유, 마지막 자동 시작·취소 시각과 계기(예: `entered idle (completed)`, `presence: absent`, `tuning-closed`)를 보인다. 계기 기록은 시작이 받아들여진 뒤 남으므로, 시작 직후 한 번은 이전 값이 보이고 다음 갱신(0.5초)에 바뀐다.
 - 관람객 화면은 바꾸지 않았다. 대기 중 안내 문구는 넣지 않았다.
 
@@ -459,7 +509,7 @@ camera-monitor (ready·페이지 표시) ──▶ presence-monitor 감지 루�
 
 - bundle을 동적 `import`로 불러온다. 불러오기나 생성에 실패해도 카메라 미리보기는 계속 동작하고, 실패 사실은 `D` 화면 `detector` 줄에 보인다. 실패하면 아래 "감지기 재생성" 규칙으로 다시 만든다.
 - **생성 전 사전 확인 (4-1):** MediaPipe 생성을 시작하기 전에 비용이 적은 확인부터 한다. 확인이 실패하면 로더·wasm·통계 타이머를 아예 만들지 않는다.
-  1. WebGL: 1×1 `OffscreenCanvas`에 `webgl2` 컨텍스트를, 없으면 `webgl` 컨텍스트를 만들어 본다. 둘 다 없으면 `webgl-unavailable`("하드웨어 가속 꺼짐 또는 WebGL 없음")이다. 확인용 컨텍스트는 `WEBGL_lose_context`로 바로 놓는다. 렌더러 이름(`WEBGL_debug_renderer_info`)은 D 화면에 보이고, SwiftShader·Basic Render Driver 같은 소프트웨어 렌더러는 `(software)`로 표시한다.
+  1. WebGL: 1×1 `OffscreenCanvas`에 `webgl2` 컨텍스트를, 없으면 `webgl` 컨텍스트를 만들어 본다. 둘 다 없으면 `webgl-unavailable`("하드웨어 가속 꺼짐 또는 WebGL 없음")이다. 확인용 컨텍스트는 `WEBGL_lose_context`로 바로 놓는다. 렌더러 이름(`WEBGL_debug_renderer_info`)은 D 화면에 보이고, SwiftShader·Basic Render Driver 같은 소프트웨어 렌더러는 `(software)`로 표시한다. 소프트웨어 렌더러는 감지가 되므로 **장애로 보지 않고**, 감지기를 만들 때 콘솔 경고 1줄(`[webgl] software WebGL renderer: ...`, 반복 오류 로그 제한 적용)만 남긴다. 현장 실행 스크립트가 시작할 때 하드웨어 가속을 다시 켜기 때문이다(사용자 결정 2026-10-15).
   2. 모델: `modelPath`를 받아 HTTP 상태(실패하면 `model-unavailable`), 크기 `modelBytes`, SHA-256 `modelSha256`(다르면 `model-invalid`)을 확인한다. 기준값은 `config.faceDetection`에 있고 `tools/vendor-mediapipe.mjs`의 기록과 같아야 한다(`tests/face-detector.test.mjs`가 실제 파일과 대조한다). 통과한 바이트는 기억해 두고 다음 생성 때 다시 받지 않는다.
   - 확인한 바이트를 `baseOptions.modelAssetBuffer`(복사본)로 넘긴다. 그래서 생성 중에 모델 받기가 실패할 수 없다.
 - **실패한 생성의 정리 (4-1):** 사전 확인을 통과하고도 MediaPipe 생성이 실패할 수 있다(아래 "MediaPipe 1.1.1 생성 실패 누적"). 그래서 delegate 시도마다 다음을 한다.
@@ -552,7 +602,7 @@ camera-monitor (ready·페이지 표시) ──▶ presence-monitor 감지 루�
 **화면**
 
 - 인식 상태 임시 표시: 9:16 영역 아래쪽 가운데에 "인식됨"(초록 배경)·"인식 안됨". 카메라가 준비되지 않았으면 숨긴다(이때는 "준비 중" 문구). `config.showPresenceIndicator`로 끈다. 최종 디자인 전 기본 UI다(가안).
-- `D` 화면에 추가된 정보: 감지기 상태와 오류, delegate(실패한 delegate 이유), 감지 시간(마지막·평균)과 그리기 시간, 실제 감지 빈도, 감지 입력 크기, 감지된 얼굴 수와 인정된 얼굴 수, 판정과 안정화 진행(`-> present 343/500ms`), 현재 기준값(조절 화면에서 바꾼 값 포함), 기준값 출처(`settings : stored`(시작할 때 읽음)·`saved`(이번 실행 중 저장)·`defaults`, 저장하지 않은 변경이 있으면 `+ unsaved changes`)와 저장 전까지는 불러올 때 고친 내용, 얼굴별 점수·높이·중심과 제외 이유(`region`·`small`·`large`·`score`), 감지 오류 횟수.
+- `D` 화면에 추가된 정보: 감지기 상태와 오류, delegate(실패한 delegate 이유), 감지 시간(마지막·평균)과 그리기 시간, 실제 감지 빈도, 감지 입력 크기, 감지된 얼굴 수와 인정된 얼굴 수, 판정과 안정화 진행(`-> present 343/500ms`), 현재 기준값(조절 화면에서 바꾼 값 포함), 기준값 출처(`settings : file`·`migrated`·`localStorage`·`defaults (이유)`·`saved`·`loading`, 저장하지 않은 변경이 있으면 `+ unsaved changes`, 4-3. 아래 "반영과 저장")와 저장 전까지는 불러올 때 고친 내용, 얼굴별 점수·높이·중심과 제외 이유(`region`·`small`·`large`·`score`), 감지 오류 횟수.
 - `D` 화면을 켜면 9:16 영역 위에 인식 영역(노란 점선)과 감지 박스를 겹쳐 그린다. 인정된 얼굴은 초록, 제외된 얼굴은 빨강이며, 박스 위에 점수, 중심에 점을 찍는다.
 
 **설정값 (`config.js`, 가안)**
@@ -575,6 +625,9 @@ camera-monitor (ready·페이지 표시) ──▶ presence-monitor 감지 루�
 | `presence.presentHoldMs` | 500 | 인식됨까지 "있음" 유지 시간 |
 | `presence.absentGraceMs` | 1000 | 인식 안됨까지 "없음" 유지 시간 |
 | `showPresenceIndicator` | `true` | 인식 상태 임시 표시 |
+| `showPauseIndicator` | `true` | 자동 촬영 일시정지(P) 운영자 표시 (4-3, 가안) |
+| `settingsFile.url` | `/local-api/presence-settings` | 조절값 파일 API (4-3) |
+| `settingsFile.timeoutMs` | 3000 | 조절값 파일 읽기·쓰기 제한 시간. 시작할 때 넘기면 기본값 (4-3, 가안) |
 
 위 `presence.*` 값은 **기본값**이다. 운영자가 조절 화면(아래)에서 저장한 값이 있으면 그 값을 쓴다. 판정은 매 프레임 현재 설정 객체를 읽으므로, 감지기를 다시 만들지 않고 다음 감지부터 반영된다.
 
@@ -622,20 +675,35 @@ camera-monitor (ready·페이지 표시) ──▶ presence-monitor 감지 루�
 **반영과 저장**
 
 - 조절하는 즉시 판정에 반영한다(`createPresenceMonitor()`가 돌려주는 `setSettings()`. 조절 화면 전용이며 촬영 진행 코드는 쓰지 않는다). 기준을 바꾸면 인식 상태를 처음부터 다시 재므로, 조절하는 동안 인식 표시가 잠깐 "인식 안됨"이 되었다가 유지 시간 뒤 돌아온다. 인식으로 시작된 카운트다운 중에 기준을 바꾸면 "인식 안됨"이 되어 그 회차는 취소된다.
-- **저장**을 눌러야 `localStorage`에 기록한다.
-  - 키: `photobooth.presence.v1`
-  - 값: `{ "version": 1, "settings": { "region": {...}, "minFaceHeight", "maxFaceHeight", "minScore", "presentHoldMs", "absentGraceMs" } }`
-  - 저장에 실패하면(저장소 차단·용량) 패널에 이유를 보이고 저장값은 그대로 둔다.
+- **저장**을 눌러야 조절값 파일(`config/presence.local.json`, 1절 "조절값 파일 API")에 기록한다 (4-3. 2-3~4-2는 `localStorage`).
+  - 값: `{ "version": 1, "settings": { "region": {...}, "minFaceHeight", "maxFaceHeight", "minScore", "presentHoldMs", "absentGraceMs" } }` (2칸 들여쓴 JSON. 메모장으로 열어 볼 수 있다)
+  - 저장 중에는 버튼을 막고 "저장 중..."을 보인다. 서버가 204로 답해야 저장된 값으로 인정한다.
+  - 실패하면(서버 없음·거절·시간 초과 3초) 패널에 "저장하지 못했습니다: HTTP 500 (...)" 같은 이유를 보이고 **저장되지 않은 상태를 유지**한다. 닫으면 마지막으로 저장된 값으로 돌아간다.
+  - 저장 중에 슬라이더를 더 움직였으면, 누른 순간의 값만 저장하고 그 뒤 변경은 저장하지 않은 변경으로 남긴다.
 - **취소 (저장된 값으로)**: 마지막 저장값(없으면 기본값)으로 되돌린다.
 - **기본값으로**: `config.presence` 기본값을 적용한다. 저장하지 않으면 유지되지 않는다.
 - **저장하지 않고 닫으면 저장된 값으로 되돌린다.**
   - 이유: 실행 중인 판정값과 다시 시작(새로고침·재부팅)했을 때의 값이 항상 같아야 한다. 저장하지 않은 값이 무인 운영 중에 남아 있다가 재시작 때 말없이 바뀌는 일을 막는다.
   - 현장은 확인 창을 띄우지 않는 키오스크이므로 묻지 않는다. 대신 패널에 "저장하지 않은 변경이 있습니다 (닫으면 취소됩니다)"를 늘 보인다.
-- **현재값 JSON (복사용)**: 현재 조절값을 저장 형식 그대로 보이고 "복사" 버튼으로 클립보드에 넣는다(실패하면 선택만 한다). 불러오기 기능은 없다. 4단계에서 파일 저장을 검토할 때 기준으로 쓴다.
+- **현재값 JSON (복사용)**: 현재 조절값을 저장 형식 그대로 보이고 "복사" 버튼으로 클립보드에 넣는다(실패하면 선택만 한다). 불러오기 기능은 없다.
+
+**시작할 때 불러오는 순서 (4-3, `settings-file.js` `loadInitialPresenceSettings`)**
+
+| 순서 | 상황 | 쓰는 값 | D `settings` |
+|---|---|---|---|
+| 1 | 파일 `GET` 200 | 파일 값 (아래 검증) | `file` (형식이 잘못됐으면 기본값, `defaults (file is invalid)`. 파일은 운영자가 다시 저장할 때까지 그대로) |
+| 2 | 파일 404 + `localStorage`(`photobooth.presence.v1`)에 쓸 수 있는 값 | 그 값을 파일로 옮긴다(`PUT` → 다시 `GET`해 같은지 확인) → 확인되면 `localStorage` 키를 지운다 | `migrated (from localStorage (removed))` |
+| 2-1 | 옮기기 실패 | 이번 실행은 `localStorage` 값. 지우지 않으므로 다음 시작에 다시 옮긴다 | `localStorage (migration to file failed: ...)` |
+| 3 | 파일 404 + `localStorage` 없음·깨짐 | 기본값 (파일을 만들지 않는다) | `defaults (no file)` |
+| — | 파일 읽기 실패(서버 오류·연결 실패)·시간 초과(`config.settingsFile.timeoutMs` 3초, 가안) | 기본값. 파일이 있는데 못 읽었을 수 있으므로 옮기지 않는다 | `defaults (file read failed: timeout 3000ms)` 등. 콘솔 경고 1줄, 조절 화면을 열면 패널에도 |
+
+- 불러오기가 끝날 때까지 `R`은 열리지 않고, D `settings` 줄은 `loading`, 자동 시작은 `blocked: settings-loading`이다.
+- **`localStorage`를 옮긴 뒤 지우는 이유:** 파일이 생긴 뒤에는 `localStorage`를 읽지 않는다. 남겨 두면, 운영자가 초기화하려고 파일을 지웠을 때 옛 값이 말없이 다시 옮겨진다. 다시 읽어 파일 내용을 확인한 뒤에만 지우므로 값을 잃지 않는다. 앱은 `localStorage`에 더 쓰지 않는다.
+- 브라우저 프로필과 무관하므로, 키오스크 전용 프로필(4-2)이든 개발용 임시 프로필이든 같은 값을 쓴다. 다른 PC의 브라우저에 남아 있던 `localStorage`는 그 PC에서 처음 시작할 때만 옮겨진다.
 
 **불러오기 검증** (`parseStoredPresenceSettings`, `normalizePresenceSettings`)
 
-시작할 때 저장값을 읽어 검사한다. 어떤 값이 들어 있어도 예외를 던지지 않고 앱은 계속 동작한다.
+파일(또는 옮길 `localStorage`) 값을 읽어 검사한다. 어떤 값이 들어 있어도 예외를 던지지 않고 앱은 계속 동작한다.
 
 | 저장값 | 처리 |
 |---|---|
@@ -650,7 +718,7 @@ camera-monitor (ready·페이지 표시) ──▶ presence-monitor 감지 루�
 | 최소 얼굴 크기 > 최대 | 최대를 최소에 맞춤 |
 
 - 값은 영역 4자리, 크기 3자리, 신뢰도 2자리, 시간은 정수로 반올림한다.
-- 고친 내용은 콘솔 경고와 `D` 화면 `settings` 줄에 보인다. 조절 화면을 열면 패널에도 한 번 보인다. 저장소의 값은 운영자가 다시 저장하기 전까지 그대로 둔다.
+- 고친 내용은 콘솔 경고와 `D` 화면 `settings` 줄에 보인다. 조절 화면을 열면 패널에도 한 번 보인다. 파일의 값은 운영자가 다시 저장하기 전까지 그대로 둔다.
 
 ### 다인원과 스무딩
 
