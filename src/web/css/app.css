@@ -57,6 +57,9 @@ body {
 
 .status[hidden],
 .presence[hidden],
+.notice[hidden],
+.result[hidden],
+.countdown[hidden],
 .dev-overlay[hidden],
 .dev-info[hidden],
 .tuning-layer[hidden],
@@ -96,6 +99,54 @@ body {
 
 .presence.is-present {
   background: rgba(20, 140, 60, 0.85);
+}
+
+/* ---- 촬영 한 사이클 (기본 UI, 최종 디자인 아님) ---- */
+
+/* 결과 사진은 이미 반전된 9:16 이미지이므로 그대로 채운다. 미리보기 위를 덮는다. */
+.result {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+.countdown {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  color: #fff;
+  font: 700 clamp(96px, 40cqw, 640px) / 1 system-ui, sans-serif;
+  text-shadow: 0 0 0.06em rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+}
+
+/* 촬영 순간 짧은 흰 화면. main.js가 Web Animations로 투명도를 움직인다. */
+.flash {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 쿨타임 문구 (가안). 인식 상태 표시와 겹치지 않게 위쪽에 둔다. */
+.notice {
+  position: absolute;
+  left: 50%;
+  top: 4%;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 0.4em 1.2em;
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  font: 600 clamp(14px, 3.5cqw, 40px) / 1.4 system-ui, sans-serif;
+  white-space: nowrap;
 }
 
 /* 개발용 감지 박스·영역 겹쳐 그리기 (D 키). 9:16 영역 좌표 그대로 그린다 (이미 반전 후 좌표). */

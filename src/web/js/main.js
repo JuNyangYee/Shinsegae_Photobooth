@@ -1,7 +1,9 @@
 import { config } from './config.js';
 import { CameraStatus, createCameraMonitor } from './camera-monitor.js';
+import { createCapture } from './capture.js';
 import { createPresenceMonitor } from './presence-monitor.js';
 import { createPresenceTuning } from './presence-tuning.js';
+import { SessionState, createSession } from './session.js';
 
 const stage = document.getElementById('stage');
 const video = document.getElementById('preview');
@@ -9,9 +11,13 @@ const statusText = document.getElementById('status');
 const presenceText = document.getElementById('presence');
 const devInfo = document.getElementById('dev-info');
 const devOverlay = document.getElementById('dev-overlay');
+const resultImage = document.getElementById('result');
+const countdownText = document.getElementById('countdown');
+const flash = document.getElementById('flash');
+const noticeText = document.getElementById('notice');
 
-// 운영자 단축키 (관람객용 아님): D 개발용 정보, R 인식 범위 조절
-const Keys = Object.freeze({ devInfo: 'KeyD', tuning: 'KeyR' });
+// 운영자 단축키 (관람객용 아님): D 개발용 정보, R 인식 범위 조절, S 수동 촬영 시작, X 강제 초기화
+const Keys = Object.freeze({ devInfo: 'KeyD', tuning: 'KeyR', start: 'KeyS', reset: 'KeyX' });
 
 // 관람객용 문구 (사용자 확정 2026-10-15). 상태 상세는 D 키 개발용 정보에만 보인다.
 const messages = Object.freeze({
@@ -19,6 +25,7 @@ const messages = Object.freeze({
   staff: '준비 중입니다.\n직원에게 문의해 주세요.',
   present: '인식됨', // 인식 상태 임시 표시 (가안)
   absent: '인식 안됨',
+  cooldown: '다음 촬영을 준비 중입니다.', // 쿨타임 문구 (가안)
 });
 
 // 기다려도 스스로 풀리기 어려운 상태는 바로 직원 문의 문구를 보인다.
@@ -31,13 +38,26 @@ const camera = createCameraMonitor({
   recovery: config.cameraRecovery,
 });
 
+const stageAspect = config.aspectRatio.width / config.aspectRatio.height;
+
 const presence = createPresenceMonitor({
   video,
   camera,
   detection: config.faceDetection,
   presence: config.presence,
-  stageAspect: config.aspectRatio.width / config.aspectRatio.height,
+  stageAspect,
   mirror: config.mirror,
+});
+
+const capture = createCapture({ video, stageAspect, mirror: config.mirror, ...config.capture });
+
+// 촬영 한 사이클. 시작·취소·초기화는 session.request() 한 곳으로 들어간다 (지금은 키보드만, 인식 결과 연결은 3-2).
+const session = createSession({
+  timing: config.session,
+  takePhoto: capture.take,
+  releasePhoto: capture.release,
+  cameraReady: camera.isReady(),
+  pageVisible: !document.hidden,
 });
 
 // 저장된 조절값을 읽어 감지 루프에 넣는다. 저장값이 없거나 잘못되면 config.presence 기본값을 쓴다.
@@ -54,6 +74,8 @@ const tuning = createPresenceTuning({
 let staffNoticeTimer = null;
 let devInfoTimer = null;
 let devOverlayFrame = null;
+let shownPhotoUrl = null;
+let lastSessionState = SessionState.IDLE;
 
 // 저장소 접근 자체가 막힌 환경에서도 앱은 기본값으로 동작한다.
 function getStorage() {
@@ -64,9 +86,14 @@ function getStorage() {
   }
 }
 
+// 결과 사진을 보이는 동안에는 카메라 상태 문구와 인식 표시를 사진 위에 띄우지 않는다.
+function isShowingPhoto() {
+  return session.getState().state === SessionState.RESULT;
+}
+
 function showStatus(message) {
   statusText.textContent = message;
-  statusText.hidden = !message;
+  statusText.hidden = !message || isShowingPhoto();
 }
 
 function renderStatus() {
@@ -88,12 +115,41 @@ function renderStatus() {
 
 // 카메라가 준비되지 않았으면 "준비 중" 문구만 보이고 인식 표시는 숨긴다.
 function renderPresence() {
-  const visible = config.showPresenceIndicator && camera.isReady();
+  const visible = config.showPresenceIndicator && camera.isReady() && !isShowingPhoto();
   presenceText.hidden = !visible;
   if (!visible) return;
   const present = presence.isPresent();
   presenceText.textContent = present ? messages.present : messages.absent;
   presenceText.classList.toggle('is-present', present);
+}
+
+// ---- 촬영 한 사이클 화면 ----
+
+function renderSession(s) {
+  countdownText.hidden = s.state !== SessionState.COUNTDOWN;
+  if (s.state === SessionState.COUNTDOWN) countdownText.textContent = String(s.countdown);
+
+  if (s.state === SessionState.CAPTURING && lastSessionState !== SessionState.CAPTURING) {
+    flash.animate([{ opacity: 0.9 }, { opacity: 0 }], { duration: 400, easing: 'ease-out' });
+  }
+  lastSessionState = s.state;
+
+  // 결과 사진. 결과가 끝나면 src를 먼저 지우고, 그 뒤 session이 Object URL을 정리한다.
+  const url = s.state === SessionState.RESULT ? s.photo.url : null;
+  if (url !== shownPhotoUrl) {
+    if (url) resultImage.src = url;
+    else resultImage.removeAttribute('src');
+    shownPhotoUrl = url;
+  }
+  resultImage.hidden = url === null;
+
+  const cooling = s.state === SessionState.COOLDOWN && camera.isReady();
+  noticeText.hidden = !cooling;
+  if (cooling) noticeText.textContent = messages.cooldown;
+
+  renderStatus();
+  renderPresence();
+  if (!devInfo.hidden) renderDevInfo();
 }
 
 function applyLayout() {
@@ -133,6 +189,8 @@ function renderDevInfo() {
     `mirror     : ${config.mirror}`,
     '',
     ...presenceDevLines(),
+    '',
+    ...sessionDevLines(),
   ];
   devInfo.textContent = lines.join('\n');
 }
@@ -165,6 +223,26 @@ function presenceDevLines() {
       + ` center ${face.center.x.toFixed(2)},${face.center.y.toFixed(2)} -> ${face.accepted ? 'ok' : rejected.join('+')}`);
   });
   return lines;
+}
+
+function sessionDevLines() {
+  const s = session.getState();
+  const left = s.endsAt === null ? '' : ` ${Math.max(0, (s.endsAt - performance.now()) / 1000).toFixed(1)}s left`;
+  const detail = s.state === SessionState.COUNTDOWN ? ` ${s.countdown}` : left;
+  const c = capture.getStats();
+  const last = c.last;
+  return [
+    `session    : ${s.state}${detail} (round ${s.round}, completed ${s.completed})`,
+    `last end   : ${s.lastEnd || '-'}${s.lastError ? ` / ${s.lastError}` : ''}`,
+    `ignored    : ${s.lastIgnored || '-'}`,
+    last
+      ? `capture    : ${last.width}x${last.height} from video ${last.source}`
+        + ` (crop x${last.crop.x} y${last.crop.y}), ${last.type} ${Math.round(last.bytes / 1024)}KB,`
+        + ` grab ${last.grabMs.toFixed(1)}ms, encode ${last.encodeMs.toFixed(1)}ms`
+      : 'capture    : -',
+    `resources  : object URLs ${c.liveUrls}, canvases ${c.liveCanvases}`
+      + ` (taken ${c.taken}, released ${c.released}, stale results ${s.staleResults})`,
+  ];
 }
 
 // 감지 박스와 인식 영역을 9:16 영역 위에 겹쳐 그린다. 인정된 얼굴은 초록, 제외된 얼굴은 빨강.
@@ -243,15 +321,20 @@ window.addEventListener('keydown', (event) => {
   if (event.repeat || event.ctrlKey || event.altKey || event.metaKey) return;
   if (event.code === Keys.devInfo) toggleDevInfo();
   else if (event.code === Keys.tuning) tuning.toggle();
+  else if (event.code === Keys.start) session.request('start', 'key');
+  else if (event.code === Keys.reset) session.request('reset', 'key');
   else if (event.code === 'Escape' && tuning.isOpen()) tuning.close();
 });
 
 applyLayout();
 camera.subscribe(() => {
+  session.setCameraReady(camera.isReady());
   renderStatus();
   renderPresence();
   if (!devInfo.hidden) renderDevInfo();
 });
 presence.subscribe(renderPresence);
+session.subscribe(renderSession);
+document.addEventListener('visibilitychange', () => session.setPageVisible(!document.hidden));
 camera.start();
 presence.start();

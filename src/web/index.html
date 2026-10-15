@@ -3,8 +3,9 @@
 <head>
   <meta charset="utf-8">
   <!-- 외부 전송 없음: 같은 출처만 허용한다. MediaPipe 사용 통계 전송(odml.pa.googleapis.com)도 여기서 막힌다.
-       wasm-unsafe-eval: MediaPipe WASM 컴파일에 필요 -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+       wasm-unsafe-eval: MediaPipe WASM 컴파일에 필요
+       img-src blob: 결과 사진(메모리 안 Object URL) 표시에 필요. 외부 출처는 아니다 -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; img-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Shinsegae Christmas Photobooth</title>
   <link rel="stylesheet" href="css/app.css">
@@ -13,6 +14,10 @@
 <body>
   <main id="stage" class="stage">
     <video id="preview" class="preview" autoplay muted playsinline></video>
+    <!-- 촬영 한 사이클 (기본 UI, 최종 디자인 아님): 결과 사진, 카운트다운 숫자, 촬영 순간 플래시 -->
+    <img id="result" class="result" alt="" hidden>
+    <p id="countdown" class="countdown" hidden></p>
+    <div id="flash" class="flash"></div>
     <canvas id="dev-overlay" class="dev-overlay" hidden></canvas>
     <!-- 운영자용 인식 영역 편집 (R 키). 관람객 화면에는 보이지 않는다. -->
     <div id="tuning-layer" class="tuning-layer" hidden>
@@ -28,6 +33,7 @@
       </div>
     </div>
     <p id="presence" class="presence" hidden></p>
+    <p id="notice" class="notice" hidden></p>
     <p id="status" class="status" hidden></p>
   </main>
   <pre id="dev-info" class="dev-info" hidden></pre>
