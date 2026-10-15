@@ -50,6 +50,9 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, i
   let savedSource = loaded.source;
   let savedNote = loaded.note;
   let saving = false;
+  // 저장 중에 닫기를 요청하면 저장이 끝난 뒤 닫는다 (4단계 검수 4). 닫을 때는 늘 마지막으로 파일에 저장된 값으로 맞추므로
+  // 저장이 성공하든 실패하든 "실행 중인 판정값 = 파일 값"이 유지된다.
+  let closeAfterSave = false;
   let current = clone(saved);
   let open = false;
   let liveTimer = null;
@@ -111,6 +114,11 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, i
 
   function setOpen(next) {
     if (open === next) return;
+    if (!next && saving) {
+      closeAfterSave = true;
+      showMessage('저장 중입니다. 저장이 끝나면 닫습니다.');
+      return;
+    }
     open = next;
     panel.hidden = !open;
     layer.hidden = !open;
@@ -168,6 +176,10 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, i
       } finally {
         saving = false;
         button.disabled = false;
+        if (closeAfterSave) {
+          closeAfterSave = false;
+          setOpen(false);
+        }
       }
     } else if (action === 'revert') {
       apply(saved);
