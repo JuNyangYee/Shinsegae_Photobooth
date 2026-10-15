@@ -153,8 +153,7 @@ function presenceDevLines() {
     `presence   : ${d.present ? 'PRESENT' : 'absent'} (raw ${d.raw ? 'present' : 'absent'}, ${progress})`,
     `criteria   : region x${region.x} y${region.y} w${region.width} h${region.height},`
       + ` face ${minFaceHeight}~${maxFaceHeight}, min score ${minScore}, hold ${presentHoldMs}ms, grace ${absentGraceMs}ms`,
-    `settings   : ${tuning.loadSource === 'stored' ? 'stored' : 'defaults'}`
-      + `${tuning.loadIssues.length ? ` (adjusted on load: ${tuning.loadIssues.join('; ')})` : ''}`,
+    `settings   : ${tuning.describeSettingsSource()}`,
   ];
   if (d.detectionErrors > 0) {
     lines.push(`errors     : ${d.detectionErrors} total, ${d.consecutiveFailures} in a row (last: ${d.lastDetectionError})`);

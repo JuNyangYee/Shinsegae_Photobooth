@@ -45,6 +45,8 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, s
   const loaded = loadPresenceSettings(storage, defaults);
   if (loaded.issues.length > 0) console.warn('[presence-tuning] stored settings adjusted:', loaded.issues);
   let saved = clone(loaded.settings);
+  // 저장값의 출처: 'stored'(시작할 때 저장소에서 읽음), 'defaults'(저장값 없음·사용 불가), 'saved'(이번 실행 중 저장함)
+  let savedSource = loaded.source;
   let current = clone(saved);
   let open = false;
   let liveTimer = null;
@@ -135,6 +137,7 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, s
       const error = savePresenceSettings(storage, current);
       if (error === null) {
         saved = clone(current);
+        savedSource = 'saved';
         render();
         showMessage('저장했습니다.');
       } else {
@@ -183,8 +186,15 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, s
     isOpen: () => open,
     toggle: () => setOpen(!open),
     close: () => setOpen(false),
-    /** 시작할 때 저장값을 고친 내용 (D 화면·로그 확인용) */
-    loadIssues: loaded.issues,
-    loadSource: loaded.source,
+    /**
+     * D 화면용: 지금 판정에 쓰는 값의 출처. 예: 'stored', 'saved', 'defaults', 'stored + unsaved changes'.
+     * 저장하기 전까지는 시작할 때 저장값을 고친 내용도 붙인다.
+     */
+    describeSettingsSource() {
+      const dirty = !samePresenceSettings(current, saved);
+      const issues = savedSource !== 'saved' && loaded.issues.length > 0
+        ? ` (adjusted on load: ${loaded.issues.join('; ')})` : '';
+      return `${savedSource}${dirty ? ' + unsaved changes' : ''}${issues}`;
+    },
   };
 }
