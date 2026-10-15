@@ -14,9 +14,74 @@
   <main id="stage" class="stage">
     <video id="preview" class="preview" autoplay muted playsinline></video>
     <canvas id="dev-overlay" class="dev-overlay" hidden></canvas>
+    <!-- 운영자용 인식 영역 편집 (R 키). 관람객 화면에는 보이지 않는다. -->
+    <div id="tuning-layer" class="tuning-layer" hidden>
+      <div class="tuning-region" data-region>
+        <span class="tuning-handle" data-handle="nw"></span>
+        <span class="tuning-handle" data-handle="n"></span>
+        <span class="tuning-handle" data-handle="ne"></span>
+        <span class="tuning-handle" data-handle="e"></span>
+        <span class="tuning-handle" data-handle="se"></span>
+        <span class="tuning-handle" data-handle="s"></span>
+        <span class="tuning-handle" data-handle="sw"></span>
+        <span class="tuning-handle" data-handle="w"></span>
+      </div>
+    </div>
     <p id="presence" class="presence" hidden></p>
     <p id="status" class="status" hidden></p>
   </main>
   <pre id="dev-info" class="dev-info" hidden></pre>
+
+  <!-- 운영자용 인식 범위 조절 (R 키로 열고 닫는다. Esc로도 닫는다.) -->
+  <section id="tuning-panel" class="tuning-panel" data-dock="bottom" hidden>
+    <header class="tuning-header">
+      <strong>인식 범위 조절</strong>
+      <span>R·Esc: 닫기 (저장하지 않은 변경은 취소)</span>
+    </header>
+    <p class="tuning-live" data-live></p>
+    <p class="tuning-note" data-region-text></p>
+    <label class="tuning-row">
+      <span>최소 얼굴 크기 <small>(화면 높이 대비, 파란 가이드)</small></span>
+      <input type="range" data-key="minFaceHeight">
+      <output data-key="minFaceHeight"></output>
+    </label>
+    <label class="tuning-row">
+      <span>최대 얼굴 크기 <small>(화면 높이 대비, 보라 가이드)</small></span>
+      <input type="range" data-key="maxFaceHeight">
+      <output data-key="maxFaceHeight"></output>
+    </label>
+    <label class="tuning-row">
+      <span>최소 신뢰도</span>
+      <input type="range" data-key="minScore">
+      <output data-key="minScore"></output>
+    </label>
+    <details class="tuning-advanced">
+      <summary>고급: 판정 시간</summary>
+      <label class="tuning-row">
+        <span>인식됨까지 유지 시간</span>
+        <input type="range" data-key="presentHoldMs">
+        <output data-key="presentHoldMs"></output>
+      </label>
+      <label class="tuning-row">
+        <span>인식 안됨까지 유예 시간</span>
+        <input type="range" data-key="absentGraceMs">
+        <output data-key="absentGraceMs"></output>
+      </label>
+    </details>
+    <div class="tuning-buttons">
+      <button type="button" data-action="save">저장</button>
+      <button type="button" data-action="revert">취소 (저장된 값으로)</button>
+      <button type="button" data-action="defaults">기본값으로</button>
+      <button type="button" data-action="dock">패널 위·아래</button>
+      <button type="button" data-action="close">닫기</button>
+    </div>
+    <p class="tuning-state" data-state></p>
+    <p class="tuning-message" data-message></p>
+    <details class="tuning-json">
+      <summary>현재값 JSON (복사용)</summary>
+      <textarea data-json readonly rows="12" spellcheck="false"></textarea>
+      <button type="button" data-action="copy">복사</button>
+    </details>
+  </section>
 </body>
 </html>

@@ -58,7 +58,9 @@ body {
 .status[hidden],
 .presence[hidden],
 .dev-overlay[hidden],
-.dev-info[hidden] {
+.dev-info[hidden],
+.tuning-layer[hidden],
+.tuning-panel[hidden] {
   display: none;
 }
 
@@ -103,4 +105,139 @@ body {
   width: 100%;
   height: 100%;
   pointer-events: none;
+}
+
+/* ---- 운영자용 인식 범위 조절 (R 키). 관람객 화면에는 숨긴다. ---- */
+
+/* 9:16 영역 위의 편집 층. 영역 사각형과 핸들만 마우스를 받는다. */
+.tuning-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.tuning-region {
+  position: absolute;
+  box-sizing: border-box;
+  border: 3px solid rgba(255, 220, 0, 0.95);
+  background: rgba(255, 220, 0, 0.08);
+  cursor: move;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.tuning-region.is-dragging {
+  background: rgba(255, 220, 0, 0.16);
+}
+
+/* 핸들은 사각형 안쪽에 두어 9:16 가장자리에 붙어도 잡을 수 있게 한다. */
+.tuning-handle {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  box-sizing: border-box;
+  border: 2px solid #000;
+  background: rgb(255, 220, 0);
+}
+
+.tuning-handle[data-handle="nw"] { left: 0; top: 0; cursor: nwse-resize; }
+.tuning-handle[data-handle="se"] { right: 0; bottom: 0; cursor: nwse-resize; }
+.tuning-handle[data-handle="ne"] { right: 0; top: 0; cursor: nesw-resize; }
+.tuning-handle[data-handle="sw"] { left: 0; bottom: 0; cursor: nesw-resize; }
+.tuning-handle[data-handle="n"] { left: calc(50% - 14px); top: 0; cursor: ns-resize; }
+.tuning-handle[data-handle="s"] { left: calc(50% - 14px); bottom: 0; cursor: ns-resize; }
+.tuning-handle[data-handle="e"] { right: 0; top: calc(50% - 14px); cursor: ew-resize; }
+.tuning-handle[data-handle="w"] { left: 0; top: calc(50% - 14px); cursor: ew-resize; }
+
+.tuning-panel {
+  position: fixed;
+  left: 50%;
+  bottom: 12px;
+  z-index: 20;
+  transform: translateX(-50%);
+  box-sizing: border-box;
+  width: min(760px, 96vw);
+  max-height: 60vh;
+  overflow: auto;
+  padding: 12px 16px;
+  border-radius: 8px;
+  color: #fff;
+  background: rgba(20, 20, 20, 0.88);
+  font: 15px / 1.5 system-ui, sans-serif;
+}
+
+.tuning-panel[data-dock="top"] {
+  top: 12px;
+  bottom: auto;
+}
+
+.tuning-panel p {
+  margin: 4px 0;
+}
+
+.tuning-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tuning-header span,
+.tuning-note,
+.tuning-row small {
+  color: #bbb;
+  font-size: 13px;
+}
+
+.tuning-live {
+  font-weight: 600;
+  color: #f88;
+}
+
+.tuning-live.is-present {
+  color: #6f6;
+}
+
+.tuning-row {
+  display: grid;
+  grid-template-columns: 16em 1fr 5.5em;
+  align-items: center;
+  gap: 12px;
+  margin: 6px 0;
+}
+
+.tuning-row output {
+  font-family: Consolas, monospace;
+  text-align: right;
+}
+
+.tuning-advanced,
+.tuning-json {
+  margin: 6px 0;
+}
+
+.tuning-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 4px;
+}
+
+.tuning-buttons button,
+.tuning-json button {
+  padding: 6px 12px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.tuning-state.is-dirty {
+  color: #fc6;
+}
+
+.tuning-json textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 6px 0;
+  font: 13px / 1.4 Consolas, monospace;
 }
