@@ -1,0 +1,11 @@
+# 현장·개인 설정
+settings.ini
+
+# 실행 로그 (docs/logs/는 작업 로그이므로 제외하지 않는다)
+/logs/
+*.log
+
+# OS 파일
+Thumbs.db
+desktop.ini
+.DS_Store

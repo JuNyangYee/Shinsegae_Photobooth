@@ -1,0 +1,19 @@
+* text=auto
+
+# Windows 스크립트는 CRLF 유지
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# MediaPipe 런타임·모델
+*.wasm binary
+*.tflite binary
+*.task binary
+
+# 이미지
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.ico binary
