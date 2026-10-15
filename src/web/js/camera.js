@@ -33,13 +33,13 @@ function toCameraError(error) {
   }
 }
 
-async function listVideoInputs() {
+export async function listVideoInputs() {
   const devices = await navigator.mediaDevices.enumerateDevices();
   return devices.filter((device) => device.kind === 'videoinput');
 }
 
-function findByLabel(devices, label) {
-  const wanted = label.trim().toLowerCase();
+export function findByLabel(devices, label) {
+  const wanted = (label ?? '').trim().toLowerCase();
   if (!wanted) return null;
   return devices.find((device) => device.label.toLowerCase().includes(wanted)) ?? null;
 }

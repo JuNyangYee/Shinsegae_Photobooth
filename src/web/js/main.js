@@ -1,26 +1,50 @@
 import { config } from './config.js';
-import { CameraErrorKind, startCamera } from './camera.js';
+import { CameraStatus, createCameraMonitor } from './camera-monitor.js';
 
 const stage = document.getElementById('stage');
 const video = document.getElementById('preview');
 const statusText = document.getElementById('status');
 const devInfo = document.getElementById('dev-info');
 
-// 간단한 문구만 둔다. 상세 안내는 다음 작업(1-2)에서 정한다.
-const errorMessages = {
-  [CameraErrorKind.UNSUPPORTED]: '이 브라우저에서는 카메라를 사용할 수 없습니다.',
-  [CameraErrorKind.PERMISSION_DENIED]: '카메라 권한이 필요합니다.',
-  [CameraErrorKind.NOT_FOUND]: '카메라를 찾을 수 없습니다.',
-  [CameraErrorKind.IN_USE]: '카메라를 열 수 없습니다. 다른 프로그램이 사용 중인지 확인해 주세요.',
-  [CameraErrorKind.UNKNOWN]: '카메라를 시작하지 못했습니다.',
-};
+// 관람객용 문구 (기본 UI 수준, 가안). 상태 상세는 D 키 개발용 정보에만 보인다.
+const messages = Object.freeze({
+  preparing: '준비 중입니다.\n잠시만 기다려 주세요.',
+  staff: '준비 중입니다.\n직원에게 문의해 주세요.',
+});
 
-let camera = null;
+// 기다려도 스스로 풀리기 어려운 상태는 바로 직원 문의 문구를 보인다.
+const staffNowStatuses = new Set([CameraStatus.UNSUPPORTED, CameraStatus.PERMISSION_DENIED]);
+
+const camera = createCameraMonitor({
+  video,
+  preferredLabel: config.preferredCameraLabel,
+  idealResolution: config.idealResolution,
+  recovery: config.cameraRecovery,
+});
+
+let staffNoticeTimer = null;
 let devInfoTimer = null;
 
 function showStatus(message) {
   statusText.textContent = message;
   statusText.hidden = !message;
+}
+
+function renderStatus() {
+  clearTimeout(staffNoticeTimer);
+  const state = camera.getState();
+  if (state.status === CameraStatus.READY) {
+    showStatus('');
+    return;
+  }
+  const waitedMs = Date.now() - state.notReadySince;
+  const staffAfterMs = config.cameraRecovery.staffNoticeMs;
+  if (staffNowStatuses.has(state.status) || waitedMs >= staffAfterMs) {
+    showStatus(messages.staff);
+  } else {
+    showStatus(messages.preparing);
+    staffNoticeTimer = setTimeout(renderStatus, staffAfterMs - waitedMs);
+  }
 }
 
 function applyLayout() {
@@ -30,31 +54,27 @@ function applyLayout() {
   video.classList.toggle('is-mirrored', config.mirror);
 }
 
-async function start() {
-  showStatus('카메라를 준비하고 있습니다.');
-  try {
-    camera = await startCamera({
-      preferredLabel: config.preferredCameraLabel,
-      idealResolution: config.idealResolution,
-    });
-    video.srcObject = camera.stream;
-    await video.play();
-    showStatus('');
-  } catch (error) {
-    console.error(error);
-    showStatus(errorMessages[error.kind] ?? errorMessages[CameraErrorKind.UNKNOWN]);
-  }
-}
-
 // ---- 개발용 정보 (D 키 토글, 기본 숨김) ----
 
+function formatTime(timestamp) {
+  return timestamp ? new Date(timestamp).toLocaleTimeString('ko-KR', { hour12: false }) : '-';
+}
+
 function renderDevInfo() {
+  const state = camera.getState();
   const rect = stage.getBoundingClientRect();
   const dpr = window.devicePixelRatio;
-  const settings = camera?.stream.getVideoTracks()[0]?.getSettings() ?? {};
+  const settings = video.srcObject?.getVideoTracks()[0]?.getSettings() ?? {};
+  const ready = state.status === CameraStatus.READY;
+  const notReadyFor = state.notReadySince ? `${((Date.now() - state.notReadySince) / 1000).toFixed(0)}s` : '-';
   const lines = [
-    `camera     : ${camera ? camera.label || '(no label)' : '-'}`,
-    `preferred  : "${config.preferredCameraLabel}" ${camera ? (camera.preferredFound ? 'found' : 'not found -> default camera') : '-'}`,
+    `status     : ${state.status}${state.connecting ? ' (connecting)' : ''}`,
+    `reason     : ${state.reason || '-'}${state.errorName ? ` / ${state.errorName}` : ''}`,
+    `attempts   : ${state.attempts} total, ${state.failures} failed since ready, last ${formatTime(state.lastAttemptAt)}`,
+    `not ready  : ${notReadyFor}`,
+    `permission : ${state.permission}`,
+    `camera     : ${ready ? state.label || '(no label)' : '-'}`,
+    `preferred  : "${config.preferredCameraLabel}" ${ready ? (state.preferredFound ? 'found' : 'not found -> default camera') : '-'}`,
     `video      : ${video.videoWidth}x${video.videoHeight}`,
     `track      : ${settings.width ?? '-'}x${settings.height ?? '-'} @ ${settings.frameRate ? settings.frameRate.toFixed(1) : '-'}fps`
       + ` (ideal ${config.idealResolution.width}x${config.idealResolution.height})`,
@@ -82,4 +102,8 @@ window.addEventListener('keydown', (event) => {
 });
 
 applyLayout();
-start();
+camera.subscribe(() => {
+  renderStatus();
+  if (!devInfo.hidden) renderDevInfo();
+});
+camera.start();

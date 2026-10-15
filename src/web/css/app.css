@@ -52,6 +52,7 @@ body {
   font: 500 clamp(16px, 4cqw, 48px) / 1.5 system-ui, sans-serif;
   text-align: center;
   word-break: keep-all;
+  white-space: pre-line;
 }
 
 .status[hidden],
