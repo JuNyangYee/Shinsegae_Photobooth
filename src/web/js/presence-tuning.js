@@ -4,14 +4,13 @@
 
 import {
   loadPresenceSettings,
-  moveRegion,
   normalizePresenceSettings,
   presenceLimits,
-  resizeRegion,
   samePresenceSettings,
   savePresenceSettings,
   serializePresenceSettings,
 } from './presence-settings.js';
+import { createRegionDrag } from './region-drag.js';
 
 // 슬라이더 항목: [설정 키, 범위, 표시 소수 자릿수, 단위]
 const SLIDERS = [
@@ -49,7 +48,6 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, s
   let current = clone(saved);
   let open = false;
   let liveTimer = null;
-  let drag = null; // { pointerId, handle, startRegion, startPoint }
   monitor.setSettings(current);
 
   function apply(next) {
@@ -108,7 +106,7 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, s
         ? `시작할 때 저장값을 고쳐 불러왔습니다: ${loaded.issues.join(', ')}`
         : '');
     } else {
-      endDrag();
+      regionDrag.end();
       if (!samePresenceSettings(current, saved)) {
         console.info('[presence-tuning] closed without saving; reverted to saved settings');
         apply(saved);
@@ -163,71 +161,20 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, s
     }
   });
 
-  // ---- 영역 끌기 ----
-  function stagePoint(event) {
-    const rect = stage.getBoundingClientRect();
-    return { x: (event.clientX - rect.left) / rect.width, y: (event.clientY - rect.top) / rect.height };
-  }
-
-  // 끌기 동안에는 window에서 이동·놓기를 받는다. 포인터가 영역 밖(패널·화면 가장자리)으로 나가도 끊기지 않게 하고,
-  // 포인터 캡처가 적용되지 않는 환경(검증용 headless Chrome에서 확인)에서도 동작하게 한다.
-  function onDragMove(event) {
-    if (!drag || event.pointerId !== drag.pointerId) return;
-    const point = stagePoint(event);
-    const dx = point.x - drag.startPoint.x;
-    const dy = point.y - drag.startPoint.y;
-    const start = drag.startRegion;
-    let region;
-    if (drag.handle === 'move') {
-      region = moveRegion(start, dx, dy);
-    } else {
-      // 핸들 안쪽 어디를 잡았든 변이 튀지 않게, 잡은 변의 시작 위치에 이동량을 더한다.
-      const edge = {
-        x: (drag.handle.includes('w') ? start.x : start.x + start.width) + dx,
-        y: (drag.handle.includes('n') ? start.y : start.y + start.height) + dy,
-      };
-      region = resizeRegion(start, drag.handle, edge);
-    }
-    apply({ ...current, region });
-  }
-
-  function onDragEnd(event) {
-    if (drag && event.pointerId === drag.pointerId) endDrag();
-  }
-
-  function endDrag() {
-    if (!drag) return;
-    window.removeEventListener('pointermove', onDragMove);
-    window.removeEventListener('pointerup', onDragEnd);
-    window.removeEventListener('pointercancel', onDragEnd);
-    try {
-      if (regionEl.hasPointerCapture(drag.pointerId)) regionEl.releasePointerCapture(drag.pointerId);
-    } catch {
-      // 이미 풀린 포인터
-    }
-    regionEl.classList.remove('is-dragging');
-    drag = null;
-  }
-
-  regionEl.addEventListener('pointerdown', (event) => {
-    if (event.button !== 0 || drag) return;
-    event.preventDefault();
-    drag = {
-      pointerId: event.pointerId,
-      handle: event.target.dataset.handle ?? 'move',
-      startRegion: { ...current.region },
-      startPoint: stagePoint(event),
-    };
-    window.addEventListener('pointermove', onDragMove);
-    window.addEventListener('pointerup', onDragEnd);
-    window.addEventListener('pointercancel', onDragEnd);
-    try {
-      regionEl.setPointerCapture(event.pointerId);
-    } catch {
-      // 캡처가 안 되어도 window 이벤트로 끌기를 이어 간다.
-    }
-    regionEl.classList.add('is-dragging');
-    showMessage('');
+  // ---- 영역 끌기 (region-drag.js) ----
+  const regionDrag = createRegionDrag({
+    element: regionEl,
+    win: window,
+    getRegion: () => current.region,
+    toStagePoint(event) {
+      const rect = stage.getBoundingClientRect();
+      return { x: (event.clientX - rect.left) / rect.width, y: (event.clientY - rect.top) / rect.height };
+    },
+    onChange: (region) => apply({ ...current, region }),
+    onDragChange(dragging) {
+      regionEl.classList.toggle('is-dragging', dragging);
+      if (dragging) showMessage('');
+    },
   });
 
   render();
