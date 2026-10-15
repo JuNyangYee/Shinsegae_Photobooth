@@ -142,17 +142,52 @@ function Start-Server([int]$Port) {
     return $url
 }
 
+# True when the text is a JSON object whose hardware_acceleration_mode.enabled is true.
+function Test-HardwareAccelerationJson([string]$Text) {
+    try {
+        Add-Type -AssemblyName System.Web.Extensions
+        $serializer = New-Object Web.Script.Serialization.JavaScriptSerializer
+        $serializer.MaxJsonLength = [int]::MaxValue
+        $value = $serializer.DeserializeObject($Text)
+    }
+    catch {
+        return $false
+    }
+    if (-not ($value -is [Collections.Generic.IDictionary[string, object]])) { return $false }
+    if (-not $value.ContainsKey('hardware_acceleration_mode')) { return $false }
+    $mode = $value['hardware_acceleration_mode']
+    if (-not ($mode -is [Collections.Generic.IDictionary[string, object]])) { return $false }
+    return ($mode.ContainsKey('enabled') -and $mode['enabled'] -eq $true)
+}
+
 # Chrome keeps "hardware_acceleration_mode.enabled" in Local State when the
 # user turns it off in settings. The detector needs WebGL, so turn it back on.
+# Only that value changes. The new text goes to a temp file in the same folder,
+# is checked (valid JSON, value now true), then replaces the file atomically.
+# On any problem the original file stays as it was and only a warning is logged.
 function Enable-HardwareAcceleration([string]$ProfileDir) {
     $path = Join-Path $ProfileDir 'Local State'
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return }
     $pattern = '("hardware_acceleration_mode"\s*:\s*\{\s*"enabled"\s*:\s*)false'
     $text = [IO.File]::ReadAllText($path)
-    if ($text -match $pattern) {
-        $fixed = [Regex]::Replace($text, $pattern, '${1}true')
-        [IO.File]::WriteAllText($path, $fixed, (New-Object Text.UTF8Encoding($false)))
+    if ($text -notmatch $pattern) { return }
+    $fixed = [Regex]::Replace($text, $pattern, '${1}true')
+    $temp = Join-Path $ProfileDir ('Local State.{0}.tmp' -f [Guid]::NewGuid().ToString('N'))
+    try {
+        [IO.File]::WriteAllText($temp, $fixed, (New-Object Text.UTF8Encoding($false)))
+        if (-not (Test-HardwareAccelerationJson ([IO.File]::ReadAllText($temp)))) {
+            Write-Log 'Hardware acceleration is off in the kiosk profile, but Local State could not be fixed safely (not valid JSON); left it unchanged.' 'WARN'
+            return
+        }
+        # [NullString]::Value: PowerShell would pass $null to a string parameter as "" (invalid backup path).
+        [IO.File]::Replace($temp, $path, [NullString]::Value)
         Write-Log 'Hardware acceleration was off in the kiosk profile; turned it back on.' 'WARN'
+    }
+    catch {
+        Write-Log "Hardware acceleration is off in the kiosk profile, but Local State could not be updated ($($_.Exception.Message)); left it unchanged." 'WARN'
+    }
+    finally {
+        if ([IO.File]::Exists($temp)) { [IO.File]::Delete($temp) }
     }
 }
 
