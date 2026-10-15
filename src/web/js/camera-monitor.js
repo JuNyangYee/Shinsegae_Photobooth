@@ -10,6 +10,7 @@ import {
   startCamera,
   stopStream,
 } from './camera.js';
+import { errorLog } from './log-limit.js';
 
 export const CameraStatus = Object.freeze({
   STARTING: 'starting', // 준비 중 (권한 대기 포함)
@@ -36,9 +37,10 @@ const STALL_CHECK_INTERVAL_MS = 500;
 /**
  * @param {{ video: HTMLVideoElement, preferredLabel: string,
  *   idealResolution: {width: number, height: number},
- *   recovery: {retryIntervalMs: number, firstFrameTimeoutMs: number, stallTimeoutMs: number} }} options
+ *   recovery: {retryIntervalMs: number, firstFrameTimeoutMs: number, stallTimeoutMs: number},
+ *   log?: { warn: Function, clear: Function } }} options  log: 반복 오류 로그 제한 (기본 log-limit.js errorLog)
  */
-export function createCameraMonitor({ video, preferredLabel, idealResolution, recovery }) {
+export function createCameraMonitor({ video, preferredLabel, idealResolution, recovery, log = errorLog }) {
   const listeners = new Set();
   let state = Object.freeze({
     status: CameraStatus.STARTING,
@@ -174,6 +176,7 @@ export function createCameraMonitor({ video, preferredLabel, idealResolution, re
       return;
     }
 
+    log.clear('camera');
     update({
       status: CameraStatus.READY,
       reason: '',
@@ -188,7 +191,8 @@ export function createCameraMonitor({ video, preferredLabel, idealResolution, re
   function fail(error) {
     const cameraError = error instanceof CameraError ? error : new CameraError(CameraErrorKind.UNKNOWN, error);
     const status = statusByErrorKind[cameraError.kind] ?? CameraStatus.UNAVAILABLE;
-    console.warn('[camera]', status, cameraError.cause ?? cameraError);
+    // 같은 오류가 재시도마다 반복되면 처음 한 번과 주기적인 요약만 남긴다.
+    log.warn('camera', `${status}${cameraError.cause?.name ? ` / ${cameraError.cause.name}` : ''}`, cameraError.cause ?? cameraError);
     update({
       status,
       reason: cameraError.kind,

@@ -2,6 +2,8 @@
 // DOM·카메라·캔버스를 직접 알지 않는다. 사진 만들기·정리 함수와 시계·타이머를 주입받는다.
 // Node 테스트: tests/session.test.mjs
 
+import { errorLog } from './log-limit.js';
+
 export const SessionState = Object.freeze({
   IDLE: 'idle', // 대기. 시작 요청을 받는다
   COUNTDOWN: 'countdown', // 3·2·1
@@ -19,12 +21,13 @@ export const SessionState = Object.freeze({
  *   releasePhoto: (photo: object) => void,  photo의 자원(Object URL 등)을 정리한다. 여러 번 불려도 안전해야 한다
  *   cameraReady?: boolean, pageVisible?: boolean,
  *   timers?: { setTimeout: Function, clearTimeout: Function }, now?: () => number,
+ *   log?: { warn: Function, clear: Function },  반복 오류 로그 제한 (기본 log-limit.js errorLog)
  * }} options
  */
 export function createSession({
   timing, takePhoto, releasePhoto,
   cameraReady: initialCameraReady = false, pageVisible: initialPageVisible = true,
-  timers = globalThis, now = () => performance.now(),
+  timers = globalThis, now = () => performance.now(), log = errorLog,
 }) {
   const listeners = new Set();
 
@@ -86,7 +89,7 @@ export function createSession({
     try {
       releasePhoto(old);
     } catch (error) {
-      console.warn('[session] release failed', error);
+      log.warn('capture-release', `release failed: ${error?.message ?? error}`, error);
     }
   }
 
@@ -190,7 +193,7 @@ export function createSession({
   // 정상 회차의 연속 촬영(쿨타임 뒤 바로 시작)과 달리, 실패 뒤에는 자동 시작을 쉬게 해 실패가 빠르게 반복되지 않게 한다.
   function fail(error) {
     lastError = error?.message ?? String(error);
-    console.warn('[session] capture failed', error);
+    log.warn('capture', `capture failed: ${lastError}`, error);
     recordFailure();
     goIdle('capture-failed');
   }
@@ -219,6 +222,7 @@ export function createSession({
 
   function showResult(result) {
     clearFailures();
+    log.clear('capture');
     photo = result;
     state = SessionState.RESULT;
     startResultClock();
