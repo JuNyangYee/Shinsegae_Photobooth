@@ -31,14 +31,16 @@ const AVERAGE_WEIGHT = 0.1; // 감지 시간 이동 평균 가중치
  *   camera: { isReady: () => boolean, subscribe: (listener: Function) => Function },
  *   detection: { bundlePath: string, wasmPath: string, modelPath: string, delegates: string[],
  *     detectorMinConfidence: number, maxFps: number, inputMaxSize: number },
- *   presence: { region: object, minFaceHeight: number, minScore: number, presentHoldMs: number, absentGraceMs: number },
+ *   presence: { region: object, minFaceHeight: number, maxFaceHeight: number, minScore: number,
+ *     presentHoldMs: number, absentGraceMs: number },
  *   stageAspect: number, mirror: boolean }} options
  */
-export function createPresenceMonitor({ video, camera, detection, presence: settings, stageAspect, mirror }) {
+export function createPresenceMonitor({ video, camera, detection, presence: initialSettings, stageAspect, mirror }) {
   const listeners = new Set();
   const canvas = document.createElement('canvas');
   const context = canvas.getContext('2d', { alpha: false });
 
+  let settings = initialSettings; // 판정 설정. setSettings()로 바꾸면 다음 감지부터 반영된다
   let started = false;
   let detector = null;
   let status = DetectorStatus.LOADING;
@@ -172,6 +174,11 @@ export function createPresenceMonitor({ video, camera, detection, presence: sett
   return {
     start,
     isPresent: () => publicState.present,
+    /** 판정 설정을 바꾼다 (운영자 조절 화면). 감지기를 다시 만들지 않고 다음 감지부터 반영된다. */
+    setSettings(next) {
+      settings = next;
+    },
+    getSettings: () => settings,
     /** 인식 상태가 바뀔 때마다 { present }로 호출한다. 등록 즉시 한 번 호출한다. 해제 함수를 돌려준다. */
     subscribe(listener) {
       listeners.add(listener);
@@ -196,7 +203,7 @@ export function createPresenceMonitor({ video, camera, detection, presence: sett
         consecutiveFailures,
         lastDetectionError,
         faces,
-        region: settings.region,
+        settings,
         present: presence.present,
         raw: presence.raw,
         progress: presenceProgress(presence, now, settings),
