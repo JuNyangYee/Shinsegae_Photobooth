@@ -14,11 +14,14 @@
 // 사진·프레임은 저장하지 않는다. 가짜 카메라에는 얼굴이 없으므로 자동 시작은 확인하지 않는다(docs/SYSTEM.md 1절).
 
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { backupFile, createCdpSession, restoreFile } from './browser-check-lib.mjs';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SETTINGS_FILE = join(repo, 'config', 'presence.local.json');
@@ -64,8 +67,17 @@ const log = (...parts) => console.log(`[${elapsed()}]`, ...parts);
 
 // ---------- 정리 대상 (이 도구가 만든 것만) ----------
 
-const owned = { server: null, chrome: null, profile: null, ws: null };
+const owned = { server: null, chrome: null, profile: null, cdp: null, settingsBackup: null };
 let cleaning = null;
+
+// 조절값 파일은 시작할 때 바이트 그대로(또는 "없음") 백업하고, 모든 정리 경로에서 파일 시스템으로 직접 되돌린다
+// (4단계 검수 1: 서버 API로 되돌리면 잘못된 JSON·16KB 초과 원본이 거절돼 시험 값이 남았다).
+function restoreSettings(reason) {
+  if (!owned.settingsBackup) return { ok: true, detail: 'no backup' };
+  const result = restoreFile(owned.settingsBackup);
+  if (!result.ok || result.detail !== 'unchanged') log(`settings file ${result.ok ? 'OK' : 'FAIL'} (${reason}): ${result.detail}`);
+  return result;
+}
 
 function killTree(pid) {
   if (!pid) return;
@@ -75,13 +87,15 @@ function killTree(pid) {
 async function cleanup() {
   if (cleaning) return cleaning;
   cleaning = (async () => {
-    try { owned.ws?.close(); } catch { /* 이미 닫힘 */ }
+    try { owned.cdp?.close(); } catch { /* 이미 닫힘 */ }
     if (owned.chrome) {
       owned.chrome.kill();
       await sleep(500);
       killTree(owned.chrome.pid);
     }
     if (owned.server) killTree(owned.server.pid);
+    const restored = restoreSettings('cleanup');
+    if (!restored.ok) results.push({ name: '조절값 파일 원래대로', ok: false, detail: restored.detail, ms: 0 });
     if (owned.profile && !options.keepProfile) {
       for (let attempt = 0; attempt < 10 && existsSync(owned.profile); attempt += 1) {
         try { rmSync(owned.profile, { recursive: true, force: true }); } catch { await sleep(500); }
@@ -98,6 +112,11 @@ process.on('SIGINT', async () => {
   log('interrupted; cleaning up');
   await cleanup();
   process.exit(130);
+});
+process.on('uncaughtException', async (error) => {
+  log('ERROR uncaught', error?.stack ?? error);
+  await cleanup();
+  process.exit(1);
 });
 
 // ---------- 서버·Chrome ----------
@@ -162,37 +181,20 @@ async function startChrome() {
 
 // ---------- CDP ----------
 
+// 요청마다 제한 시간(15초), 연결이 끊기면 기다리던 요청을 모두 실패시킨다 (browser-check-lib.mjs, 4단계 검수 2).
 function connect(url) {
   return new Promise((resolveConnection, reject) => {
     const ws = new WebSocket(url);
-    owned.ws = ws;
-    let nextId = 1;
-    const waiting = new Map();
-    const listeners = new Set();
-    ws.onerror = () => reject(new Error('CDP connection failed'));
-    ws.onmessage = (message) => {
-      const data = JSON.parse(message.data);
-      if (data.id && waiting.has(data.id)) {
-        const { resolveCall, rejectCall, method } = waiting.get(data.id);
-        waiting.delete(data.id);
-        if (data.error) rejectCall(new Error(`${method}: ${data.error.message}`));
-        else resolveCall(data.result);
-        return;
-      }
-      listeners.forEach((listener) => listener(data));
+    const timer = setTimeout(() => reject(new Error('CDP connection timeout')), 10000);
+    ws.onerror = () => {
+      clearTimeout(timer);
+      reject(new Error('CDP connection failed'));
     };
-    ws.onopen = () => resolveConnection({
-      send(method, params = {}) {
-        const id = nextId;
-        nextId += 1;
-        ws.send(JSON.stringify({ id, method, params }));
-        return new Promise((resolveCall, rejectCall) => waiting.set(id, { resolveCall, rejectCall, method }));
-      },
-      on(listener) {
-        listeners.add(listener);
-        return () => listeners.delete(listener);
-      },
-    });
+    ws.onopen = () => {
+      clearTimeout(timer);
+      owned.cdp = createCdpSession(ws, { timeoutMs: 15000 });
+      resolveConnection(owned.cdp);
+    };
   });
 }
 
@@ -228,8 +230,8 @@ function createApp(cdp, origin) {
     }
   });
 
-  async function evaluate(expression) {
-    const result = await cdp.send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
+  async function evaluate(expression, sendOptions) {
+    const result = await cdp.send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }, sendOptions);
     if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text);
     return result.result.value;
   }
@@ -238,6 +240,18 @@ function createApp(cdp, origin) {
     events,
     evaluate,
     async init() {
+      // 생성 실패 정리 시나리오용: 페이지 스크립트보다 먼저 setInterval·clearInterval을 감싸 살아 있는 타이머를 센다.
+      // 앱이 생성 중에만 감싸는 setInterval은 이 위에 놓이므로, 라이브러리가 부른 쪽이 그대로 보인다.
+      await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: `(() => {
+        const active = new Map();
+        const set = window.setInterval, clear = window.clearInterval;
+        window.setInterval = function (fn, ms, ...rest) { const id = set.call(this, fn, ms, ...rest); active.set(id, ms); return id; };
+        window.clearInterval = function (id) { active.delete(id); return clear.call(this, id); };
+        Object.defineProperty(window, '__photoboothCheck', { value: Object.freeze({
+          intervals60s: () => [...active.values()].filter((ms) => ms === 60000).length,
+          loaderScripts: () => [...document.querySelectorAll('script[src]')].filter((s) => /vision_wasm.*\\.js/.test(s.src)).length,
+        }) });
+      })();` });
       await cdp.send('Page.enable');
       await cdp.send('Runtime.enable');
       await cdp.send('Log.enable');
@@ -274,6 +288,7 @@ function createApp(cdp, origin) {
       const end = Date.now() + timeoutMs;
       let last;
       while (Date.now() < end) {
+        if (cdp.closed()) throw new Error(`${label}: ${cdp.closed()}`); // 끊겼으면 기다리지 않는다
         try {
           last = await predicate();
           if (last) return last;
@@ -315,10 +330,25 @@ async function manualCycle(app) {
   await app.key('KeyS');
   await app.waitFor('countdown', async () => sessionState((await app.dev()).get('session')) === 'countdown', 3000);
   await app.waitFor('result', async () => sessionState((await app.dev()).get('session')) === 'result', 6000);
+  // 결과 사진이 실제로 보이는지: <img>가 보이고, 디코딩된 크기가 D capture 줄의 캡처 크기와 같다 (4단계 검수 8)
+  const shown = await app.waitFor('result image decoded', async () => {
+    const image = await app.evaluate(`(() => { const r = document.getElementById('result'); const box = r.getBoundingClientRect();
+      return { hidden: r.hidden, complete: r.complete, src: r.src.startsWith('blob:'), w: r.naturalWidth, h: r.naturalHeight,
+        boxW: Math.round(box.width), boxH: Math.round(box.height), display: getComputedStyle(r).display }; })()`);
+    return image.complete && image.w > 0 ? image : null;
+  }, 3000);
+  const captured = /^(\d+)x(\d+)/.exec((await app.dev()).get('capture') ?? '');
+  if (shown.hidden || !shown.src || shown.display === 'none' || shown.boxW === 0 || shown.boxH === 0) {
+    throw new Error(`result image not visible: ${JSON.stringify(shown)}`);
+  }
+  if (!captured || shown.w !== Number(captured[1]) || shown.h !== Number(captured[2])) {
+    throw new Error(`result image ${shown.w}x${shown.h}, capture ${captured?.[0] ?? '?'}`);
+  }
   await app.waitFor('cooldown', async () => sessionState((await app.dev()).get('session')) === 'cooldown', 13000);
   await app.waitFor('idle', async () => sessionState((await app.dev()).get('session')) === 'idle', 8000);
   const dev = await app.dev();
-  return { completedDelta: parseCompleted(dev.get('session')) - before, resources: parseResources(dev.get('resources')), dev };
+  return { completedDelta: parseCompleted(dev.get('session')) - before, resources: parseResources(dev.get('resources')), dev,
+    image: `${shown.w}x${shown.h} shown ${shown.boxW}x${shown.boxH}css` };
 }
 
 // ---------- 시나리오 ----------
@@ -358,16 +388,15 @@ async function runScenarios(app, origin) {
     return `delegate ${dev.get('delegate')}, ${dev.get('video')}, detect @ ${parseFps(dev.get('detect'))}fps, settings ${dev.get('settings')}`;
   });
 
-  await scenario('S 수동 한 사이클 (결과 → 쿨타임 → 대기), 사진 자원 0', async () => {
-    const { completedDelta, resources, dev } = await manualCycle(app);
+  await scenario('S 수동 한 사이클 (결과 사진 표시 → 쿨타임 → 대기), 사진 자원 0', async () => {
+    const { completedDelta, resources, dev, image } = await manualCycle(app);
     expect(completedDelta === 1, `completed +${completedDelta}`);
     expect(resources && resources.urls === 0 && resources.canvases === 0 && resources.pending === 0, `resources ${dev.get('resources')}`);
-    return `${dev.get('capture')?.split(',')[0]}; ${dev.get('resources')}`;
+    return `${dev.get('capture')?.split(',')[0]}; result image ${image}; ${dev.get('resources')}`;
   });
 
   await scenario('조절값 API GET·PUT 왕복 (저장 파일은 원래대로)', async () => {
-    const existed = existsSync(SETTINGS_FILE);
-    const original = existed ? readFileSync(SETTINGS_FILE) : null;
+    const existed = owned.settingsBackup.existed;
     try {
       const probe = JSON.stringify({ version: 1, settings: { region: { x: 0.1, y: 0.1, width: 0.8, height: 0.8 }, minFaceHeight: 0.05,
         maxFaceHeight: 0.6, minScore: 0.71, presentHoldMs: 500, absentGraceMs: 1000 }, browserCheck: new Date().toISOString() }, null, 2);
@@ -384,15 +413,37 @@ async function runScenarios(app, origin) {
       expect(outcome.noHeader === 403, `PUT without X-Photobooth ${outcome.noHeader}`);
       return `GET ${outcome.before} → PUT ${outcome.put} → GET ${outcome.back} same; no header → ${outcome.noHeader}`;
     } finally {
-      // 원래대로: 있던 파일은 같은 바이트로(서버의 원자적 쓰기), 없던 파일은 지운다.
-      if (existed) {
-        const restore = await fetch(`${origin}${SETTINGS_API}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Photobooth': '1' }, body: original });
-        if (restore.status !== 204 || !readFileSync(SETTINGS_FILE).equals(original)) throw new Error('could not restore settings file');
-      } else if (existsSync(SETTINGS_FILE)) {
-        unlinkSync(SETTINGS_FILE);
-        try { rmdirSync(dirname(SETTINGS_FILE)); } catch { /* 다른 파일이 있으면 둔다 */ }
-      }
+      // 원래대로: 시작할 때 백업한 바이트(또는 "없음")로 파일 시스템에서 직접 되돌린다. 마지막 정리에서도 한 번 더 확인한다.
+      const restored = restoreSettings('after settings scenario');
+      if (!restored.ok) throw new Error(`could not restore settings file: ${restored.detail}`);
     }
+  });
+
+  await scenario('감지기 생성 실패 3회: 60초 타이머·로더 스크립트 증가 0 (실제 MediaPipe)', async () => {
+    // 사전 확인은 통과하고 MediaPipe 그래프 시작에서 실패하게: 모델 대신 저장소의 LICENSE 파일과 그 크기·SHA-256을 넘긴다.
+    const license = readFileSync(join(repo, 'lib', 'mediapipe', 'tasks-vision', 'LICENSE'));
+    const sha256 = createHash('sha256').update(license).digest('hex');
+    const outcome = await app.evaluate(`(async () => {
+      const m = await import('/js/face-detector.js');
+      const probe = window.__photoboothCheck;
+      const before = { timers: probe.intervals60s(), scripts: probe.loaderScripts() };
+      const errors = [];
+      for (let i = 0; i < 3; i += 1) {
+        try {
+          (await m.createFaceDetector({ bundlePath: '/lib/mediapipe/tasks-vision/vision_bundle.mjs', wasmPath: '/lib/mediapipe/tasks-vision/wasm',
+            modelPath: '/lib/mediapipe/tasks-vision/LICENSE', modelBytes: ${license.length}, modelSha256: '${sha256}',
+            delegates: ['GPU', 'CPU'], minDetectionConfidence: 0.3 })).close();
+          errors.push('created');
+        } catch (error) { errors.push(error.code); }
+      }
+      return { before, after: { timers: probe.intervals60s(), scripts: probe.loaderScripts() }, errors };
+    })()`, { timeout: 60000 });
+    expect(outcome.errors.every((code) => code === 'create-failed'), `errors ${outcome.errors.join(',')}`);
+    expect(outcome.after.timers === outcome.before.timers, `60s timers ${outcome.before.timers} -> ${outcome.after.timers}`);
+    expect(outcome.after.scripts === outcome.before.scripts, `loader scripts ${outcome.before.scripts} -> ${outcome.after.scripts}`);
+    const dev = await app.dev();
+    expect(/^running, health ok/.test(dev.get('detector') ?? ''), `app detector ${dev.get('detector')}`);
+    return `create-failed x3; 60s timers ${outcome.before.timers}→${outcome.after.timers}, loader scripts ${outcome.before.scripts}→${outcome.after.scripts}; app detector still ok`;
   });
 
   await scenario('카메라 권한 거절 → 직원 문의 안내 → 허용 → 회복', async () => {
@@ -475,6 +526,10 @@ async function runSoak(app) {
   const rows = [];
   let sPressed = 0;
   let sIgnored = 0;
+  // 통과 조건용 (4단계 검수 5): S를 누르기 직전(대기 상태)마다 사진 자원 0·taken = released인지, 기록을 제대로 읽었는지
+  let idleChecks = 0;
+  const idleViolations = [];
+  const readFailures = [];
   let nextPress = Date.now();
   let nextSample = Date.now();
   const start = Date.now();
@@ -482,8 +537,13 @@ async function runSoak(app) {
   while (Date.now() <= end) {
     if (Date.now() >= nextPress) {
       nextPress += options.interval * 1000;
-      const state = sessionState((await app.dev()).get('session'));
+      const before = await app.dev();
+      const state = sessionState(before.get('session'));
       if (state === 'idle') {
+        const res = parseResources(before.get('resources'));
+        idleChecks += 1;
+        if (!res) readFailures.push(`idle resources unreadable: ${before.get('resources')}`);
+        else if (res.urls || res.canvases || res.pending || res.taken !== res.released) idleViolations.push(before.get('resources'));
         await app.key('KeyS');
         sPressed += 1;
       } else {
@@ -510,6 +570,10 @@ async function runSoak(app) {
         consoleError: app.events.console.error, consoleWarning: app.events.console.warning, consoleInfo: app.events.console.info,
         consoleLog: app.events.console.log, exceptions: app.events.exceptions.length, sPressed, sIgnored,
       };
+      for (const key of ['jsHeapMB', 'nodes', 'listeners', 'documents', 'objectURLs', 'canvases', 'pending', 'completed', 'detectFps']) {
+        if (!Number.isFinite(row[key])) readFailures.push(`m${row.minute} ${key}=${row[key]}`);
+      }
+      if (!(mem.count > 0)) readFailures.push(`m${row.minute} chrome memory unreadable`);
       rows.push(row);
       writeFileSync(csvPath, `${Object.values(row).join(',')}\n`, { flag: 'a' });
       log(`soak m${row.minute}: heap ${row.jsHeapMB}MB, nodes ${row.nodes}, listeners ${row.listeners}, docs ${row.documents},`
@@ -534,8 +598,23 @@ async function runSoak(app) {
   const photoMax = Math.max(...rows.map((r) => (r.objectURLs ?? 0) + (r.canvases ?? 0) + (r.pending ?? 0)));
   console.log(`cycles completed ${last.completed} (S pressed ${sPressed}, skipped ${sIgnored}), photo resources max at sample ${photoMax},`
     + ` console error ${last.consoleError} warning ${last.consoleWarning}, exceptions ${last.exceptions}, csv ${csvPath}`);
-  results.push({ name: `장시간 실측 ${minutes}분`, ok: last.exceptions === 0 && last.camera === 'ready' && last.completed > 0,
-    detail: `cycles ${last.completed}, heap ${rows[0].jsHeapMB}→${last.jsHeapMB}MB, chrome ${rows[0].chromePrivateMB}→${last.chromePrivateMB}MB, exceptions ${last.exceptions}`, ms: minutes * 60000 });
+  // 통과 조건 (4단계 검수 5): 모든 기록에서 카메라 ready·감지기 ok, 대기 중 사진 자원 0, 외부 요청·CSP 위반·예외 0, 측정값을 모두 읽음, 회차 진행
+  const { external, csp, exceptions } = app.events;
+  const problems = [
+    ...rows.filter((r) => r.camera !== 'ready').map((r) => `m${r.minute} camera ${r.camera}`),
+    ...rows.filter((r) => !/health ok/.test(r.detector)).map((r) => `m${r.minute} detector ${r.detector}`),
+    ...idleViolations.map((v) => `idle resources ${v}`),
+    ...readFailures,
+    ...(idleChecks === 0 ? ['no idle check'] : []),
+    ...(external.length ? [`external requests ${external.length}`] : []),
+    ...(csp.length ? [`csp violations ${csp.length}`] : []),
+    ...(exceptions.length ? [`exceptions ${exceptions.length}`] : []),
+    ...(last.completed > 0 ? [] : ['no completed cycle']),
+  ];
+  console.log(`idle checks ${idleChecks} (violations ${idleViolations.length}), read failures ${readFailures.length}, external ${external.length}, csp ${csp.length}`);
+  results.push({ name: `장시간 실측 ${minutes}분`, ok: problems.length === 0,
+    detail: problems.length ? problems.slice(0, 5).join('; ') : `cycles ${last.completed}, idle checks ${idleChecks}, heap ${rows[0].jsHeapMB}→${last.jsHeapMB}MB, chrome ${rows[0].chromePrivateMB}→${last.chromePrivateMB}MB`,
+    ms: minutes * 60000 });
 }
 
 // ---------- 실행 ----------
@@ -543,6 +622,8 @@ async function runSoak(app) {
 async function main() {
   if (process.platform !== 'win32') throw new Error('Windows only (bin/server/serve.ps1 needs Windows PowerShell)');
   if (typeof WebSocket !== 'function') throw new Error('Node 22 or newer is required (built-in WebSocket)');
+  owned.settingsBackup = backupFile(SETTINGS_FILE);
+  log(`settings file backup: ${owned.settingsBackup.existed ? `${owned.settingsBackup.bytes.length} bytes` : 'none (will stay absent)'}`);
   const port = await freePort();
   const origin = `http://localhost:${port}`;
   log(`repo ${repo}`);
