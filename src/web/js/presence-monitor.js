@@ -7,6 +7,7 @@ import { createDetectorKeeper } from './detector-keeper.js';
 import { createFaceDetector } from './face-detector.js';
 import {
   classifyFaces,
+  sameCriteria,
   computeCoverMapping,
   initialPresenceState,
   presenceProgress,
@@ -28,20 +29,24 @@ const AVERAGE_WEIGHT = 0.1; // 감지 시간 이동 평균 가중치
 
 /**
  * @param {{ video: HTMLVideoElement,
- *   camera: { isReady: () => boolean, subscribe: (listener: Function) => Function },
+ *   camera: { isReady: () => boolean, subscribe: (listener: Function) => Function,
+ *     getFrameInfo?: () => { at: number | null, count: number } },  getFrameInfo가 있으면 새 프레임이 있을 때만 감지한다
  *   detection: { bundlePath: string, wasmPath: string, modelPath: string, delegates: string[],
  *     detectorMinConfidence: number, maxFps: number, inputMaxSize: number, detectorRetryMs: number },
  *   presence: { region: object, minFaceHeight: number, maxFaceHeight: number, minScore: number,
  *     presentHoldMs: number, absentGraceMs: number },
  *   stageAspect: number, mirror: boolean,
- *   createDetector?: () => Promise<object> }} options  createDetector는 바꿔 끼울 때만 (기본 face-detector.js)
+ *   createDetector?: () => Promise<object>,
+ *   timers?: { setTimeout: Function, clearTimeout: Function }, now?: () => number, doc?: Document }} options
+ *   createDetector·timers·now·doc은 바꿔 끼울 때만 (기본: face-detector.js, 전역 타이머, performance.now, document). Node 테스트용
  */
 export function createPresenceMonitor({
   video, camera, detection, presence: initialSettings, stageAspect, mirror,
   createDetector = () => createFaceDetector({ ...detection, minDetectionConfidence: detection.detectorMinConfidence }),
+  timers = globalThis, now: nowMs = () => performance.now(), doc = globalThis.document,
 }) {
   const listeners = new Set();
-  const canvas = document.createElement('canvas');
+  const canvas = doc.createElement('canvas');
   const context = canvas.getContext('2d', { alpha: false });
 
   let settings = initialSettings; // 판정 설정. setSettings()로 바꾸면 다음 감지부터 반영된다
@@ -52,6 +57,7 @@ export function createPresenceMonitor({
   let cameraEverReady = false; // 처음 준비되는 것은 재연결이 아니다
   let pageWasVisible = true;
   let lastTimestamp = 0;
+  let lastFrameCount = -1; // 마지막으로 감지한 카메라 프레임 번호. 같은 프레임은 다시 관측으로 세지 않는다
   let presence = initialPresenceState;
   let publicState = Object.freeze({ present: false });
 
@@ -64,9 +70,11 @@ export function createPresenceMonitor({
   let consecutiveFailures = 0;
   let lastDetectionError = '';
   let recentTicks = [];
+  let skippedSameFrame = 0; // 새 프레임이 없어 건너뛴 감지 수
+  let criteriaResets = 0; // 판정 기준이 바뀌어 인식 상태를 처음부터 다시 잰 횟수
 
   // 생성에 실패하거나 감지기를 버리면 detectorRetryMs 뒤 다시 만든다. 결과가 나오면 루프 상태를 다시 맞춘다.
-  const keeper = createDetectorKeeper({ create: createDetector, retryMs: detection.detectorRetryMs, onChange: sync });
+  const keeper = createDetectorKeeper({ create: createDetector, retryMs: detection.detectorRetryMs, onChange: sync, timers });
 
   function status() {
     if (keeper.isCreating()) return DetectorStatus.LOADING;
@@ -81,7 +89,7 @@ export function createPresenceMonitor({
   }
 
   function canRun() {
-    return started && keeper.get() !== null && camera.isReady() && !document.hidden
+    return started && keeper.get() !== null && camera.isReady() && !doc.hidden
       && video.videoWidth > 0 && video.videoHeight > 0;
   }
 
@@ -90,7 +98,7 @@ export function createPresenceMonitor({
     if (!started) return;
     // 카메라가 다시 준비되거나 페이지가 다시 보이면, 감지기가 없을 때 재시도 간격을 기다리지 않고 바로 만든다.
     const cameraReady = camera.isReady();
-    const pageVisible = !document.hidden;
+    const pageVisible = !doc.hidden;
     const recovered = (cameraReady && !cameraWasReady && cameraEverReady) || (pageVisible && !pageWasVisible);
     cameraWasReady = cameraReady;
     if (cameraReady) cameraEverReady = true;
@@ -98,7 +106,7 @@ export function createPresenceMonitor({
     if (recovered && keeper.get() === null && !keeper.isCreating()) keeper.ensure();
 
     if (canRun()) {
-      if (timer === null && !ticking) timer = setTimeout(tick, 0); // tick 중이면 tick이 다음 감지를 예약한다
+      if (timer === null && !ticking) timer = timers.setTimeout(tick, 0); // tick 중이면 tick이 다음 감지를 예약한다
     } else {
       pause();
     }
@@ -106,7 +114,7 @@ export function createPresenceMonitor({
 
   // 감지를 멈추면 인식 상태는 바로 인식 안됨으로 둔다.
   function pause() {
-    clearTimeout(timer);
+    timers.clearTimeout(timer);
     timer = null;
     presence = initialPresenceState;
     faces = [];
@@ -128,8 +136,21 @@ export function createPresenceMonitor({
     }
   }
 
+  function scheduleNext(tickStart) {
+    const interval = 1000 / detection.maxFps;
+    timer = timers.setTimeout(tick, Math.max(0, interval - (nowMs() - tickStart)));
+  }
+
   function tickOnce() {
-    const tickStart = performance.now();
+    const tickStart = nowMs();
+    // 카메라 프레임이 멈춰 있으면(끊김 판정 전 약 3초) 같은 프레임을 새 관측으로 세지 않는다. 인식 상태는 그대로 둔다.
+    const frame = camera.getFrameInfo?.();
+    if (frame && frame.count === lastFrameCount) {
+      skippedSameFrame += 1;
+      scheduleNext(tickStart);
+      return;
+    }
+    if (frame) lastFrameCount = frame.count;
     try {
       detectOnce();
       consecutiveFailures = 0;
@@ -139,7 +160,7 @@ export function createPresenceMonitor({
       consecutiveFailures += 1;
       lastDetectionError = detectionError?.message ?? String(detectionError);
       faces = [];
-      presence = stepPresence(presence, false, performance.now(), settings);
+      presence = stepPresence(presence, false, nowMs(), settings);
       notify();
       if (consecutiveFailures === 1 || consecutiveFailures === MAX_CONSECUTIVE_FAILURES) {
         console.warn('[presence] detection failed', consecutiveFailures, detectionError);
@@ -151,8 +172,7 @@ export function createPresenceMonitor({
         return;
       }
     }
-    const interval = 1000 / detection.maxFps;
-    timer = setTimeout(tick, Math.max(0, interval - (performance.now() - tickStart)));
+    scheduleNext(tickStart);
   }
 
   function detectOnce() {
@@ -166,14 +186,14 @@ export function createPresenceMonitor({
       canvas.height = height;
     }
 
-    const drawStart = performance.now();
+    const drawStart = nowMs();
     context.drawImage(video, 0, 0, width, height);
-    const detectStart = performance.now();
+    const detectStart = nowMs();
     // detectForVideo 타임스탬프는 항상 증가해야 한다.
     const timestamp = Math.max(detectStart, lastTimestamp + 1);
     lastTimestamp = timestamp;
     const detected = keeper.get().detect(canvas, timestamp);
-    const now = performance.now();
+    const now = nowMs();
 
     drawMs = detectStart - drawStart;
     detectMs = now - detectStart;
@@ -192,18 +212,28 @@ export function createPresenceMonitor({
     started = true;
     cameraWasReady = camera.isReady();
     cameraEverReady = cameraWasReady;
-    pageWasVisible = !document.hidden;
+    pageWasVisible = !doc.hidden;
     camera.subscribe(sync);
-    document.addEventListener('visibilitychange', sync);
+    doc.addEventListener('visibilitychange', sync);
     keeper.ensure();
   }
 
   return {
     start,
     isPresent: () => publicState.present,
-    /** 판정 설정을 바꾼다 (운영자 조절 화면). 감지기를 다시 만들지 않고 다음 감지부터 반영된다. */
+    /**
+     * 판정 설정을 바꾼다 (운영자 조절 화면: 조절 중 변경, 취소·닫기 복원, 기본값). 감지기를 다시 만들지 않고 다음 감지부터 반영된다.
+     * 기준(영역·크기·신뢰도·시간)이 바뀌면 인식 상태를 처음부터 다시 잰다. 이전 기준으로 안정된 "인식됨"이 남아
+     * 새 기준으로 확인되기 전에 자동 시작되지 않게 하기 위해서다. 바뀌는 순간 "인식 안됨"을 알린다.
+     */
     setSettings(next) {
+      const changed = !sameCriteria(settings, next);
       settings = next;
+      if (!changed) return;
+      criteriaResets += 1;
+      presence = initialPresenceState;
+      faces = [];
+      notify();
     },
     getSettings: () => settings,
     /** 인식 상태가 바뀔 때마다 { present }로 호출한다. 등록 즉시 한 번 호출한다. 해제 함수를 돌려준다. */
@@ -214,7 +244,7 @@ export function createPresenceMonitor({
     },
     /** D 개발용 화면 전용. 촬영 진행 코드에서 쓰지 않는다. */
     getDebugSnapshot() {
-      const now = performance.now();
+      const now = nowMs();
       const detector = keeper.get();
       const currentStatus = status();
       return {
@@ -233,6 +263,8 @@ export function createPresenceMonitor({
         detectionErrors,
         consecutiveFailures,
         lastDetectionError,
+        skippedSameFrame,
+        criteriaResets,
         faces,
         settings,
         present: presence.present,

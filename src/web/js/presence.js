@@ -36,6 +36,14 @@ export function videoBoxToStage(box, mapping) {
   return { x, y, width, height };
 }
 
+/** 판정 기준(영역·얼굴 크기·신뢰도·시간)이 같은지. 다른 항목은 보지 않는다. */
+export function sameCriteria(a, b) {
+  return a.region.x === b.region.x && a.region.y === b.region.y
+    && a.region.width === b.region.width && a.region.height === b.region.height
+    && a.minFaceHeight === b.minFaceHeight && a.maxFaceHeight === b.maxFaceHeight
+    && a.minScore === b.minScore && a.presentHoldMs === b.presentHoldMs && a.absentGraceMs === b.absentGraceMs;
+}
+
 /** 경계를 포함한다. */
 export function isPointInRegion(point, region) {
   return point.x >= region.x && point.x <= region.x + region.width

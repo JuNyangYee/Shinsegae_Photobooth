@@ -219,7 +219,8 @@ function presenceDevLines() {
     `delegate   : ${d.delegate}${d.delegateFailures.length ? ` (failed: ${d.delegateFailures.join('; ')})` : ''}`,
     `detect     : ${d.detectMs.toFixed(1)}ms (avg ${d.averageDetectMs.toFixed(1)}ms, draw ${d.drawMs.toFixed(1)}ms)`
       + ` @ ${d.fps}fps (max ${d.maxFps}), input ${d.input}`,
-    `faces      : ${d.faces.length} detected, ${accepted} accepted`,
+    `faces      : ${d.faces.length} detected, ${accepted} accepted`
+      + ` (same-frame skips ${d.skippedSameFrame}, criteria resets ${d.criteriaResets})`,
     `presence   : ${d.present ? 'PRESENT' : 'absent'} (raw ${d.raw ? 'present' : 'absent'}, ${progress})`,
     `criteria   : region x${region.x} y${region.y} w${region.width} h${region.height},`
       + ` face ${minFaceHeight}~${maxFaceHeight}, min score ${minScore}, hold ${presentHoldMs}ms, grace ${absentGraceMs}ms`,
