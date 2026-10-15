@@ -9,6 +9,7 @@
 *.wasm binary
 *.tflite binary
 *.task binary
+*.onnx binary
 
 # 이미지
 *.png binary
@@ -17,3 +18,13 @@
 *.webp binary
 *.gif binary
 *.ico binary
+
+# 폰트·영상·사운드
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.mp4 binary
+*.webm binary
+*.mp3 binary
+*.wav binary

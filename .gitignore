@@ -1,11 +1,28 @@
-# 현장·개인 설정
+# 현장·개인 설정 (공통 기본값은 이후 settings.example.ini에 둔다)
 settings.ini
 
 # 실행 로그 (docs/logs/는 작업 로그이므로 제외하지 않는다)
 /logs/
 *.log
 
-# OS 파일
+# 촬영 사진·임시 산출물: 실제 사진은 절대 커밋하지 않는다
+/artifacts/
+/captures/
+/runtime/
+
+# 도구별 로컬 설정
+paseo.json
+.claude/settings.local.json
+.vscode/
+.idea/
+
+# Python 캐시 (이후 인쇄 서비스용)
+__pycache__/
+*.pyc
+
+# 임시·OS 파일
+*.tmp
+~$*
 Thumbs.db
 desktop.ini
 .DS_Store
