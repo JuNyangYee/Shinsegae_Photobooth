@@ -193,3 +193,111 @@ describe('검수 D 재현: 조절 화면을 저장하지 않고 닫음 (감지 �
     assert.equal(t.auto.getDebug().lastStart.trigger, 'presence: present');
   });
 });
+
+describe('createPresenceMonitor: 감지기 상태 알림 (4-1)', () => {
+  const silent = { warn() {}, clear() {} };
+
+  // 카메라 준비 여부를 바꿀 수 있고, createDetector가 받은 hooks(onContextLost)를 꺼낼 수 있는 구성
+  async function setupHealth({ create }) {
+    const clock = fakeClock(0);
+    const cameraListeners = new Set();
+    let cameraReady = true;
+    let frameCount = 0;
+    const camera = {
+      isReady: () => cameraReady,
+      subscribe(listener) { cameraListeners.add(listener); listener({}); return () => cameraListeners.delete(listener); },
+      getFrameInfo: () => ({ at: clock.now(), count: (frameCount += 1) }),
+    };
+    const hooks = [];
+    const monitor = createPresenceMonitor({
+      video: { videoWidth: 1080, videoHeight: 1920 },
+      camera,
+      detection: { maxFps: 15, inputMaxSize: 640, detectorRetryMs: 15000, detectorRetryMaxMs: 300000, detectorFaultAfterFailures: 3 },
+      presence: defaults,
+      stageAspect: 9 / 16,
+      mirror: true,
+      createDetector: (h) => { hooks.push(h); return create(); },
+      timers: clock.timers,
+      now: clock.now,
+      doc: { hidden: false, createElement: () => ({ width: 0, height: 0, getContext: () => ({ drawImage() {} }) }), addEventListener() {} },
+      log: silent,
+    });
+    const seen = [];
+    monitor.subscribeDetector((h) => seen.push(`${h.health}${h.cause ? `/${h.cause}` : ''}`));
+    monitor.start();
+    await flush();
+    return {
+      clock, monitor, seen, hooks,
+      setCamera(ready) { cameraReady = ready; cameraListeners.forEach((listener) => listener({})); },
+      async advance(ms) {
+        for (let t = 0; t < ms; t += 100) {
+          clock.advance(100);
+          await flush();
+        }
+      },
+    };
+  }
+
+  const okDetector = () => ({ delegate: 'FAKE', failures: [], detect: () => [FACE], close() {} });
+  const coded = (code) => Object.assign(new Error(code), { code });
+
+  it('시작 중 → 정상. 알림에는 상태·원인·시각만 있다 (좌표·점수 없음)', async () => {
+    const t = await setupHealth({ create: async () => okDetector() });
+    assert.deepEqual(t.seen, ['starting', 'ok']);
+    assert.deepEqual(Object.keys(t.monitor.getDetectorHealth()).sort(), ['cause', 'health', 'since']);
+    assert.equal(t.monitor.getDetectorHealth().since, null);
+  });
+
+  it('WebGL 없음은 첫 실패부터 장애이고, 인식은 계속 인식 안됨', async () => {
+    const t = await setupHealth({ create: async () => { throw coded('webgl-unavailable'); } });
+    assert.deepEqual(t.seen, ['starting', 'fault/webgl-unavailable']);
+    assert.equal(t.monitor.isPresent(), false);
+    assert.equal(t.monitor.getDebugSnapshot().retryInMs, 15000);
+  });
+
+  it('장애 중에는 카메라 재연결이 재시도를 앞당기지 않는다 (재시도 중에는 앞당긴다)', async () => {
+    let calls = 0;
+    const t = await setupHealth({ create: async () => { calls += 1; throw coded('webgl-unavailable'); } });
+    t.setCamera(false);
+    t.setCamera(true);
+    await flush();
+    assert.equal(calls, 1);
+
+    let retryCalls = 0;
+    const r = await setupHealth({ create: async () => { retryCalls += 1; throw coded('model-unavailable'); } });
+    assert.deepEqual(r.seen, ['starting', 'retrying/model-unavailable']);
+    r.setCamera(false);
+    r.setCamera(true);
+    await flush();
+    assert.equal(retryCalls, 2);
+  });
+
+  it('실행 중 WebGL 컨텍스트를 잃으면 감지 실패를 기다리지 않고 바로 버리고, 재시도 간격 뒤 다시 만든다', async () => {
+    const made = [];
+    const t = await setupHealth({ create: async () => { const d = { ...okDetector(), closed: 0, close() { this.closed += 1; } }; made.push(d); return d; } });
+    await t.advance(700);
+    assert.equal(t.monitor.isPresent(), true);
+    t.hooks[0].onContextLost();
+    assert.equal(made[0].closed, 1);
+    assert.equal(t.monitor.isPresent(), false);
+    assert.deepEqual(t.seen, ['starting', 'ok', 'retrying/webgl-context-lost']);
+    assert.equal(t.monitor.getDetectorHealth().since, t.clock.now());
+    await t.advance(15000);
+    assert.equal(made.length, 2);
+    assert.deepEqual(t.seen.at(-1), 'ok');
+    await t.advance(700);
+    assert.equal(t.monitor.isPresent(), true);
+  });
+
+  it('감지가 계속 실패해 버린 감지기도 같은 경로(재시도 중, detect-failing)로 알린다', async () => {
+    let broken = true;
+    const t = await setupHealth({
+      create: async () => ({ delegate: 'FAKE', failures: [], detect: () => { if (broken) throw new Error('texture upload failed'); return []; }, close() {} }),
+    });
+    await t.advance(1200); // 15fps × 15회
+    assert.deepEqual(t.seen, ['starting', 'ok', 'retrying/detect-failing']);
+    broken = false;
+    await t.advance(15000);
+    assert.equal(t.seen.at(-1), 'ok');
+  });
+});

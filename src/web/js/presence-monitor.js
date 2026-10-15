@@ -3,8 +3,9 @@
 // 촬영 진행 코드는 isPresent()와 subscribe()로 "인식됨 / 인식 안됨"만 본다.
 // 좌표·점수는 밖으로 알리지 않는다. getDebugSnapshot()은 D 개발용 화면 전용이다.
 
-import { createDetectorKeeper } from './detector-keeper.js';
-import { createFaceDetector } from './face-detector.js';
+import { DetectorHealth, createDetectorKeeper } from './detector-keeper.js';
+import { DetectorFault, createFaceDetector } from './face-detector.js';
+import { errorLog } from './log-limit.js';
 import {
   classifyFaces,
   sameCriteria,
@@ -21,8 +22,11 @@ export const DetectorStatus = Object.freeze({
   ERROR: 'error', // 감지기 없음: 생성 실패 또는 계속 실패해 버림. 재생성을 기다린다 (미리보기는 계속 동작)
 });
 
+// 첫 실패부터 장애로 보는 원인: 기다려도 풀리지 않고 운영자 조치가 필요하다
+const permanentCauses = new Set([DetectorFault.WEBGL_UNAVAILABLE, DetectorFault.MODEL_INVALID]);
+
 // 감지가 이 횟수(15fps 기준 약 1초) 연속 실패하면 감지기를 닫고 다시 만든다.
-// 예: 실행 중 WebGL 컨텍스트 손실. WebGL을 아예 쓸 수 없으면 CPU delegate도 생성은 되지만 매 프레임 실패한다.
+// WebGL 컨텍스트 손실은 이벤트로 바로 알지만, 그 밖의 이유로 계속 실패하는 경우를 위해 둔다.
 const MAX_CONSECUTIVE_FAILURES = 15;
 const FPS_WINDOW_MS = 1000;
 const AVERAGE_WEIGHT = 0.1; // 감지 시간 이동 평균 가중치
@@ -31,21 +35,27 @@ const AVERAGE_WEIGHT = 0.1; // 감지 시간 이동 평균 가중치
  * @param {{ video: HTMLVideoElement,
  *   camera: { isReady: () => boolean, subscribe: (listener: Function) => Function,
  *     getFrameInfo?: () => { at: number | null, count: number } },  getFrameInfo가 있으면 새 프레임이 있을 때만 감지한다
- *   detection: { bundlePath: string, wasmPath: string, modelPath: string, delegates: string[],
- *     detectorMinConfidence: number, maxFps: number, inputMaxSize: number, detectorRetryMs: number },
+ *   detection: { bundlePath: string, wasmPath: string, modelPath: string, modelBytes?: number, modelSha256?: string,
+ *     delegates: string[], detectorMinConfidence: number, maxFps: number, inputMaxSize: number,
+ *     detectorRetryMs: number, detectorRetryMaxMs?: number, detectorFaultAfterFailures?: number },
  *   presence: { region: object, minFaceHeight: number, maxFaceHeight: number, minScore: number,
  *     presentHoldMs: number, absentGraceMs: number },
  *   stageAspect: number, mirror: boolean,
- *   createDetector?: () => Promise<object>,
- *   timers?: { setTimeout: Function, clearTimeout: Function }, now?: () => number, doc?: Document }} options
- *   createDetector·timers·now·doc은 바꿔 끼울 때만 (기본: face-detector.js, 전역 타이머, performance.now, document). Node 테스트용
+ *   createDetector?: (hooks: { onContextLost: () => void }) => Promise<object>,
+ *   timers?: { setTimeout: Function, clearTimeout: Function }, now?: () => number, doc?: Document,
+ *   log?: { warn: Function, clear: Function } }} options
+ *   createDetector·timers·now·doc·log는 바꿔 끼울 때만 (기본: face-detector.js, 전역 타이머, performance.now, document,
+ *   log-limit.js errorLog). Node 테스트용
  */
 export function createPresenceMonitor({
   video, camera, detection, presence: initialSettings, stageAspect, mirror,
-  createDetector = () => createFaceDetector({ ...detection, minDetectionConfidence: detection.detectorMinConfidence }),
-  timers = globalThis, now: nowMs = () => performance.now(), doc = globalThis.document,
+  createDetector = (hooks) => createFaceDetector({
+    ...detection, minDetectionConfidence: detection.detectorMinConfidence, ...hooks,
+  }),
+  timers = globalThis, now: nowMs = () => performance.now(), doc = globalThis.document, log = errorLog,
 }) {
   const listeners = new Set();
+  const healthListeners = new Set();
   const canvas = doc.createElement('canvas');
   const context = canvas.getContext('2d', { alpha: false });
 
@@ -60,6 +70,7 @@ export function createPresenceMonitor({
   let lastFrameCount = -1; // 마지막으로 감지한 카메라 프레임 번호. 같은 프레임은 다시 관측으로 세지 않는다
   let presence = initialPresenceState;
   let publicState = Object.freeze({ present: false });
+  let publicHealth = null; // 감지기 상태 알림 { health, cause, since }. 좌표·점수는 담지 않는다
 
   // 개발용 정보
   let faces = [];
@@ -73,8 +84,39 @@ export function createPresenceMonitor({
   let skippedSameFrame = 0; // 새 프레임이 없어 건너뛴 감지 수
   let criteriaResets = 0; // 판정 기준이 바뀌어 인식 상태를 처음부터 다시 잰 횟수
 
-  // 생성에 실패하거나 감지기를 버리면 detectorRetryMs 뒤 다시 만든다. 결과가 나오면 루프 상태를 다시 맞춘다.
-  const keeper = createDetectorKeeper({ create: createDetector, retryMs: detection.detectorRetryMs, onChange: sync, timers });
+  // 생성에 실패하거나 감지기를 버리면 간격을 늘려 가며 다시 만든다. 결과가 나오면 루프 상태를 다시 맞추고 감지기 상태를 알린다.
+  const keeper = createDetectorKeeper({
+    create: () => createDetector({ onContextLost: handleContextLost }),
+    retryMs: detection.detectorRetryMs,
+    retryMaxMs: detection.detectorRetryMaxMs,
+    faultAfterFailures: detection.detectorFaultAfterFailures,
+    isPermanent: (cause) => permanentCauses.has(cause),
+    onChange: () => {
+      sync();
+      notifyHealth();
+    },
+    timers,
+    now: nowMs,
+    log,
+  });
+  publicHealth = makeHealth();
+
+  // 실행 중 WebGL 컨텍스트를 잃으면 감지가 실패하기를 기다리지 않고 바로 버린다. 재생성은 재시도 간격을 따른다.
+  function handleContextLost() {
+    keeper.discard('WebGL context lost', DetectorFault.WEBGL_LOST);
+  }
+
+  function makeHealth() {
+    const { health, cause, unavailableSince } = keeper.getStatus();
+    return Object.freeze({ health, cause, since: unavailableSince });
+  }
+
+  function notifyHealth() {
+    const next = makeHealth();
+    if (next.health === publicHealth.health && next.cause === publicHealth.cause) return;
+    publicHealth = next;
+    healthListeners.forEach((listener) => listener(publicHealth));
+  }
 
   function status() {
     if (keeper.isCreating()) return DetectorStatus.LOADING;
@@ -103,7 +145,10 @@ export function createPresenceMonitor({
     cameraWasReady = cameraReady;
     if (cameraReady) cameraEverReady = true;
     pageWasVisible = pageVisible;
-    if (recovered && keeper.get() === null && !keeper.isCreating()) keeper.ensure();
+    // 장애 상태에서는 간격을 앞당기지 않는다 (카메라가 자주 끊겨도 생성이 몰리지 않게).
+    if (recovered && keeper.get() === null && !keeper.isCreating() && keeper.getHealth() !== DetectorHealth.FAULT) {
+      keeper.ensure();
+    }
 
     if (canRun()) {
       if (timer === null && !ticking) timer = timers.setTimeout(tick, 0); // tick 중이면 tick이 다음 감지를 예약한다
@@ -154,6 +199,8 @@ export function createPresenceMonitor({
     try {
       detectOnce();
       consecutiveFailures = 0;
+      keeper.markHealthy();
+      log.clear('detection');
     } catch (detectionError) {
       // 실패한 프레임은 "없음"으로 판정한다. 계속 실패하면 유예 시간 뒤 인식 안됨이 된다.
       detectionErrors += 1;
@@ -162,13 +209,11 @@ export function createPresenceMonitor({
       faces = [];
       presence = stepPresence(presence, false, nowMs(), settings);
       notify();
-      if (consecutiveFailures === 1 || consecutiveFailures === MAX_CONSECUTIVE_FAILURES) {
-        console.warn('[presence] detection failed', consecutiveFailures, detectionError);
-      }
+      log.warn('detection', `detection failed: ${lastDetectionError}`, detectionError);
       if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-        // 감지기를 닫고 버린다. keeper가 detectorRetryMs 뒤 새로 만들고, onChange(sync)로 루프가 멈춘다.
+        // 감지기를 닫고 버린다. keeper가 재시도 간격 뒤 새로 만들고, onChange(sync)로 루프가 멈춘다.
         consecutiveFailures = 0;
-        keeper.discard(`detection kept failing: ${lastDetectionError}`);
+        keeper.discard(`detection kept failing: ${lastDetectionError}`, DetectorFault.DETECT);
         return;
       }
     }
@@ -236,6 +281,14 @@ export function createPresenceMonitor({
       notify();
     },
     getSettings: () => settings,
+    /** 감지기 상태 { health, cause, since }. health는 DetectorHealth, since는 감지기가 없게 된 시각(now 기준, 있으면 null) */
+    getDetectorHealth: () => publicHealth,
+    /** 감지기 상태가 바뀔 때(health·cause)마다 호출한다. 등록 즉시 한 번 호출한다. 해제 함수를 돌려준다. */
+    subscribeDetector(listener) {
+      healthListeners.add(listener);
+      listener(publicHealth);
+      return () => healthListeners.delete(listener);
+    },
     /** 인식 상태가 바뀔 때마다 { present }로 호출한다. 등록 즉시 한 번 호출한다. 해제 함수를 돌려준다. */
     subscribe(listener) {
       listeners.add(listener);
@@ -247,13 +300,21 @@ export function createPresenceMonitor({
       const now = nowMs();
       const detector = keeper.get();
       const currentStatus = status();
+      const keeperStatus = keeper.getStatus();
       return {
         status: currentStatus,
-        error: keeper.getError(),
-        createAttempts: keeper.getAttempts(),
-        retryScheduled: keeper.isRetryScheduled(),
+        health: keeperStatus.health,
+        cause: keeperStatus.cause,
+        error: keeperStatus.error,
+        failuresInRow: keeperStatus.failures,
+        createAttempts: keeperStatus.attempts,
+        creating: keeperStatus.creating,
+        retryInMs: keeperStatus.retryAt === null ? null : Math.max(0, keeperStatus.retryAt - now),
+        unavailableMs: keeperStatus.unavailableSince === null ? null : now - keeperStatus.unavailableSince,
         delegate: detector?.delegate ?? '-',
         delegateFailures: detector?.failures ?? [],
+        webgl: detector?.webgl ?? null,
+        model: detector?.model ?? null,
         input: `${canvas.width}x${canvas.height}`,
         detectMs,
         averageDetectMs,
