@@ -10,6 +10,10 @@ settings.ini
 /captures/
 /runtime/
 
+# npm 설치물 (런타임 파일은 tools/vendor-mediapipe.mjs로 lib/에 복사해 커밋한다)
+node_modules/
+*.download
+
 # 도구별 로컬 설정
 paseo.json
 .claude/settings.local.json

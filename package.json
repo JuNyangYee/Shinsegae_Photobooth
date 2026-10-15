@@ -1,0 +1,11 @@
+{
+  "name": "shinsegae-christmas-photobooth",
+  "private": true,
+  "description": "Local web photobooth. npm is used only to fetch vendored libraries into lib/.",
+  "scripts": {
+    "vendor:mediapipe": "node tools/vendor-mediapipe.mjs"
+  },
+  "devDependencies": {
+    "@mediapipe/tasks-vision": "1.1.1"
+  }
+}

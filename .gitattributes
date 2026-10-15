@@ -6,6 +6,8 @@
 *.cmd text eol=crlf
 
 # MediaPipe 런타임·모델
+# vendor 파일(bundle·wasm 로더 JS·LICENSE 포함)은 받은 바이트 그대로 둔다
+lib/mediapipe/** -text
 *.wasm binary
 *.tflite binary
 *.task binary
