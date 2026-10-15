@@ -4,10 +4,11 @@ param(
     [int]$Port = 8765
 )
 
-# Development static server (Windows PowerShell 5.1).
+# Local static server (Windows PowerShell 5.1).
 # Keep this file ASCII-only: PS 5.1 misreads UTF-8 without BOM.
 #   /        -> src/web/index.html
 #   /lib/*   -> lib/ (404 when the folder does not exist)
+#   /local-api/presence-settings  GET/PUT operator presence settings (config/presence.local.json)
 #   /*       -> src/web/
 
 Set-StrictMode -Version Latest
@@ -16,6 +17,15 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $webRoot = Join-Path $projectRoot 'src\web'
 $libRoot = Join-Path $projectRoot 'lib'
+
+# Operator presence settings (task 4-3). One fixed file; clients never choose a file name or path.
+$settingsApiPath = '/local-api/presence-settings'
+$settingsDir = Join-Path $projectRoot 'config'
+$settingsFile = Join-Path $settingsDir 'presence.local.json'
+$maxSettingsBytes = 16384
+$expectedHost = "localhost:$Port"
+$expectedOrigin = "http://localhost:$Port"
+Add-Type -AssemblyName System.Web.Extensions
 
 if (-not (Test-Path -LiteralPath $webRoot -PathType Container)) {
     throw "Web root was not found: $webRoot"
@@ -98,15 +108,202 @@ function Test-LoopbackRequest($request) {
     return [Net.IPAddress]::IsLoopback($address)
 }
 
+function New-ApiResult([int]$status, [string]$note) {
+    return @{ Status = $status; ContentType = 'text/plain; charset=utf-8'; Body = [byte[]]@(); Note = $note }
+}
+
+# Writes from this page only. Loopback alone does not stop another web page on this PC
+# from sending requests to localhost (CSRF), so a PUT must look like our own same-origin fetch:
+# custom header + JSON content type force a CORS preflight for other origins, and we never
+# answer a preflight with CORS headers. Host/Origin/Sec-Fetch-Site are checked as well.
+# Returns $null when allowed, otherwise an API result.
+function Test-SettingsWrite($request) {
+    if ($request.Headers['Host'] -ne $expectedHost) {
+        return New-ApiResult 403 'host not allowed'
+    }
+    if ($request.Headers['X-Photobooth'] -ne '1') {
+        return New-ApiResult 403 'missing X-Photobooth header'
+    }
+    $origin = $request.Headers['Origin']
+    if ($null -ne $origin -and $origin -ne $expectedOrigin) {
+        return New-ApiResult 403 'origin not allowed'
+    }
+    $site = $request.Headers['Sec-Fetch-Site']
+    if ($null -ne $site -and $site -ne 'same-origin') {
+        return New-ApiResult 403 'cross-site request'
+    }
+    $type = $request.ContentType
+    if ($null -eq $type) {
+        return New-ApiResult 415 'content type must be application/json'
+    }
+    $parts = $type.Split(';')
+    if ($parts[0].Trim() -ne 'application/json') {
+        return New-ApiResult 415 'content type must be application/json'
+    }
+    for ($i = 1; $i -lt $parts.Length; $i++) {
+        $pair = $parts[$i].Split('=')
+        if ($pair[0].Trim() -eq 'charset' -and $pair.Length -gt 1 -and $pair[1].Trim().Trim('"') -ne 'utf-8') {
+            return New-ApiResult 415 'charset must be utf-8'
+        }
+    }
+    return $null
+}
+
+# Reads at most $limit bytes. Returns $null when the body is larger (also for chunked bodies).
+function Read-LimitedBody($request, [int]$limit) {
+    if ($request.ContentLength64 -gt $limit) {
+        return $null
+    }
+    $stream = $request.InputStream
+    $buffer = New-Object byte[] ($limit + 1)
+    $total = 0
+    while ($total -le $limit) {
+        $read = $stream.Read($buffer, $total, $buffer.Length - $total)
+        if ($read -le 0) { break }
+        $total += $read
+    }
+    if ($total -gt $limit) {
+        return $null
+    }
+    $body = New-Object byte[] $total
+    [Array]::Copy($buffer, $body, $total)
+    return ,$body
+}
+
+# Only checks that the body is a UTF-8 JSON object. The page normalizes the values
+# (presence-settings.js), so any stored content still loads safely.
+function Test-JsonObject([byte[]]$bytes) {
+    $strict = New-Object Text.UTF8Encoding($false, $true)
+    try {
+        $text = $strict.GetString($bytes)
+    }
+    catch {
+        return 'body is not valid UTF-8'
+    }
+    $serializer = New-Object Web.Script.Serialization.JavaScriptSerializer
+    try {
+        $value = $serializer.DeserializeObject($text)
+    }
+    catch {
+        return 'body is not valid JSON'
+    }
+    if (-not ($value -is [Collections.Generic.IDictionary[string, object]])) {
+        return 'JSON must be an object'
+    }
+    return $null
+}
+
+# File.Replace / Move can fail briefly while another request or process holds the file.
+function Invoke-WithRetry([scriptblock]$action) {
+    for ($attempt = 1; ; $attempt++) {
+        try {
+            & $action
+            return
+        }
+        catch [IO.IOException], [UnauthorizedAccessException] {
+            if ($attempt -ge 5) { throw }
+            Start-Sleep -Milliseconds 50
+        }
+    }
+}
+
+# Atomic write: write a temp file in the same folder, flush it to disk, then replace the target.
+# Readers always see either the old or the new complete file.
+function Write-SettingsFile([byte[]]$bytes) {
+    [void][IO.Directory]::CreateDirectory($settingsDir)
+    $temp = Join-Path $settingsDir ('presence.local.json.{0}.tmp' -f [Guid]::NewGuid().ToString('N'))
+    try {
+        $stream = New-Object IO.FileStream($temp, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+        try {
+            $stream.Write($bytes, 0, $bytes.Length)
+            $stream.Flush($true)
+        }
+        finally {
+            $stream.Dispose()
+        }
+        Invoke-WithRetry {
+            if ([IO.File]::Exists($settingsFile)) {
+                # [NullString]::Value: PowerShell would pass $null to a string parameter as "" (invalid backup path).
+                [IO.File]::Replace($temp, $settingsFile, [NullString]::Value)
+            }
+            else {
+                [IO.File]::Move($temp, $settingsFile)
+            }
+        }
+    }
+    finally {
+        if ([IO.File]::Exists($temp)) {
+            [IO.File]::Delete($temp)
+        }
+    }
+}
+
+function Read-SettingsFile {
+    for ($attempt = 1; ; $attempt++) {
+        try {
+            return ,[IO.File]::ReadAllBytes($settingsFile)
+        }
+        catch [IO.IOException], [UnauthorizedAccessException] {
+            if ($attempt -ge 5) { throw }
+            Start-Sleep -Milliseconds 50
+        }
+    }
+}
+
+function Invoke-SettingsApi($request) {
+    # Exact path only: no query, no other names, no encoded variants.
+    if (-not ($request.RawUrl -ceq $settingsApiPath)) {
+        return New-ApiResult 404 'unknown local api'
+    }
+    if ($request.HttpMethod -eq 'GET') {
+        if (-not [IO.File]::Exists($settingsFile)) {
+            return New-ApiResult 404 'no settings file'
+        }
+        $bytes = Read-SettingsFile
+        return @{ Status = 200; ContentType = 'application/json; charset=utf-8'; Body = $bytes; Note = '' }
+    }
+    if ($request.HttpMethod -ne 'PUT') {
+        # Includes OPTIONS: a preflight gets no CORS headers, so other origins cannot send the PUT.
+        $result = New-ApiResult 405 'method not allowed'
+        $result.Allow = 'GET, PUT'
+        return $result
+    }
+    $rejected = Test-SettingsWrite $request
+    if ($null -ne $rejected) {
+        return $rejected
+    }
+    $bytes = Read-LimitedBody $request $maxSettingsBytes
+    if ($null -eq $bytes) {
+        return New-ApiResult 413 "body larger than $maxSettingsBytes bytes"
+    }
+    $problem = Test-JsonObject $bytes
+    if ($null -ne $problem) {
+        return New-ApiResult 400 $problem
+    }
+    Write-SettingsFile $bytes
+    return New-ApiResult 204 "saved $($bytes.Length) bytes"
+}
+
 function Send-Response($context) {
     $request = $context.Request
     $response = $context.Response
     $status = 200
     $contentType = 'text/plain; charset=utf-8'
     $body = [byte[]]@()
+    $note = ''
 
     if (-not (Test-LoopbackRequest $request)) {
         $status = 403
+    }
+    elseif ($request.RawUrl.StartsWith('/local-api', [StringComparison]::OrdinalIgnoreCase)) {
+        $result = Invoke-SettingsApi $request
+        $status = $result.Status
+        $contentType = $result.ContentType
+        $body = $result.Body
+        $note = $result.Note
+        if ($result.ContainsKey('Allow')) {
+            $response.Headers['Allow'] = $result.Allow
+        }
     }
     elseif ($request.HttpMethod -ne 'GET' -and $request.HttpMethod -ne 'HEAD') {
         $status = 405
@@ -125,8 +322,12 @@ function Send-Response($context) {
         }
     }
 
-    if ($status -ne 200) {
-        $body = [Text.Encoding]::ASCII.GetBytes("$status`n")
+    if ($status -ne 200 -and $status -ne 204) {
+        $text = "$status`n"
+        if ($note) {
+            $text = "$status $note`n"
+        }
+        $body = [Text.Encoding]::ASCII.GetBytes($text)
     }
 
     $response.StatusCode = $status
@@ -137,7 +338,11 @@ function Send-Response($context) {
     if ($request.HttpMethod -ne 'HEAD' -and $body.Length -gt 0) {
         $response.OutputStream.Write($body, 0, $body.Length)
     }
-    Write-Host ("{0} {1} -> {2}" -f $request.HttpMethod, $request.RawUrl, $status)
+    $suffix = ''
+    if ($note) {
+        $suffix = " ($note)"
+    }
+    Write-Host ("{0} {1} -> {2}{3}" -f $request.HttpMethod, $request.RawUrl, $status, $suffix)
 }
 
 $url = "http://localhost:$Port/"

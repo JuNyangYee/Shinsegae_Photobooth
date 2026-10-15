@@ -1,6 +1,10 @@
 # 현장·개인 설정 (공통 기본값은 이후 settings.example.ini에 둔다)
 settings.ini
 
+# 운영자 조절값 파일 (현장마다 다름. 서버 API가 원자적으로 쓴다)
+/config/*.local.json
+/config/*.tmp
+
 # 실행 로그 (docs/logs/는 작업 로그이므로 제외하지 않는다)
 /logs/
 *.log
