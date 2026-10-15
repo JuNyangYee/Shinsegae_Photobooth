@@ -63,6 +63,7 @@ export function createCameraMonitor({ video, preferredLabel, idealResolution, re
   let deviceChangeTimer = null;
   let stallTimer = null;
   let lastFrameAt = 0;
+  let frameCallbackId = null;
   let cancelFirstFrameWait = null;
   let permissionStatus = null;
 
@@ -77,8 +78,24 @@ export function createCameraMonitor({ video, preferredLabel, idealResolution, re
     listeners.forEach((listener) => listener(state));
   }
 
+  // 프레임 콜백은 한 번에 하나만 걸어 두고, 정리할 때 반드시 취소한다.
+  // 취소하지 않으면 프레임이 오지 않는 동안 등록이 남아 재시도마다 쌓인다.
+  function requestFrame(callback) {
+    frameCallbackId = video.requestVideoFrameCallback(() => {
+      frameCallbackId = null;
+      callback();
+    });
+  }
+
+  function cancelFrame() {
+    if (frameCallbackId === null) return;
+    video.cancelVideoFrameCallback(frameCallbackId);
+    frameCallbackId = null;
+  }
+
   function teardown() {
     generation += 1;
+    cancelFrame();
     cancelFirstFrameWait?.();
     clearInterval(stallTimer);
     stallTimer = null;
@@ -105,7 +122,12 @@ export function createCameraMonitor({ video, preferredLabel, idealResolution, re
     connecting = true;
     teardown();
     const gen = generation;
-    update({ connecting: true, attempts: state.attempts + 1, lastAttemptAt: Date.now() });
+    const patch = { connecting: true, attempts: state.attempts + 1, lastAttemptAt: Date.now() };
+    // 스트림을 정리했으므로 ready였다면 해제하고 구독자에게 알린다.
+    if (state.status === CameraStatus.READY) {
+      Object.assign(patch, { status: CameraStatus.STARTING, reason: 'reconnect', errorName: '' });
+    }
+    update(patch);
 
     try {
       const camera = await startCamera({ preferredLabel, idealResolution });
@@ -137,8 +159,11 @@ export function createCameraMonitor({ video, preferredLabel, idealResolution, re
     // 재생 실패는 따로 다루지 않고 첫 프레임 제한 시간으로 판정한다.
     video.play().catch(() => {});
 
-    if (!(await waitForFirstFrame(gen))) {
-      if (gen !== generation) return;
+    const gotFrame = await waitForFirstFrame();
+    // 기다리는 동안 연결이 무효화됐거나 재연결이 예약됐으면 이 스트림으로 ready를 알리지 않는다.
+    // 예약된 재연결은 connect()의 finally에서 이어진다.
+    if (gen !== generation || reconnectQueued) return;
+    if (!gotFrame) {
       teardown();
       update({ status: CameraStatus.NO_FRAMES, reason: 'first-frame-timeout', errorName: '', failures: state.failures + 1 });
       scheduleRetry();
@@ -183,13 +208,14 @@ export function createCameraMonitor({ video, preferredLabel, idealResolution, re
 
   // requestVideoFrameCallback은 새 프레임이 화면에 올라갈 때만 호출된다.
   // MediaStream 재생에서는 currentTime이 프레임과 무관하게 흐르므로 정지 판정에 쓸 수 없다.
-  function waitForFirstFrame(gen) {
+  function waitForFirstFrame() {
     return new Promise((resolve) => {
       let done = false;
       const finish = (ok) => {
         if (done) return;
         done = true;
         clearTimeout(timer);
+        cancelFrame();
         cancelFirstFrameWait = null;
         resolve(ok);
       };
@@ -198,9 +224,9 @@ export function createCameraMonitor({ video, preferredLabel, idealResolution, re
       const check = () => {
         if (done) return;
         if (video.videoWidth > 0 && video.videoHeight > 0) finish(true);
-        else video.requestVideoFrameCallback(check);
+        else requestFrame(check);
       };
-      video.requestVideoFrameCallback(check);
+      requestFrame(check);
     });
   }
 
@@ -209,9 +235,9 @@ export function createCameraMonitor({ video, preferredLabel, idealResolution, re
     const onFrame = () => {
       if (gen !== generation) return;
       lastFrameAt = performance.now();
-      video.requestVideoFrameCallback(onFrame);
+      requestFrame(onFrame);
     };
-    video.requestVideoFrameCallback(onFrame);
+    requestFrame(onFrame);
 
     stallTimer = setInterval(() => {
       if (gen !== generation) return;
@@ -266,7 +292,8 @@ export function createCameraMonitor({ video, preferredLabel, idealResolution, re
   async function start() {
     if (started) return;
     started = true;
-    if (!('requestVideoFrameCallback' in HTMLVideoElement.prototype)) {
+    if (!('requestVideoFrameCallback' in HTMLVideoElement.prototype)
+      || !('cancelVideoFrameCallback' in HTMLVideoElement.prototype)) {
       update({ status: CameraStatus.UNSUPPORTED, reason: 'no-video-frame-callback' });
       return;
     }
