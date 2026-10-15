@@ -58,9 +58,13 @@ src/web/                    (구현됨)
   js/presence-monitor.js    감지 루프, 인식 상태 구독 (isPresent·subscribe), 판정 설정 교체 (setSettings)
   js/presence-settings.js   판정 설정 검증·정규화·저장 형식, 영역 이동·크기 조절 계산 (순수 함수)
   js/presence-tuning.js     운영자용 인식 범위 조절 화면 (R 키), localStorage 저장
+  js/region-drag.js         인식 영역 마우스 끌기 (이동·크기 조절, 끌기 종료 조건)
+  js/detector-keeper.js     감지기 생성·재시도·폐기 후 재생성 (한 번에 하나만)
   js/(session, capture 등 책임별 모듈은 해당 단계에서 추가)
 tests/presence.test.mjs     판정 모듈 Node 테스트 (개발 PC 전용, `npm test`)
 tests/presence-settings.test.mjs  설정 검증·영역 편집 계산 Node 테스트
+tests/region-drag.test.mjs  영역 끌기 종료 조건 Node 테스트 (EventTarget으로 흉내)
+tests/detector-keeper.test.mjs    감지기 재생성 Node 테스트
 lib/mediapipe/              MediaPipe 런타임·모델 (구현됨, 커밋 대상. 직접 고치지 않고 스크립트로 갱신)
   tasks-vision/vision_bundle.mjs
   tasks-vision/wasm/        vision_wasm_internal.{js,wasm}, vision_wasm_nosimd_internal.{js,wasm}
@@ -244,11 +248,12 @@ camera-monitor (ready·페이지 표시) ──▶ presence-monitor 감지 루�
 
 **감지기 (`face-detector.js`)**
 
-- bundle을 동적 `import`로 불러온다. 불러오기나 생성에 실패해도 카메라 미리보기는 계속 동작하고, 실패 사실은 `D` 화면 `detector : error / ...`에 보인다.
+- bundle을 동적 `import`로 불러온다. 불러오기나 생성에 실패해도 카메라 미리보기는 계속 동작하고, 실패 사실은 `D` 화면 `detector : error / ...`에 보인다. 실패하면 아래 "감지기 재생성" 규칙으로 다시 만든다.
+- Chrome은 실패한 동적 `import()` 결과를 기억해, 원인이 없어져도 같은 URL로는 다시 받지 않는다(2단계 검수 수정 중 확인). 그래서 불러오기에 실패한 적이 있으면 다음 시도에 `?retry=N`을 붙여 새로 받는다. 한 번 성공한 bundle 모듈은 감지기를 다시 만들 때도 그대로 쓴다.
 - `config.faceDetection.delegates` 순서(`GPU` → `CPU`)로 생성을 시도한다. 앞선 delegate가 실패한 이유는 `D` 화면 `delegate` 줄에 보인다.
 - 감지기 자체의 `minDetectionConfidence`(`detectorMinConfidence` 0.3)는 낮게 둔다. 신뢰도는 판정 쪽 `presence.minScore`로 거른다. 2-3에서 감지기를 다시 만들지 않고 실시간으로 조절하기 위해서다.
 - 결과: `{ x, y, width, height, score }[]`. 감지 입력(영상 프레임 전체를 축소한 캔버스) 기준 0~1 정규화, 왼쪽 위 원점, 반전 전.
-- WebGL을 전혀 쓸 수 없으면 CPU delegate도 생성은 되지만 매 프레임 감지에 실패한다(MediaPipe가 입력을 WebGL 텍스처로 올리기 때문, `ImageData` 입력도 같음). 이때 감지 루프가 `error`로 표시한다(아래).
+- WebGL을 전혀 쓸 수 없으면 CPU delegate도 생성은 되지만 매 프레임 감지에 실패한다(MediaPipe가 입력을 WebGL 텍스처로 올리기 때문, `ImageData` 입력도 같음). 이때 감지 루프가 감지기를 버리고 다시 만든다(아래). WebGL이 끝내 없으면 이를 되풀이하므로, 현장 Chrome의 하드웨어 가속 점검은 4단계에서 다룬다.
 
 **좌표 기준 (`presence.js`)**
 
@@ -272,8 +277,18 @@ camera-monitor (ready·페이지 표시) ──▶ presence-monitor 감지 루�
 - 카메라가 `ready`이고 페이지가 보이며 영상 크기가 0이 아닐 때만 돈다. 아니면 즉시 멈추고(`paused`) 인식 상태를 **인식 안됨**으로 되돌린다. 카메라 감시 모듈의 `subscribe()`와 `visibilitychange`로 시작·중지한다.
 - 4K 영상을 그대로 넣지 않는다. 긴 변을 `inputMaxSize`(640px) 이하로 줄인 캔버스에 그려 감지한다(OBS 1080×1920 → 360×640).
 - 호출 간격은 `1000 / maxFps`에서 처리 시간을 뺀 값이다. `detectForVideo` 타임스탬프는 `max(performance.now(), 직전 + 1)`로 항상 증가시킨다.
-- 감지가 실패한 프레임은 "없음"으로 판정한다. 15번 연속 실패하면(약 1초) `error`로 표시하고 1초 간격으로 다시 시도한다. 성공하면 `running`으로 돌아온다. 콘솔 경고는 연속 실패의 첫 번째와 `error`로 바뀔 때만 남긴다.
-- 상태(`DetectorStatus`): `loading`(생성 중), `running`, `paused`(카메라 미준비·페이지 숨김), `error`(생성 실패 또는 연속 감지 실패).
+- 감지가 실패한 프레임은 "없음"으로 판정한다. 15번 연속 실패하면(약 1초) 감지기를 버리고 다시 만든다(아래). 콘솔 경고는 연속 실패의 첫 번째와 15번째에만 남긴다.
+- 상태(`DetectorStatus`): `loading`(생성 중), `running`, `paused`(카메라 미준비·페이지 숨김), `error`(감지기 없음: 생성 실패 또는 계속 실패해 버림, 재생성을 기다리는 중).
+
+**감지기 재생성 (`detector-keeper.js`, 2단계 검수 반영)**
+
+- 생성에 실패하면 `faceDetection.detectorRetryMs`(15초, 가안) 뒤 다시 만든다. 생성은 메인 스레드를 약 1초 막으므로 간격을 너무 짧게 두지 않는다.
+- 감지가 15번 연속 실패하면(예: 실행 중 WebGL 컨텍스트 손실) 감지기를 `close()`로 닫고 버린 뒤, 같은 간격 뒤 새로 만든다. `close()`가 실패해도 버린다.
+- **바로 다시 만드는 계기:** 감지기가 없을 때 카메라가 다시 준비되거나(한 번 준비된 적이 있는 카메라의 재연결. 처음 준비되는 것은 계기가 아니다) 페이지가 다시 보이면, 간격을 기다리지 않고 바로 만든다. 예약된 재시도는 지운다.
+- 생성은 한 번에 하나만 진행한다. 생성 중에 다시 요청하면 진행 중인 생성을 기다린다.
+- 재생성과 관계없이 감지기가 없는 동안 인식 상태는 **인식 안됨**이고, 카메라 미리보기는 그대로 동작한다.
+- `D` 화면: `detector : loading`(생성 중) / `error / <이유>`(재시도 대기) / `running`·`paused`.
+- 검증: 번들 차단 → 해제 후 재시도 간격 뒤 회복, 번들 차단 → 해제 + 카메라 트랙 종료 후 즉시 회복, WebGL 없음 흉내 → 감지기 폐기 → WebGL 복구 흉내 후 재생성으로 회복(로그 06 "2단계 단위 검수").
 
 **이후 단계용 경계**
 
@@ -283,7 +298,7 @@ camera-monitor (ready·페이지 표시) ──▶ presence-monitor 감지 루�
 **화면**
 
 - 인식 상태 임시 표시: 9:16 영역 아래쪽 가운데에 "인식됨"(초록 배경)·"인식 안됨". 카메라가 준비되지 않았으면 숨긴다(이때는 "준비 중" 문구). `config.showPresenceIndicator`로 끈다. 최종 디자인 전 기본 UI다(가안).
-- `D` 화면에 추가된 정보: 감지기 상태와 오류, delegate(실패한 delegate 이유), 감지 시간(마지막·평균)과 그리기 시간, 실제 감지 빈도, 감지 입력 크기, 감지된 얼굴 수와 인정된 얼굴 수, 판정과 안정화 진행(`-> present 343/500ms`), 현재 기준값(조절 화면에서 바꾼 값 포함), 기준값 출처(`settings : stored`/`defaults`)와 불러올 때 고친 내용, 얼굴별 점수·높이·중심과 제외 이유(`region`·`small`·`large`·`score`), 감지 오류 횟수.
+- `D` 화면에 추가된 정보: 감지기 상태와 오류, delegate(실패한 delegate 이유), 감지 시간(마지막·평균)과 그리기 시간, 실제 감지 빈도, 감지 입력 크기, 감지된 얼굴 수와 인정된 얼굴 수, 판정과 안정화 진행(`-> present 343/500ms`), 현재 기준값(조절 화면에서 바꾼 값 포함), 기준값 출처(`settings : stored`(시작할 때 읽음)·`saved`(이번 실행 중 저장)·`defaults`, 저장하지 않은 변경이 있으면 `+ unsaved changes`)와 저장 전까지는 불러올 때 고친 내용, 얼굴별 점수·높이·중심과 제외 이유(`region`·`small`·`large`·`score`), 감지 오류 횟수.
 - `D` 화면을 켜면 9:16 영역 위에 인식 영역(노란 점선)과 감지 박스를 겹쳐 그린다. 인정된 얼굴은 초록, 제외된 얼굴은 빨강이며, 박스 위에 점수, 중심에 점을 찍는다.
 
 **설정값 (`config.js`, 가안)**
@@ -294,6 +309,7 @@ camera-monitor (ready·페이지 표시) ──▶ presence-monitor 감지 루�
 | `faceDetection.detectorMinConfidence` | 0.3 | 감지기 자체 기준 (낮게) |
 | `faceDetection.maxFps` | 15 | 감지 최대 빈도 |
 | `faceDetection.inputMaxSize` | 640 | 감지 입력 캔버스 긴 변 최대 px |
+| `faceDetection.detectorRetryMs` | 15000 | 감지기 생성 실패·폐기 후 다시 만들기까지의 간격 |
 | `presence.region` | `{ x: 0.1, y: 0.1, width: 0.8, height: 0.8 }` | 인식 영역 (화면 좌표, 가운데 넓은 사각형) |
 | `presence.minFaceHeight` | 0.05 | 최소 얼굴 높이 / 9:16 영역 높이 |
 | `presence.maxFaceHeight` | 0.6 | 최대 얼굴 높이 / 9:16 영역 높이 (2-3 추가) |
@@ -308,6 +324,8 @@ camera-monitor (ready·페이지 표시) ──▶ presence-monitor 감지 루�
 
 - `tests/presence.test.mjs`: 좌표 변환(반전, 가로 영상·9:16·세로로 긴 영상의 cover 크롭), 영역 경계·최소/최대 크기·신뢰도, 안정화(유지 시간 경계, 깜빡임, 짧은 끊김, 시간값 0)
 - `tests/presence-settings.test.mjs`: 설정 검증(아래)과 영역 이동·크기 조절 계산
+- `tests/region-drag.test.mjs`: 끌기 종료 조건(놓기, `blur`, `lostpointercapture`, 버튼 떼어짐)과 리스너 해제
+- `tests/detector-keeper.test.mjs`: 생성 실패 → 원인 제거 → 재생성, 생성 중 중복 시작 1회, 폐기 후 재생성
 
 감지 루프와 화면은 브라우저 하네스로 확인한다(로그 05·06).
 
@@ -336,6 +354,7 @@ camera-monitor (ready·페이지 표시) ──▶ presence-monitor 감지 루�
 | 고급: 인식 안됨까지 유예 시간 `absentGraceMs` | 슬라이더 (50ms 단위) | 0~5000ms |
 
 - 영역 끌기는 시작 위치 대비 이동량으로 계산하고, 반대쪽 변은 고정한다. 끌기 동안에는 `window`에서 포인터 이동·놓기를 받는다. 그래서 포인터가 영역·화면 밖이나 패널 위로 나가도 끌기가 이어진다(검증용 headless Chrome에서는 포인터 캡처가 적용되지 않아 이렇게 바꿨다).
+- 끌기는 다음 중 하나가 오면 끝나고, 창과 요소에 붙인 리스너를 모두 해제한다(`region-drag.js`): 주 버튼 놓기(`pointerup`), `pointercancel`, 창 포커스 상실(`blur`), 포인터 캡처 상실(`lostpointercapture`), 놓기 이벤트를 놓친 채 이동 중 주 버튼이 떼어져 있음(`(buttons & 1) === 0`, 이때 그 이동은 반영하지 않음), 조절 화면 닫기.
 - 최소·최대 얼굴 크기 슬라이더는 서로를 넘지 못하게, 움직인 쪽이 멈춘다.
 - 패널에 실시간 인식 상태(인식됨/인식 안됨, 안정화 진행, 감지·인정 얼굴 수, 감지기 상태), 영역 수치, 저장 여부를 보인다.
 
