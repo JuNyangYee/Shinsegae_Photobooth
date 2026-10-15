@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { computeCaptureCrop, createCapture } from '../src/web/js/capture.js';
+import { fakeCanvasEnvironment as fakeEnvironment, flush } from './helpers.mjs';
 
 const STAGE = 9 / 16;
 
@@ -32,53 +33,6 @@ describe('computeCaptureCrop', () => {
   });
 });
 
-// 캔버스·Object URL 흉내
-//   context: 'ok' | 'null'(getContext가 null) | 'draw-throws'(drawImage 예외)
-//   blob: 'ok' | 'null'(toBlob이 null) | 'never'(콜백이 오지 않음) | 'manual'(테스트가 콜백 시점을 정함)
-export function fakeEnvironment({ context = 'ok', blob = 'ok' } = {}) {
-  const canvases = [];
-  const revoked = [];
-  const blobCallbacks = [];
-  let nextUrl = 1;
-  return {
-    canvases,
-    revoked,
-    blobCallbacks,
-    createCanvas() {
-      const calls = [];
-      const canvas = {
-        width: 300,
-        height: 150,
-        calls,
-        getContext: () => (context === 'null' ? null : {
-          translate: (...args) => calls.push(['translate', ...args]),
-          scale: (...args) => calls.push(['scale', ...args]),
-          drawImage: (...args) => {
-            if (context === 'draw-throws') throw new Error('drawImage failed');
-            calls.push(['drawImage', ...args.slice(1)]);
-          },
-        }),
-        toBlob(callback, type, quality) {
-          calls.push(['toBlob', type, quality]);
-          const respond = () => callback(blob === 'null' ? null : { size: 1234, type });
-          if (blob === 'ok' || blob === 'null') queueMicrotask(respond);
-          else if (blob === 'manual') blobCallbacks.push(respond);
-          // 'never': 콜백이 오지 않는다
-        },
-      };
-      canvases.push(canvas);
-      return canvas;
-    },
-    urls: {
-      createObjectURL: () => `blob:fake/${nextUrl++}`,
-      revokeObjectURL: (url) => revoked.push(url),
-    },
-    /** 픽셀 버퍼가 남은 캔버스 수 */
-    liveCanvasCount: () => canvases.filter((c) => c.width * c.height > 0).length,
-  };
-}
-
-const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 function setup({ videoWidth = 1920, videoHeight = 1080, mirror = true, context, blob, effect, frameAge = 10 } = {}) {
   const env = fakeEnvironment({ context, blob });

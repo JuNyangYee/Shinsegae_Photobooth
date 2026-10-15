@@ -3,44 +3,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { SessionState, createSession } from '../src/web/js/session.js';
-
-const timing = Object.freeze({ countdownSeconds: 3, resultMs: 10000, cooldownMs: 5000, captureTimeoutMs: 5000 });
-
-// 가짜 시계와 타이머. advance(ms)는 그 사이에 걸린 타이머를 시각 순서대로 실행한다.
-function fakeClock() {
-  let time = 0;
-  let nextId = 1;
-  const pending = new Map();
-  return {
-    now: () => time,
-    timers: {
-      setTimeout(callback, ms) {
-        const id = nextId++;
-        pending.set(id, { callback, at: time + ms });
-        return id;
-      },
-      clearTimeout(id) {
-        pending.delete(id);
-      },
-    },
-    pending,
-    advance(ms) {
-      const target = time + ms;
-      for (;;) {
-        let dueId = null;
-        for (const [id, entry] of pending) {
-          if (entry.at <= target && (dueId === null || entry.at < pending.get(dueId).at)) dueId = id;
-        }
-        if (dueId === null) break;
-        const { callback, at } = pending.get(dueId);
-        pending.delete(dueId);
-        time = at;
-        callback();
-      }
-      time = target;
-    },
-  };
-}
+import { fakeClock, flush, quiet, timing } from './helpers.mjs';
 
 // takePhoto: 호출을 기록하고, 테스트가 resolve·reject 시점을 정한다.
 function fakeCamera() {
@@ -49,11 +12,11 @@ function fakeCamera() {
   return {
     shots,
     released,
-    takePhoto() {
+    takePhoto({ signal } = {}) {
       let resolve;
       let reject;
       const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
-      const shot = { id: shots.length + 1, photo: { id: `photo-${shots.length + 1}` }, promise };
+      const shot = { id: shots.length + 1, photo: { id: `photo-${shots.length + 1}` }, promise, signal };
       shot.finish = () => { resolve(shot.photo); return flush(); };
       shot.fail = (error) => { reject(error); return flush(); };
       shots.push(shot);
@@ -65,8 +28,6 @@ function fakeCamera() {
   };
 }
 
-// Promise 콜백이 돌도록 마이크로태스크를 비운다.
-const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 function setup(options = {}) {
   const clock = fakeClock();
@@ -87,15 +48,6 @@ function setup(options = {}) {
   return { clock, camera, session, states, state: () => session.getState() };
 }
 
-async function quiet(fn) {
-  const warn = console.warn;
-  console.warn = () => {};
-  try {
-    return await fn();
-  } finally {
-    console.warn = warn;
-  }
-}
 
 describe('createSession: 정상 한 사이클', () => {
   it('3·2·1 → 3000ms에 촬영 → 결과 10000ms → 쿨타임 5000ms → 대기 (경계 시간)', async () => {
@@ -161,13 +113,22 @@ describe('createSession: 정상 한 사이클', () => {
     assert.deepEqual(camera.released, ['photo-1', 'photo-2', 'photo-3']);
   });
 
-  it('카운트다운 타이머가 늦게 불려도 숫자는 시작 시각 기준으로 바뀐다', () => {
-    const { clock, session, state } = setup();
+  it('카운트다운 타이머가 늦게 불려도 숫자는 시작 시각 기준으로 바뀐다 (늦음이 쌓이지 않음)', () => {
+    const { clock, camera, session, state } = setup();
     session.request('start', 'key');
-    clock.advance(1300); // 1000ms 타이머가 1300ms에 실행된 것처럼
+    clock.skip(1300); // 메인 스레드가 막혀 1000ms 타이머가 1300ms에야 불린다
+    clock.runDue();
+    assert.equal(clock.now(), 1300);
     assert.equal(state().countdown, 2);
-    const next = [...clock.pending.values()][0];
-    assert.equal(next.at, 2000); // 다음 숫자는 2300이 아니라 2000
+    assert.equal([...clock.pending.values()][0].at, 2000); // 상대 1000ms로 예약하면 2300
+    clock.skip(900); // 2200ms에 불린다
+    clock.runDue();
+    assert.equal(state().countdown, 1);
+    assert.equal([...clock.pending.values()][0].at, 3000); // 늦음이 쌓였다면 3200 이후
+    clock.advance(799);
+    assert.equal(camera.shots.length, 0);
+    clock.advance(1); // 3000ms
+    assert.equal(camera.shots.length, 1);
   });
 });
 
@@ -338,7 +299,9 @@ describe('createSession: 늦게 끝난 사진 만들기', () => {
     await camera.shots[0].fail(new Error('encode failed'));
     assert.equal(state().state, SessionState.IDLE);
     assert.equal(state().lastError, 'encode failed');
-    assert.equal(clock.pending.size, 0);
+    assert.equal(state().failures, 1);
+    assert.equal(state().failureBackoff, true);
+    assert.equal(clock.pending.size, 1); // 자동 시작 대기 타이머만 남는다
 
     const throwing = setup({ takePhoto: () => { throw new Error('video not ready'); } });
     throwing.session.request('start', 'key');
@@ -407,4 +370,96 @@ describe('createSession: 강제 초기화', () => {
     const { session } = setup();
     assert.throws(() => session.request('shoot'), /unknown session request/);
   });
+});
+
+describe('createSession: 회차별 취소 경계 (검수 B)', () => {
+  it('제한 시간이 지나면 진행 중인 사진 만들기에 abort를 보낸다', () => quiet(async () => {
+    const { clock, camera, session } = setup();
+    session.request('start', 'key');
+    clock.advance(3000);
+    const { signal } = camera.shots[0];
+    assert.equal(signal.aborted, false);
+    clock.advance(5000);
+    assert.equal(signal.aborted, true);
+    assert.match(signal.reason.message, /capture aborted: capture-failed/);
+  }));
+
+  it('촬영·결과 준비 중 강제 초기화하면 abort를 보낸다', () => {
+    const { clock, camera, session } = setup();
+    session.request('start', 'key');
+    clock.advance(3000);
+    session.request('reset', 'key');
+    assert.equal(camera.shots[0].signal.aborted, true);
+    assert.match(camera.shots[0].signal.reason.message, /reset: key/);
+  });
+
+  it('정상으로 끝난 회차의 신호는 abort하지 않는다 (결과 뒤 초기화해도)', async () => {
+    const { clock, camera, session } = setup();
+    session.request('start', 'key');
+    clock.advance(3000);
+    await camera.shots[0].finish();
+    session.request('reset', 'key');
+    assert.equal(camera.shots[0].signal.aborted, false);
+  });
+
+  it('회차마다 새 신호를 쓴다', async () => {
+    const { clock, camera, session } = setup();
+    session.request('start', 'key');
+    clock.advance(3000);
+    session.request('reset', 'key');
+    session.request('start', 'key');
+    clock.advance(3000);
+    assert.notEqual(camera.shots[0].signal, camera.shots[1].signal);
+    assert.equal(camera.shots[1].signal.aborted, false);
+  });
+});
+
+describe('createSession: 실패 뒤 자동 시작 대기 기록 (검수 A)', () => {
+  async function failOnce(t) {
+    t.session.request('start', 'key');
+    t.clock.advance(3000);
+    await t.camera.shots.at(-1).fail(new Error('boom'));
+  }
+
+  it('연속 실패마다 대기 시간이 두 배로 늘고 상한에서 멈춘다 (5·10·20·40·60·60초)', () => quiet(async () => {
+    const t = setup();
+    const waits = [];
+    for (let i = 0; i < 6; i += 1) {
+      await failOnce(t);
+      waits.push(t.state().retryAt - t.clock.now());
+      assert.equal(t.state().failures, i + 1);
+    }
+    assert.deepEqual(waits, [5000, 10000, 20000, 40000, 60000, 60000]);
+  }));
+
+  it('대기 시간이 끝나면 알리고(failureBackoff false), 실패 수는 남는다', () => quiet(async () => {
+    const t = setup();
+    await failOnce(t);
+    let notified = 0;
+    t.session.subscribe(() => { notified += 1; });
+    notified = 0;
+    t.clock.advance(4999);
+    assert.equal(t.state().failureBackoff, true);
+    t.clock.advance(1);
+    assert.equal(t.state().failureBackoff, false);
+    assert.equal(t.state().retryAt, null);
+    assert.equal(t.state().failures, 1);
+    assert.equal(notified, 1);
+  }));
+
+  it('대기 중에도 상태 기계의 시작(수동)은 막지 않고, 성공하면 기록을 지운다', () => quiet(async () => {
+    const t = setup();
+    await failOnce(t);
+    await failOnce(t);
+    assert.equal(t.state().failureBackoff, true);
+    assert.equal(t.session.request('start', 'key').accepted, true);
+    t.clock.advance(3000);
+    await t.camera.shots.at(-1).finish();
+    assert.equal(t.state().failures, 0);
+    assert.equal(t.state().failureBackoff, false);
+    t.clock.advance(15000);
+    assert.equal(t.clock.pending.size, 0);
+    await failOnce(t);
+    assert.equal(t.state().retryAt - t.clock.now(), 5000); // 처음부터 다시
+  }));
 });

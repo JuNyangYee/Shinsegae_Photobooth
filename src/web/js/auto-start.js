@@ -8,16 +8,18 @@ export const AUTO_SOURCE = 'presence';
 
 /**
  * 지금 상태만 보고(레벨 판정) 보낼 요청을 정한다. 순수 함수.
- * @param {{ state: string, source: string, cameraReady: boolean, pageVisible: boolean,
- *   present: boolean, tuningOpen: boolean }} input  state·source·cameraReady·pageVisible은 session 스냅숏
+ * @param {{ state: string, source: string, cameraReady: boolean, pageVisible: boolean, failureBackoff: boolean,
+ *   present: boolean, tuningOpen: boolean }} input  state·source·cameraReady·pageVisible·failureBackoff는 session 스냅숏
  * @returns {{ action: 'start' | 'cancel' | null, reason: string }}
  */
-export function decideAutoRequest({ state, source, cameraReady, pageVisible, present, tuningOpen }) {
+export function decideAutoRequest({ state, source, cameraReady, pageVisible, failureBackoff = false, present, tuningOpen }) {
   if (state === SessionState.IDLE) {
     if (!present) return { action: null, reason: 'idle, not present' };
     if (!cameraReady) return { action: null, reason: 'blocked: camera-not-ready' };
     if (!pageVisible) return { action: null, reason: 'blocked: page-hidden' };
     if (tuningOpen) return { action: null, reason: 'blocked: tuning-open' };
+    // 오류 복구 정책: 촬영이 실패했으면 정해진 시간 동안 자동 시작을 쉰다 (정상 회차의 쿨타임과 별개).
+    if (failureBackoff) return { action: null, reason: 'blocked: capture-failed (retry wait)' };
     return { action: 'start', reason: 'idle and present' };
   }
   if (state === SessionState.COUNTDOWN) {
@@ -51,6 +53,7 @@ export function createAutoStart({ session, presence, isTuningOpen, now = () => D
       source: s.source,
       cameraReady: s.cameraReady,
       pageVisible: s.pageVisible,
+      failureBackoff: s.failureBackoff,
       present: presence.isPresent(),
       tuningOpen: isTuningOpen(),
     });

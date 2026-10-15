@@ -3,64 +3,10 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { createAutoStart, decideAutoRequest } from '../src/web/js/auto-start.js';
+import { createCapture } from '../src/web/js/capture.js';
 import { SessionState, createSession } from '../src/web/js/session.js';
+import { fakeCanvasEnvironment, fakeClock, fakePresence, flush, quiet, timing } from './helpers.mjs';
 
-const timing = Object.freeze({ countdownSeconds: 3, resultMs: 10000, cooldownMs: 5000, captureTimeoutMs: 5000 });
-
-function fakeClock() {
-  let time = 0;
-  let nextId = 1;
-  const pending = new Map();
-  return {
-    now: () => time,
-    timers: {
-      setTimeout(callback, ms) {
-        const id = nextId++;
-        pending.set(id, { callback, at: time + ms });
-        return id;
-      },
-      clearTimeout(id) {
-        pending.delete(id);
-      },
-    },
-    advance(ms) {
-      const target = time + ms;
-      for (;;) {
-        let dueId = null;
-        for (const [id, entry] of pending) {
-          if (entry.at <= target && (dueId === null || entry.at < pending.get(dueId).at)) dueId = id;
-        }
-        if (dueId === null) break;
-        const { callback, at } = pending.get(dueId);
-        pending.delete(dueId);
-        time = at;
-        callback();
-      }
-      time = target;
-    },
-  };
-}
-
-// 인식 상태 흉내: 바뀔 때만 알리고, 등록 즉시 한 번 알린다 (presence-monitor.js와 같은 규칙).
-function fakePresence(initial = false) {
-  let present = initial;
-  const listeners = new Set();
-  return {
-    isPresent: () => present,
-    subscribe(listener) {
-      listeners.add(listener);
-      listener({ present });
-      return () => listeners.delete(listener);
-    },
-    set(next) {
-      if (next === present) return;
-      present = next;
-      listeners.forEach((listener) => listener({ present }));
-    },
-  };
-}
-
-const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 function setup({ present = false, cameraReady = true, tuningOpen = false } = {}) {
   const clock = fakeClock();
@@ -106,6 +52,7 @@ describe('decideAutoRequest (레벨 판정)', () => {
     assert.equal(decideAutoRequest(base).action, 'start');
   });
   it('하나라도 빠지면 시작하지 않는다', () => {
+    assert.deepEqual(decideAutoRequest({ ...base, failureBackoff: true }), { action: null, reason: 'blocked: capture-failed (retry wait)' });
     assert.deepEqual(decideAutoRequest({ ...base, present: false }), { action: null, reason: 'idle, not present' });
     assert.deepEqual(decideAutoRequest({ ...base, cameraReady: false }), { action: null, reason: 'blocked: camera-not-ready' });
     assert.deepEqual(decideAutoRequest({ ...base, pageVisible: false }), { action: null, reason: 'blocked: page-hidden' });
@@ -327,4 +274,74 @@ describe('createAutoStart: 이탈 취소', () => {
     assert.equal(t.state().round, 3); // 시작 1, 초기화 2, 다시 시작 3
     assert.equal(t.auto.getDebug().lastStart.trigger, 'entered idle (reset: key)');
   });
+});
+
+// 실제 상태 기계 + 자동 시작 + 캡처를 묶는다. 브라우저 API(캔버스·Object URL)만 흉내.
+function setupWithCapture({ context = 'ok', blob = 'ok', present = true } = {}) {
+  const clock = fakeClock(1000);
+  const env = fakeCanvasEnvironment({ context, blob });
+  const capture = createCapture({
+    video: { videoWidth: 1080, videoHeight: 1920 }, stageAspect: 9 / 16, mirror: true, type: 'image/jpeg', quality: 0.92,
+    maxFrameAgeMs: 500, getFrameInfo: () => ({ at: clock.now() - 10, count: 1 }), // 늘 새 프레임
+    createCanvas: env.createCanvas, urls: env.urls, now: clock.now,
+  });
+  const session = createSession({
+    timing, takePhoto: capture.take, releasePhoto: capture.release, cameraReady: true, timers: clock.timers, now: clock.now,
+  });
+  const presence = fakePresence(present);
+  const tuning = { open: false };
+  const auto = createAutoStart({ session, presence, isTuningOpen: () => tuning.open, now: clock.now });
+  auto.start();
+  // 가짜 시계를 100ms씩 진행하며 Promise도 돌린다
+  async function run(ms) {
+    for (let t = 0; t < ms; t += 100) {
+      clock.advance(100);
+      await flush();
+    }
+  }
+  return { clock, env, capture, session, presence, tuning, auto, run, state: () => session.getState() };
+}
+
+describe('검수 A 재현: 캡처가 계속 실패하고 사람이 계속 서 있음', () => {
+  it('60초 동안 시도가 대기 시간으로 제한되고(무제한 재시도 없음), 캔버스가 남지 않는다', () => quiet(async () => {
+    const t = setupWithCapture({ context: 'draw-throws' });
+    await t.run(60000);
+    // 대기 없이 반복하면 3초마다(약 20회). 대기 5·10·20초 → 시도는 3000, 11000, 24000, 47000ms 근처의 4회
+    assert.equal(t.env.canvases.length, 4);
+    assert.equal(t.env.liveCanvasCount(), 0);
+    assert.equal(t.capture.getStats().liveCanvases, 0);
+    assert.equal(t.state().failures, 4);
+    assert.equal(t.auto.getDebug().lastReason, 'blocked: capture-failed (retry wait)');
+  }));
+
+  it('대기 중에도 S 수동 시작은 되고, 성공하면 대기가 풀려 정상 연속 촬영으로 돌아간다', () => quiet(async () => {
+    const t = setupWithCapture({ context: 'null' });
+    await t.run(3500); // 1회 실패, 대기 5초
+    assert.equal(t.state().failureBackoff, true);
+    t.env.context = 'ok'; // 원인 해결
+    assert.equal(t.session.request('start', 'key').accepted, true);
+    await t.run(3500);
+    assert.equal(t.state().state, SessionState.RESULT);
+    assert.equal(t.state().failures, 0);
+    await t.run(15000); // 결과 10초 + 쿨타임 5초 → 서 있으므로 바로 자동 시작
+    assert.equal(t.state().state, SessionState.COUNTDOWN);
+    assert.equal(t.state().source, 'presence');
+  }));
+});
+
+describe('검수 B 재현: toBlob 콜백이 오지 않음', () => {
+  it('제한 시간 뒤 캔버스를 바로 비우고, 이후 시도는 캔버스를 새로 만들지 않으며 대기 시간으로 제한된다', () => quiet(async () => {
+    const t = setupWithCapture({ blob: 'never' });
+    await t.run(3100); // 1회차 촬영 시작, 인코딩 중
+    assert.equal(t.env.liveCanvasCount(), 1);
+    await t.run(5000); // 제한 시간 5초
+    assert.equal(t.state().lastEnd, 'capture-failed');
+    assert.match(t.state().lastError, /capture timeout/);
+    assert.equal(t.env.liveCanvasCount(), 0);
+    await t.run(60000);
+    assert.equal(t.env.canvases.length, 1); // 그 뒤 시도는 'capture busy'로 실패, 캔버스 없음
+    assert.equal(t.env.liveCanvasCount(), 0);
+    assert.match(t.state().lastError, /capture busy/);
+    assert.ok(t.state().failures <= 5);
+  }));
 });

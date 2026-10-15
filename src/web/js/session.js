@@ -12,8 +12,10 @@ export const SessionState = Object.freeze({
 
 /**
  * @param {{
- *   timing: { countdownSeconds: number, resultMs: number, cooldownMs: number, captureTimeoutMs: number },
- *   takePhoto: () => Promise<object>,  호출 순간 프레임을 동기로 잡고, 결과 이미지(photo)를 비동기로 돌려준다
+ *   timing: { countdownSeconds: number, resultMs: number, cooldownMs: number, captureTimeoutMs: number,
+ *     failureRetryMs: number, failureRetryMaxMs: number },
+ *   takePhoto: ({ signal }) => Promise<object>,  호출 순간 프레임을 동기로 잡고, 결과 이미지(photo)를 비동기로 돌려준다.
+ *     signal은 회차별 취소 경계다. 제한 시간 초과·강제 초기화 때 abort되며, 받은 쪽은 하던 일을 멈추고 자원을 정리한다
  *   releasePhoto: (photo: object) => void,  photo의 자원(Object URL 등)을 정리한다. 여러 번 불려도 안전해야 한다
  *   cameraReady?: boolean, pageVisible?: boolean,
  *   timers?: { setTimeout: Function, clearTimeout: Function }, now?: () => number,
@@ -36,6 +38,12 @@ export function createSession({
   let photo = null;
   let cameraReady = initialCameraReady;
   let pageVisible = initialPageVisible;
+  let captureAbort = null; // 진행 중인 사진 만들기의 취소 경계 (AbortController)
+
+  // 촬영 실패 기록. 자동 시작은 retryAt까지 쉰다(auto-start.js). 수동 시작은 막지 않는다. 성공하면 지운다.
+  let failures = 0; // 마지막 성공 이후 연속 실패 수
+  let retryAt = null; // 자동 시작을 다시 허용하는 시각 (now() 기준). 쉬는 중이 아니면 null
+  let retryTimer = null;
 
   // 개발용 정보 (D 화면)
   let lastEnd = ''; // 마지막 회차가 끝난 방식
@@ -49,6 +57,7 @@ export function createSession({
   function makeSnapshot() {
     return Object.freeze({
       state, round, source, countdown, endsAt, photo, cameraReady, pageVisible,
+      failures, retryAt, failureBackoff: retryAt !== null,
       lastEnd, lastIgnored, lastError, staleResults, completed,
     });
   }
@@ -81,8 +90,16 @@ export function createSession({
     }
   }
 
+  // 진행 중인 사진 만들기를 멈추게 한다. 결과가 늦게 와도 회차 검사로 버린다.
+  function abortCapture(reason) {
+    if (captureAbort === null) return;
+    captureAbort.abort(new Error(`capture aborted: ${reason}`));
+    captureAbort = null;
+  }
+
   function goIdle(reason) {
     clearTimer();
+    abortCapture(reason);
     const old = photo;
     photo = null;
     state = SessionState.IDLE;
@@ -141,9 +158,11 @@ export function createSession({
     const myRound = round;
     state = SessionState.CAPTURING;
     countdown = 0;
+    const controller = new AbortController();
+    captureAbort = controller;
     let pending;
     try {
-      pending = Promise.resolve(takePhoto()); // 여기서 프레임을 잡는다
+      pending = Promise.resolve(takePhoto({ signal: controller.signal })); // 여기서 프레임을 잡는다
     } catch (error) {
       pending = Promise.reject(error);
     }
@@ -157,6 +176,7 @@ export function createSession({
           notify();
           return;
         }
+        captureAbort = null;
         showResult(result);
       },
       (error) => {
@@ -167,15 +187,38 @@ export function createSession({
   }
 
   // 사진을 만들지 못하면 보여 줄 것이 없으므로 쿨타임 없이 대기로 돌아간다.
+  // 정상 회차의 연속 촬영(쿨타임 뒤 바로 시작)과 달리, 실패 뒤에는 자동 시작을 쉬게 해 실패가 빠르게 반복되지 않게 한다.
   function fail(error) {
     lastError = error?.message ?? String(error);
     console.warn('[session] capture failed', error);
+    recordFailure();
     goIdle('capture-failed');
+  }
+
+  // 연속 실패할수록 쉬는 시간을 두 배로 늘린다 (failureRetryMs, ×2, … 최대 failureRetryMaxMs).
+  function recordFailure() {
+    failures += 1;
+    const delay = Math.min(timing.failureRetryMaxMs, timing.failureRetryMs * 2 ** (failures - 1));
+    retryAt = now() + delay;
+    timers.clearTimeout(retryTimer);
+    retryTimer = timers.setTimeout(() => {
+      retryTimer = null;
+      retryAt = null;
+      notify(); // 자동 시작이 다시 평가한다
+    }, delay);
+  }
+
+  function clearFailures() {
+    failures = 0;
+    retryAt = null;
+    timers.clearTimeout(retryTimer);
+    retryTimer = null;
   }
 
   // ---- 결과 표시 ----
 
   function showResult(result) {
+    clearFailures();
     photo = result;
     state = SessionState.RESULT;
     startResultClock();

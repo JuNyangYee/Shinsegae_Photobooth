@@ -252,13 +252,14 @@ function sessionDevLines() {
     `session    : ${s.state}${detail} (round ${s.round}${s.source ? ` by ${s.source}` : ''}, completed ${s.completed})`,
     `auto       : ${a.lastReason || '-'} | last start ${describeAuto(a.lastStart)} | last cancel ${describeAuto(a.lastCancel)}`,
     `last end   : ${s.lastEnd || '-'}${s.lastError ? ` / ${s.lastError}` : ''}`,
+    `failures   : ${s.failures} in a row${s.retryAt === null ? '' : `, auto start waits ${Math.max(0, (s.retryAt - performance.now()) / 1000).toFixed(1)}s`}`,
     `ignored    : ${s.lastIgnored || '-'}`,
     last
       ? `capture    : ${last.width}x${last.height} from video ${last.source}`
         + ` (crop x${last.crop.x} y${last.crop.y}), ${last.type} ${Math.round(last.bytes / 1024)}KB,`
         + ` grab ${last.grabMs.toFixed(1)}ms, encode ${last.encodeMs.toFixed(1)}ms`
       : 'capture    : -',
-    `resources  : object URLs ${c.liveUrls}, canvases ${c.liveCanvases}`
+    `resources  : object URLs ${c.liveUrls}, canvases ${c.liveCanvases}, pending jobs ${c.pending}`
       + ` (taken ${c.taken}, released ${c.released}, stale results ${s.staleResults})`,
   ];
 }
