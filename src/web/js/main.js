@@ -2,6 +2,8 @@ import { config } from './config.js';
 import { createAutoStart } from './auto-start.js';
 import { CameraStatus, createCameraMonitor } from './camera-monitor.js';
 import { createCapture } from './capture.js';
+import { DetectorHealth } from './detector-keeper.js';
+import { Guidance, decideGuidance } from './guidance.js';
 import { createPresenceMonitor } from './presence-monitor.js';
 import { createPresenceTuning } from './presence-tuning.js';
 import { SessionState, createSession } from './session.js';
@@ -29,8 +31,19 @@ const messages = Object.freeze({
   cooldown: '다음 촬영을 준비 중입니다.', // 쿨타임 문구 (가안)
 });
 
-// 기다려도 스스로 풀리기 어려운 상태는 바로 직원 문의 문구를 보인다.
+// 기다려도 스스로 풀리기 어려운 카메라 상태는 바로 직원 문의 문구를 보인다. 감지기는 장애(fault)가 그렇다.
 const staffNowStatuses = new Set([CameraStatus.UNSUPPORTED, CameraStatus.PERMISSION_DENIED]);
+
+// D 화면용 감지기 장애 원인 설명 (face-detector.js DetectorFault)
+const detectorCauseLabels = Object.freeze({
+  'bundle-load-failed': '라이브러리 파일을 불러오지 못함',
+  'model-unavailable': '모델 파일을 받지 못함',
+  'model-invalid': '모델 파일 손상 (크기·SHA-256 불일치)',
+  'webgl-unavailable': '하드웨어 가속 꺼짐 또는 WebGL 없음',
+  'webgl-context-lost': '실행 중 WebGL 컨텍스트 손실',
+  'create-failed': '감지기 생성 실패',
+  'detect-failing': '감지가 계속 실패',
+});
 
 const camera = createCameraMonitor({
   video,
@@ -78,6 +91,8 @@ const tuning = createPresenceTuning({
 const autoStart = createAutoStart({ session, presence, isTuningOpen: () => tuning.isOpen() });
 
 let staffNoticeTimer = null;
+let guidanceSince = null; // 카메라·감지기 중 하나라도 쓸 수 없게 된 시각 (performance.now). 둘 다 정상이면 null
+let guidanceNow = Guidance.NONE;
 let devInfoTimer = null;
 let devOverlayFrame = null;
 let shownPhotoUrl = null;
@@ -92,36 +107,52 @@ function getStorage() {
   }
 }
 
-// 결과 사진을 보이는 동안에는 카메라 상태 문구와 인식 표시를 사진 위에 띄우지 않는다.
+// 결과 사진을 보이는 동안에는 상태 문구와 인식 표시를 사진 위에 띄우지 않는다.
 function isShowingPhoto() {
   return session.getState().state === SessionState.RESULT;
 }
 
+// 회차가 진행 중(카운트다운·촬영·결과)이면 상태 문구를 숨긴다. 카메라가 끊기면 카운트다운은 바로 취소되므로,
+// 여기서 숨는 것은 감지기 장애 중 S 수동 촬영의 안내뿐이다.
+function isRoundActive() {
+  const { state } = session.getState();
+  return state === SessionState.COUNTDOWN || state === SessionState.CAPTURING || state === SessionState.RESULT;
+}
+
 function showStatus(message) {
   statusText.textContent = message;
-  statusText.hidden = !message || isShowingPhoto();
+  statusText.hidden = !message || isRoundActive();
 }
 
+// 카메라와 감지기 상태를 하나의 안내 규칙으로 판정한다 (guidance.js). 감지기를 쓸 수 없어도 S 수동 촬영은 된다.
 function renderStatus() {
   clearTimeout(staffNoticeTimer);
-  const state = camera.getState();
-  if (state.status === CameraStatus.READY) {
-    showStatus('');
-    return;
-  }
-  const waitedMs = performance.now() - state.notReadySince;
-  const staffAfterMs = config.cameraRecovery.staffNoticeMs;
-  if (staffNowStatuses.has(state.status) || waitedMs >= staffAfterMs) {
-    showStatus(messages.staff);
-  } else {
-    showStatus(messages.preparing);
-    staffNoticeTimer = setTimeout(renderStatus, staffAfterMs - waitedMs);
-  }
+  const cameraState = camera.getState();
+  const detector = presence.getDetectorHealth();
+  const decision = decideGuidance({
+    camera: {
+      ok: cameraState.status === CameraStatus.READY,
+      staffNow: staffNowStatuses.has(cameraState.status),
+      since: cameraState.notReadySince,
+    },
+    detector: {
+      ok: detector.health === DetectorHealth.OK,
+      staffNow: detector.health === DetectorHealth.FAULT,
+      since: detector.since,
+    },
+    since: guidanceSince,
+    now: performance.now(),
+    staffAfterMs: config.cameraRecovery.staffNoticeMs,
+  });
+  guidanceSince = decision.since;
+  guidanceNow = decision.guidance;
+  showStatus(decision.guidance === Guidance.NONE ? '' : messages[decision.guidance]);
+  if (decision.recheckInMs !== null) staffNoticeTimer = setTimeout(renderStatus, decision.recheckInMs);
 }
 
-// 카메라가 준비되지 않았으면 "준비 중" 문구만 보이고 인식 표시는 숨긴다.
+// 카메라나 감지기를 쓸 수 없으면 "준비 중" 문구만 보이고 인식 표시는 숨긴다.
 function renderPresence() {
-  const visible = config.showPresenceIndicator && camera.isReady() && !isShowingPhoto();
+  const visible = config.showPresenceIndicator && camera.isReady() && guidanceNow === Guidance.NONE && !isShowingPhoto();
   presenceText.hidden = !visible;
   if (!visible) return;
   const present = presence.isPresent();
@@ -155,11 +186,10 @@ function renderSession(s) {
   }
   resultImage.hidden = url === null;
 
-  const cooling = s.state === SessionState.COOLDOWN && camera.isReady();
+  renderStatus();
+  const cooling = s.state === SessionState.COOLDOWN && guidanceNow === Guidance.NONE;
   noticeText.hidden = !cooling;
   if (cooling) noticeText.textContent = messages.cooldown;
-
-  renderStatus();
   renderPresence();
   if (!devInfo.hidden) renderDevInfo();
 }
@@ -214,8 +244,20 @@ function presenceDevLines() {
   const progress = d.progress
     ? `-> ${d.progress.target ? 'present' : 'absent'} ${Math.round(d.progress.elapsedMs)}/${d.progress.requiredMs}ms`
     : 'stable';
+  const seconds = (ms) => `${(ms / 1000).toFixed(1)}s`;
   const lines = [
-    `detector   : ${d.status}${d.error ? ` / ${d.error}` : ''}`,
+    `detector   : ${d.status}, health ${d.health}${d.cause ? ` / ${d.cause} (${detectorCauseLabels[d.cause] ?? '-'})` : ''}`,
+  ];
+  if (d.health !== DetectorHealth.OK) {
+    lines.push(`  failure  : ${d.error || '-'}`);
+    lines.push(`  retry    : ${d.failuresInRow} in a row, ${d.createAttempts} attempts,`
+      + ` next ${d.creating ? 'creating now' : d.retryInMs === null ? '-' : `in ${seconds(d.retryInMs)}`},`
+      + ` unavailable ${d.unavailableMs === null ? '-' : seconds(d.unavailableMs)}`);
+  }
+  lines.push(
+    `webgl      : ${d.webgl ? `webgl${d.webgl.version} ${d.webgl.renderer || '(renderer hidden)'}${d.webgl.software ? ' (software)' : ''}` : '-'}`,
+    `model      : ${d.model ? `${d.model.bytes} bytes, ${d.model.hashChecked ? 'sha256 ok' : 'size only'}` : '-'}`,
+    `guidance   : ${guidanceNow}${guidanceSince === null ? '' : ` for ${seconds(performance.now() - guidanceSince)}`}`,
     `delegate   : ${d.delegate}${d.delegateFailures.length ? ` (failed: ${d.delegateFailures.join('; ')})` : ''}`,
     `detect     : ${d.detectMs.toFixed(1)}ms (avg ${d.averageDetectMs.toFixed(1)}ms, draw ${d.drawMs.toFixed(1)}ms)`
       + ` @ ${d.fps}fps (max ${d.maxFps}), input ${d.input}`,
@@ -225,7 +267,7 @@ function presenceDevLines() {
     `criteria   : region x${region.x} y${region.y} w${region.width} h${region.height},`
       + ` face ${minFaceHeight}~${maxFaceHeight}, min score ${minScore}, hold ${presentHoldMs}ms, grace ${absentGraceMs}ms`,
     `settings   : ${tuning.describeSettingsSource()}`,
-  ];
+  );
   if (d.detectionErrors > 0) {
     lines.push(`errors     : ${d.detectionErrors} total, ${d.consecutiveFailures} in a row (last: ${d.lastDetectionError})`);
   }
@@ -354,6 +396,11 @@ camera.subscribe(() => {
   if (!devInfo.hidden) renderDevInfo();
 });
 presence.subscribe(renderPresence);
+presence.subscribeDetector(() => {
+  renderStatus();
+  renderPresence();
+  if (!devInfo.hidden) renderDevInfo();
+});
 session.subscribe(renderSession);
 document.addEventListener('visibilitychange', () => session.setPageVisible(!document.hidden));
 autoStart.start();
