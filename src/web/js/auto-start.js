@@ -9,11 +9,18 @@ export const AUTO_SOURCE = 'presence';
 /**
  * 지금 상태만 보고(레벨 판정) 보낼 요청을 정한다. 순수 함수.
  * @param {{ state: string, source: string, cameraReady: boolean, pageVisible: boolean, failureBackoff: boolean,
- *   present: boolean, tuningOpen: boolean }} input  state·source·cameraReady·pageVisible·failureBackoff는 session 스냅숏
+ *   present: boolean, tuningOpen: boolean, paused?: boolean, settingsReady?: boolean }} input
+ *   state·source·cameraReady·pageVisible·failureBackoff는 session 스냅숏
+ *   paused: 운영자가 P 키로 자동 촬영을 멈춤 (4-3). settingsReady: 조절값 파일 불러오기가 끝남 (4-3)
  * @returns {{ action: 'start' | 'cancel' | null, reason: string }}
  */
-export function decideAutoRequest({ state, source, cameraReady, pageVisible, failureBackoff = false, present, tuningOpen }) {
+export function decideAutoRequest({
+  state, source, cameraReady, pageVisible, failureBackoff = false, present, tuningOpen, paused = false, settingsReady = true,
+}) {
   if (state === SessionState.IDLE) {
+    // 운영자 일시정지와 조절값 불러오기는 사람이 있든 없든 막는다 (D 화면에 이유가 보이게 먼저 본다).
+    if (paused) return { action: null, reason: 'blocked: auto paused (P)' };
+    if (!settingsReady) return { action: null, reason: 'blocked: settings-loading' };
     if (!present) return { action: null, reason: 'idle, not present' };
     if (!cameraReady) return { action: null, reason: 'blocked: camera-not-ready' };
     if (!pageVisible) return { action: null, reason: 'blocked: page-hidden' };
@@ -24,6 +31,8 @@ export function decideAutoRequest({ state, source, cameraReady, pageVisible, fai
   }
   if (state === SessionState.COUNTDOWN) {
     if (source !== AUTO_SOURCE) return { action: null, reason: `manual round (${source}), presence ignored` };
+    // 일시정지하는 순간 인식으로 시작된 카운트다운은 취소한다. S 수동 회차는 그대로 둔다.
+    if (paused) return { action: 'cancel', reason: 'auto paused during countdown' };
     if (!present) return { action: 'cancel', reason: 'left during countdown' };
     return { action: null, reason: 'countdown, present' };
   }
@@ -34,12 +43,14 @@ export function decideAutoRequest({ state, source, cameraReady, pageVisible, fai
 /**
  * @param {{ session: { getState: Function, request: Function, subscribe: Function },
  *   presence: { isPresent: () => boolean, subscribe: Function },
- *   isTuningOpen: () => boolean, now?: () => number }} options
+ *   isTuningOpen: () => boolean, isPaused?: () => boolean, isSettingsReady?: () => boolean, now?: () => number }} options
  * 카메라 준비·페이지 보임은 session 스냅숏 값을 쓴다 (session이 먼저 받아 두므로 두 쪽이 어긋나지 않는다).
- * 조절 화면을 닫을 때는 밖에서 evaluate('tuning-closed')를 부른다.
+ * 조절 화면을 닫을 때, 일시정지를 켜고 끌 때, 조절값을 다 불러왔을 때는 밖에서 evaluate(계기)를 부른다.
  * now는 D 화면에 보일 기록 시각(사람이 읽는 시각)에만 쓴다. 판정에는 시간을 쓰지 않는다.
  */
-export function createAutoStart({ session, presence, isTuningOpen, now = () => Date.now() }) {
+export function createAutoStart({
+  session, presence, isTuningOpen, isPaused = () => false, isSettingsReady = () => true, now = () => Date.now(),
+}) {
   let lastStart = null; // { at, trigger }
   let lastCancel = null;
   let lastReason = '';
@@ -57,6 +68,8 @@ export function createAutoStart({ session, presence, isTuningOpen, now = () => D
       failureBackoff: s.failureBackoff,
       present: presence.isPresent(),
       tuningOpen: isTuningOpen(),
+      paused: isPaused(),
+      settingsReady: isSettingsReady(),
     });
     lastReason = reason;
     if (action === null) return;

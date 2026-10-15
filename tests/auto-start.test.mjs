@@ -8,7 +8,7 @@ import { SessionState, createSession } from '../src/web/js/session.js';
 import { fakeCanvasEnvironment, fakeClock, fakePresence, flush, quiet, timing } from './helpers.mjs';
 
 
-function setup({ present = false, cameraReady = true, tuningOpen = false } = {}) {
+function setup({ present = false, cameraReady = true, tuningOpen = false, paused = false, settingsReady = true } = {}) {
   const clock = fakeClock();
   const session = createSession({
     timing,
@@ -28,10 +28,14 @@ function setup({ present = false, cameraReady = true, tuningOpen = false } = {})
   };
   const presence = fakePresence(present);
   const tuning = { open: tuningOpen };
-  const auto = createAutoStart({ session, presence, isTuningOpen: () => tuning.open, now: clock.now });
+  const ops = { paused, settingsReady }; // 운영자 일시정지(P), 조절값 불러오기 완료
+  const auto = createAutoStart({
+    session, presence, isTuningOpen: () => tuning.open, isPaused: () => ops.paused, isSettingsReady: () => ops.settingsReady,
+    now: clock.now,
+  });
   auto.start();
   return {
-    clock, session, presence, tuning, auto, requests,
+    clock, session, presence, tuning, ops, auto, requests,
     state: () => session.getState(),
     starts: () => requests.filter((r) => r.type === 'start' && r.accepted),
     // 카운트다운 3초 → 결과 → 결과 10초 → 쿨타임 5초 끝까지
@@ -344,4 +348,70 @@ describe('검수 B 재현: toBlob 콜백이 오지 않음', () => {
     assert.match(t.state().lastError, /capture busy/);
     assert.ok(t.state().failures <= 5);
   }));
+});
+
+describe('자동 촬영 일시정지(P)와 조절값 불러오기 (4-3)', () => {
+  const base = { state: 'idle', source: '', cameraReady: true, pageVisible: true, present: true, tuningOpen: false };
+
+  it('decideAutoRequest: 일시정지·불러오기 중이면 대기에서 시작하지 않는다 (사람이 없어도 이유는 일시정지)', () => {
+    assert.deepEqual(decideAutoRequest({ ...base, paused: true }), { action: null, reason: 'blocked: auto paused (P)' });
+    assert.deepEqual(decideAutoRequest({ ...base, paused: true, present: false }), { action: null, reason: 'blocked: auto paused (P)' });
+    assert.deepEqual(decideAutoRequest({ ...base, settingsReady: false }), { action: null, reason: 'blocked: settings-loading' });
+  });
+
+  it('decideAutoRequest: 일시정지하면 인식으로 시작한 카운트다운은 취소, 수동(S) 카운트다운은 그대로', () => {
+    assert.deepEqual(decideAutoRequest({ ...base, state: 'countdown', source: 'presence', paused: true }),
+      { action: 'cancel', reason: 'auto paused during countdown' });
+    assert.equal(decideAutoRequest({ ...base, state: 'countdown', source: 'key', paused: true }).action, null);
+    assert.equal(decideAutoRequest({ ...base, state: 'result', source: 'presence', paused: true }).action, null);
+  });
+
+  it('통합: 사람이 서 있어도 일시정지 중에는 시작하지 않고, 해제하면 바로 시작한다', async () => {
+    const t = setup({ present: true, paused: true });
+    t.clock.advance(5000);
+    assert.equal(t.state().state, SessionState.IDLE);
+    assert.equal(t.auto.getDebug().lastReason, 'blocked: auto paused (P)');
+    t.ops.paused = false;
+    t.auto.evaluate('resumed (P)');
+    assert.equal(t.state().state, SessionState.COUNTDOWN);
+    assert.equal(t.auto.getDebug().lastStart.trigger, 'resumed (P)');
+  });
+
+  it('통합: 인식 카운트다운 중 일시정지 → 바로 취소, 쿨타임 없이 대기에 머문다. S는 일시정지 중에도 촬영한다', async () => {
+    const t = setup({ present: true });
+    assert.equal(t.state().state, SessionState.COUNTDOWN);
+    t.clock.advance(1000);
+    t.ops.paused = true;
+    t.auto.evaluate('paused (P)');
+    assert.equal(t.state().state, SessionState.IDLE);
+    assert.equal(t.auto.getDebug().lastCancel.reason, 'auto paused during countdown');
+    t.clock.advance(20000);
+    assert.equal(t.state().state, SessionState.IDLE); // 계속 서 있어도 다시 시작하지 않음
+    assert.equal(t.session.request('start', 'key').accepted, true);
+    t.clock.advance(3000);
+    await flush();
+    assert.equal(t.state().state, SessionState.RESULT);
+    assert.equal(t.state().source, 'key');
+  });
+
+  it('통합: 수동 카운트다운 중 일시정지해도 그 회차는 이어진다', async () => {
+    const t = setup({ present: false });
+    t.session.request('start', 'key');
+    t.ops.paused = true;
+    t.auto.evaluate('paused (P)');
+    assert.equal(t.state().state, SessionState.COUNTDOWN);
+    t.clock.advance(3000);
+    await flush();
+    assert.equal(t.state().state, SessionState.RESULT);
+  });
+
+  it('통합: 조절값 불러오기가 끝날 때까지 시작하지 않고, 끝나면 그때 상태로 판단한다', async () => {
+    const t = setup({ present: true, settingsReady: false });
+    t.clock.advance(3000);
+    assert.equal(t.state().state, SessionState.IDLE);
+    assert.equal(t.auto.getDebug().lastReason, 'blocked: settings-loading');
+    t.ops.settingsReady = true;
+    t.auto.evaluate('settings-loaded');
+    assert.equal(t.state().state, SessionState.COUNTDOWN);
+  });
 });
