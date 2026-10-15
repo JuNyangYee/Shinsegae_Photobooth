@@ -1,16 +1,15 @@
 // 운영자용 인식 범위 조절 화면 (숨김 단축키로 연다, 관람객용 아님).
-// 조절하는 즉시 감지 루프에 반영하고, "저장"을 눌러야 localStorage에 기록한다.
+// 조절하는 즉시 감지 루프에 반영하고, "저장"을 눌러야 조절값 파일(서버 config/presence.local.json)에 기록한다.
 // 저장하지 않고 닫으면 저장된 값으로 되돌린다: 실행 중인 값과 다시 시작했을 때의 값이 항상 같게 하기 위해서다.
 
 import {
-  loadPresenceSettings,
   normalizePresenceSettings,
   presenceLimits,
   samePresenceSettings,
-  savePresenceSettings,
   serializePresenceSettings,
 } from './presence-settings.js';
 import { createRegionDrag } from './region-drag.js';
+import { SettingsSource } from './settings-file.js';
 
 // 슬라이더 항목: [설정 키, 범위, 표시 소수 자릿수, 단위]
 const SLIDERS = [
@@ -24,10 +23,12 @@ const SLIDERS = [
 const clone = (settings) => ({ ...settings, region: { ...settings.region } });
 
 /**
- * @param {{ stage: HTMLElement, panel: HTMLElement, layer: HTMLElement, monitor: object,
- *   defaults: object, storage: Storage | undefined, onOpenChange?: (open: boolean) => void }} options
+ * @param {{ stage: HTMLElement, panel: HTMLElement, layer: HTMLElement, monitor: object, defaults: object,
+ *   initial: { settings: object, issues: string[], source: string, note: string },  시작할 때 정한 값 (settings-file.js)
+ *   saveSettings: (settings: object) => Promise<void>,  파일에 쓴다. 실패하면 예외
+ *   onOpenChange?: (open: boolean) => void }} options
  */
-export function createPresenceTuning({ stage, panel, layer, monitor, defaults, storage, onOpenChange }) {
+export function createPresenceTuning({ stage, panel, layer, monitor, defaults, initial, saveSettings, onOpenChange }) {
   const regionEl = layer.querySelector('[data-region]');
   const liveText = panel.querySelector('[data-live]');
   const regionText = panel.querySelector('[data-region-text]');
@@ -42,11 +43,13 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, s
     return [key, { input, output: panel.querySelector(`output[data-key="${key}"]`), digits, unit }];
   }));
 
-  const loaded = loadPresenceSettings(storage, defaults);
+  const loaded = initial;
   if (loaded.issues.length > 0) console.warn('[presence-tuning] stored settings adjusted:', loaded.issues);
   let saved = clone(loaded.settings);
-  // 저장값의 출처: 'stored'(시작할 때 저장소에서 읽음), 'defaults'(저장값 없음·사용 불가), 'saved'(이번 실행 중 저장함)
+  // 저장값의 출처 (SettingsSource): file·migrated·localStorage·defaults, 이번 실행 중 저장하면 saved
   let savedSource = loaded.source;
+  let savedNote = loaded.note;
+  let saving = false;
   let current = clone(saved);
   let open = false;
   let liveTimer = null;
@@ -93,6 +96,19 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, s
     liveText.classList.toggle('is-present', d.present);
   }
 
+  // 조절 화면을 열 때 알릴 것: 파일을 쓰지 못하는 출처(기본값·localStorage)와 불러올 때 고친 내용
+  function openingMessage() {
+    if (savedSource === SettingsSource.SAVED || !samePresenceSettings(current, saved)) return '';
+    const parts = [];
+    if (savedSource === SettingsSource.DEFAULTS && savedNote !== 'no file') {
+      parts.push(`조절값 파일을 쓰지 못해 기본값으로 시작했습니다 (${savedNote}).`);
+    } else if (savedSource === SettingsSource.LOCAL_ONLY) {
+      parts.push(`이전 브라우저 저장값을 파일로 옮기지 못했습니다 (${savedNote}). 저장을 눌러 다시 시도하세요.`);
+    }
+    if (loaded.issues.length > 0) parts.push(`시작할 때 저장값을 고쳐 불러왔습니다: ${loaded.issues.join(', ')}`);
+    return parts.join(' ');
+  }
+
   function setOpen(next) {
     if (open === next) return;
     open = next;
@@ -104,9 +120,7 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, s
       render();
       renderLive();
       liveTimer = setInterval(renderLive, 200);
-      showMessage(loaded.issues.length > 0 && samePresenceSettings(current, saved)
-        ? `시작할 때 저장값을 고쳐 불러왔습니다: ${loaded.issues.join(', ')}`
-        : '');
+      showMessage(openingMessage());
     } else {
       regionDrag.end();
       if (!samePresenceSettings(current, saved)) {
@@ -134,14 +148,26 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, s
     const action = event.target.closest('button[data-action]')?.dataset.action;
     if (!action) return;
     if (action === 'save') {
-      const error = savePresenceSettings(storage, current);
-      if (error === null) {
-        saved = clone(current);
-        savedSource = 'saved';
+      if (saving) return;
+      saving = true;
+      const target = clone(current);
+      const button = event.target.closest('button');
+      button.disabled = true;
+      showMessage('저장 중...');
+      try {
+        await saveSettings(target);
+        saved = target;
+        savedSource = SettingsSource.SAVED;
+        savedNote = '';
         render();
-        showMessage('저장했습니다.');
-      } else {
-        showMessage(`저장하지 못했습니다: ${error}`);
+        showMessage(samePresenceSettings(current, saved) ? '파일에 저장했습니다.' : '파일에 저장했습니다. 저장 중에 바뀐 값은 아직 저장되지 않았습니다.');
+      } catch (error) {
+        // 저장되지 않은 상태를 그대로 둔다 (닫으면 마지막 저장값으로 돌아간다).
+        render();
+        showMessage(`저장하지 못했습니다: ${error?.message ?? error}`);
+      } finally {
+        saving = false;
+        button.disabled = false;
       }
     } else if (action === 'revert') {
       apply(saved);
@@ -187,14 +213,15 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, s
     toggle: () => setOpen(!open),
     close: () => setOpen(false),
     /**
-     * D 화면용: 지금 판정에 쓰는 값의 출처. 예: 'stored', 'saved', 'defaults', 'stored + unsaved changes'.
-     * 저장하기 전까지는 시작할 때 저장값을 고친 내용도 붙인다.
+     * D 화면용: 지금 판정에 쓰는 값의 출처. 예: 'file', 'saved', 'defaults (no file)', 'file + unsaved changes'.
+     * 저장하기 전까지는 출처 설명(실패 이유 등)과 시작할 때 저장값을 고친 내용도 붙인다.
      */
     describeSettingsSource() {
       const dirty = !samePresenceSettings(current, saved);
-      const issues = savedSource !== 'saved' && loaded.issues.length > 0
+      const note = savedNote ? ` (${savedNote})` : '';
+      const issues = savedSource !== SettingsSource.SAVED && loaded.issues.length > 0
         ? ` (adjusted on load: ${loaded.issues.join('; ')})` : '';
-      return `${savedSource}${dirty ? ' + unsaved changes' : ''}${issues}`;
+      return `${savedSource}${note}${dirty ? ' + unsaved changes' : ''}${issues}`;
     },
   };
 }

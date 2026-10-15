@@ -2,9 +2,10 @@
 // 브라우저 API를 직접 쓰지 않는다 (저장소는 getItem·setItem을 가진 객체로 받는다).
 // Node 테스트: tests/presence-settings.test.mjs
 //
-// 저장 형식 (localStorage 키 PRESENCE_STORAGE_KEY):
+// 저장 형식 (4-3부터 서버 파일 config/presence.local.json, settings-file.js. 그전에는 localStorage 키 PRESENCE_STORAGE_KEY):
 //   { "version": 1, "settings": { "region": {x, y, width, height}, "minFaceHeight", "maxFaceHeight",
 //     "minScore", "presentHoldMs", "absentGraceMs" } }
+// localStorage는 파일이 없을 때 한 번 옮기기(마이그레이션) 위해 읽기만 하고, 옮긴 뒤 지운다.
 // 좌표·크기는 9:16 영역 기준 0~1, 관람객이 보는 화면(반전 후) 기준이다 (presence.js와 같음).
 
 export const PRESENCE_STORAGE_KEY = 'photobooth.presence.v1';
@@ -135,10 +136,10 @@ export function loadPresenceSettings(storage, defaults) {
   return parseStoredPresenceSettings(text, defaults);
 }
 
-/** @returns {string | null} 실패하면 오류 설명, 성공하면 null */
-export function savePresenceSettings(storage, settings) {
+/** localStorage 저장값을 지운다 (파일로 옮긴 뒤). @returns {string | null} 실패하면 오류 설명, 성공하면 null */
+export function removeStoredPresenceSettings(storage) {
   try {
-    storage.setItem(PRESENCE_STORAGE_KEY, serializePresenceSettings(settings));
+    storage?.removeItem(PRESENCE_STORAGE_KEY);
     return null;
   } catch (error) {
     return error?.message ?? String(error);

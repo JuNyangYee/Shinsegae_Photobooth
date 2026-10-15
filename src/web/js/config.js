@@ -58,6 +58,16 @@ export const config = Object.freeze({
   // "인식됨 / 인식 안됨" 임시 표시 (최종 디자인 전 기본 UI)
   showPresenceIndicator: true,
 
+  // 자동 촬영 일시정지(P) 중 화면 구석의 작은 운영자 표시 (가안). D 화면에는 항상 보인다.
+  showPauseIndicator: true,
+
+  // 운영자 조절값 파일 API (서버 bin/server/serve.ps1 → config/presence.local.json).
+  // 시작할 때 이 시간 안에 읽지 못하면 기본값으로 시작한다 (가안).
+  settingsFile: Object.freeze({
+    url: '/local-api/presence-settings',
+    timeoutMs: 3000,
+  }),
+
   // 촬영 한 사이클 시간 (단위 ms, captureTimeoutMs 외 사용자 확정 2026-10-15)
   session: Object.freeze({
     countdownSeconds: 3, // 3·2·1 뒤 한 장

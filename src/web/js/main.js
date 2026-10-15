@@ -5,8 +5,10 @@ import { createCapture } from './capture.js';
 import { DetectorHealth } from './detector-keeper.js';
 import { Guidance, decideGuidance } from './guidance.js';
 import { createPresenceMonitor } from './presence-monitor.js';
+import { serializePresenceSettings } from './presence-settings.js';
 import { createPresenceTuning } from './presence-tuning.js';
 import { SessionState, createSession } from './session.js';
+import { createSettingsFileClient, loadInitialPresenceSettings } from './settings-file.js';
 
 const stage = document.getElementById('stage');
 const video = document.getElementById('preview');
@@ -18,9 +20,10 @@ const resultImage = document.getElementById('result');
 const countdownText = document.getElementById('countdown');
 const flash = document.getElementById('flash');
 const noticeText = document.getElementById('notice');
+const pauseBadge = document.getElementById('pause-badge');
 
-// 운영자 단축키 (관람객용 아님): D 개발용 정보, R 인식 범위 조절, S 수동 촬영 시작, X 강제 초기화
-const Keys = Object.freeze({ devInfo: 'KeyD', tuning: 'KeyR', start: 'KeyS', reset: 'KeyX' });
+// 운영자 단축키 (관람객용 아님): D 개발용 정보, R 인식 범위 조절, S 수동 촬영 시작, X 강제 초기화, P 자동 촬영 일시정지
+const Keys = Object.freeze({ devInfo: 'KeyD', tuning: 'KeyR', start: 'KeyS', reset: 'KeyX', pause: 'KeyP' });
 
 // 관람객용 문구 (사용자 확정 2026-10-15). 상태 상세는 D 키 개발용 정보에만 보인다.
 const messages = Object.freeze({
@@ -29,6 +32,7 @@ const messages = Object.freeze({
   present: '인식됨', // 인식 상태 임시 표시 (가안)
   absent: '인식 안됨',
   cooldown: '다음 촬영을 준비 중입니다.', // 쿨타임 문구 (가안)
+  paused: '자동 촬영 일시정지 (P)', // 운영자 표시 (가안)
 });
 
 // 기다려도 스스로 풀리기 어려운 카메라 상태는 바로 직원 문의 문구를 보인다. 감지기는 장애(fault)가 그렇다.
@@ -76,19 +80,22 @@ const session = createSession({
   pageVisible: !document.hidden,
 });
 
-// 저장된 조절값을 읽어 감지 루프에 넣는다. 저장값이 없거나 잘못되면 config.presence 기본값을 쓴다.
-const tuning = createPresenceTuning({
-  stage,
-  panel: document.getElementById('tuning-panel'),
-  layer: document.getElementById('tuning-layer'),
-  monitor: presence,
-  defaults: config.presence,
-  storage: getStorage(),
-  onOpenChange: handleTuningOpenChange,
-});
+// 조절값 파일 (서버 config/presence.local.json). 불러오기가 끝나면 조절 화면을 만들고 그 값을 감지 루프에 넣는다.
+// 그 전까지 감지 루프는 config.presence 기본값으로 돌지만, 자동 시작은 막는다(기본값으로 잠깐 판정해 시작하지 않게).
+const settingsFile = createSettingsFileClient(config.settingsFile);
+let tuning = null; // 불러오기가 끝나면 만든다
+let settingsReady = false;
+// 자동 촬영 일시정지 (P). 저장하지 않는다: 새로고침·재시작하면 다시 켜진다(운영자가 해제를 잊어도 회복되게).
+let autoPaused = false;
 
-// 인식 상태로 자동 시작하고, 인식으로 시작한 카운트다운은 대상이 떠나면 취소한다. 조절 화면이 열려 있으면 자동 시작을 막는다.
-const autoStart = createAutoStart({ session, presence, isTuningOpen: () => tuning.isOpen() });
+// 인식 상태로 자동 시작하고, 인식으로 시작한 카운트다운은 대상이 떠나면 취소한다.
+// 조절 화면이 열려 있거나, 일시정지 중이거나, 조절값을 아직 불러오지 않았으면 자동 시작을 막는다.
+const autoStart = createAutoStart({
+  session, presence,
+  isTuningOpen: () => tuning?.isOpen() ?? false,
+  isPaused: () => autoPaused,
+  isSettingsReady: () => settingsReady,
+});
 
 let staffNoticeTimer = null;
 let guidanceSince = null; // 카메라·감지기 중 하나라도 쓸 수 없게 된 시각 (performance.now). 둘 다 정상이면 null
@@ -266,7 +273,7 @@ function presenceDevLines() {
     `presence   : ${d.present ? 'PRESENT' : 'absent'} (raw ${d.raw ? 'present' : 'absent'}, ${progress})`,
     `criteria   : region x${region.x} y${region.y} w${region.width} h${region.height},`
       + ` face ${minFaceHeight}~${maxFaceHeight}, min score ${minScore}, hold ${presentHoldMs}ms, grace ${absentGraceMs}ms`,
-    `settings   : ${tuning.describeSettingsSource()}`,
+    `settings   : ${tuning ? tuning.describeSettingsSource() : 'loading'} (${config.settingsFile.url})`,
   );
   if (d.detectionErrors > 0) {
     lines.push(`errors     : ${d.detectionErrors} total, ${d.consecutiveFailures} in a row (last: ${d.lastDetectionError})`);
@@ -293,7 +300,7 @@ function sessionDevLines() {
   const a = autoStart.getDebug();
   return [
     `session    : ${s.state}${detail} (round ${s.round}${s.source ? ` by ${s.source}` : ''}, completed ${s.completed})`,
-    `auto       : ${a.lastReason || '-'} | last start ${describeAuto(a.lastStart)} | last cancel ${describeAuto(a.lastCancel)}`,
+    `auto       : ${autoPaused ? 'PAUSED (P) | ' : ''}${a.lastReason || '-'} | last start ${describeAuto(a.lastStart)} | last cancel ${describeAuto(a.lastCancel)}`,
     `last end   : ${s.lastEnd || '-'}${s.lastError ? ` / ${s.lastError}` : ''}`,
     `failures   : ${s.failures} in a row${s.retryAt === null ? '' : `, auto start waits ${Math.max(0, (s.retryAt - performance.now()) / 1000).toFixed(1)}s`}`,
     `ignored    : ${s.lastIgnored || '-'}`,
@@ -329,7 +336,7 @@ function drawDevOverlay() {
 
   const { region } = d.settings;
   ctx.setLineDash([line * 4, line * 3]);
-  if (tuning.isOpen()) {
+  if (tuning?.isOpen()) {
     // 얼굴 박스는 거의 정사각형이므로 한 변 = 기준 높이 x 9:16 영역 높이(px)인 정사각형으로 보인다.
     const cx = (region.x + region.width / 2) * width;
     const cy = (region.y + region.height / 2) * height;
@@ -358,7 +365,7 @@ function drawDevOverlay() {
 
 // 겹쳐 그리기는 D 화면이나 조절 화면이 열려 있을 때만 그린다. 둘 다 닫히면 흔적 없이 지운다.
 function updateOverlay() {
-  const visible = !devInfo.hidden || tuning.isOpen();
+  const visible = !devInfo.hidden || (tuning?.isOpen() ?? false);
   devOverlay.hidden = !visible;
   if (visible && devOverlayFrame === null) {
     drawDevOverlay();
@@ -366,6 +373,43 @@ function updateOverlay() {
     cancelAnimationFrame(devOverlayFrame);
     devOverlayFrame = null;
   }
+}
+
+// 일시정지하면 인식으로 시작한 카운트다운은 auto-start가 취소한다. S 수동 촬영은 그대로 된다.
+function togglePause() {
+  autoPaused = !autoPaused;
+  renderPauseBadge();
+  autoStart.evaluate(autoPaused ? 'paused (P)' : 'resumed (P)');
+  if (!devInfo.hidden) renderDevInfo();
+}
+
+function renderPauseBadge() {
+  pauseBadge.hidden = !(autoPaused && config.showPauseIndicator);
+  pauseBadge.textContent = messages.paused;
+}
+
+// 시작할 때 조절값: 파일 → (없으면) localStorage에서 옮김 → 기본값. 실패하거나 시간 초과면 기본값 (settings-file.js).
+async function loadSettings() {
+  try {
+    const initial = await loadInitialPresenceSettings({ file: settingsFile, storage: getStorage(), defaults: config.presence });
+    if (initial.note && initial.note !== 'no file') console.warn('[settings]', `${initial.source}: ${initial.note}`);
+    tuning = createPresenceTuning({
+      stage,
+      panel: document.getElementById('tuning-panel'),
+      layer: document.getElementById('tuning-layer'),
+      monitor: presence,
+      defaults: config.presence,
+      initial,
+      saveSettings: (settings) => settingsFile.write(serializePresenceSettings(settings)),
+      onOpenChange: handleTuningOpenChange,
+    });
+  } catch (error) {
+    // 여기까지 오면 코드 오류다. 자동 촬영이 영영 막히지 않게 기본값으로 계속한다.
+    console.error('[settings] setup failed; continuing with defaults', error);
+  }
+  settingsReady = true;
+  autoStart.evaluate('settings-loaded');
+  if (!devInfo.hidden) renderDevInfo();
 }
 
 function toggleDevInfo() {
@@ -382,10 +426,11 @@ function toggleDevInfo() {
 window.addEventListener('keydown', (event) => {
   if (event.repeat || event.ctrlKey || event.altKey || event.metaKey) return;
   if (event.code === Keys.devInfo) toggleDevInfo();
-  else if (event.code === Keys.tuning) tuning.toggle();
+  else if (event.code === Keys.tuning) tuning?.toggle();
   else if (event.code === Keys.start) session.request('start', 'key');
   else if (event.code === Keys.reset) session.request('reset', 'key');
-  else if (event.code === 'Escape' && tuning.isOpen()) tuning.close();
+  else if (event.code === Keys.pause) togglePause();
+  else if (event.code === 'Escape' && tuning?.isOpen()) tuning.close();
 });
 
 applyLayout();
@@ -404,5 +449,6 @@ presence.subscribeDetector(() => {
 session.subscribe(renderSession);
 document.addEventListener('visibilitychange', () => session.setPageVisible(!document.hidden));
 autoStart.start();
+loadSettings();
 camera.start();
 presence.start();

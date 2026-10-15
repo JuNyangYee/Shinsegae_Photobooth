@@ -11,8 +11,8 @@ import {
   parseStoredPresenceSettings,
   presenceLimits,
   resizeRegion,
+  removeStoredPresenceSettings,
   samePresenceSettings,
-  savePresenceSettings,
   serializePresenceSettings,
 } from '../src/web/js/presence-settings.js';
 
@@ -39,6 +39,7 @@ function memoryStorage(initial = {}) {
   return {
     getItem: (key) => (data.has(key) ? data.get(key) : null),
     setItem: (key, value) => { data.set(key, String(value)); },
+    removeItem: (key) => { data.delete(key); },
     data,
   };
 }
@@ -160,20 +161,22 @@ describe('parseStoredPresenceSettings', () => {
   });
 });
 
-describe('loadPresenceSettings / savePresenceSettings', () => {
-  it('저장 후 불러오면 같은 값', () => {
+describe('loadPresenceSettings / removeStoredPresenceSettings (localStorage 마이그레이션용)', () => {
+  it('저장 형식을 불러오고, 지우면 없어진다', () => {
     const storage = memoryStorage();
-    assert.equal(savePresenceSettings(storage, valid), null);
-    assert.ok(storage.data.has(PRESENCE_STORAGE_KEY));
+    storage.setItem(PRESENCE_STORAGE_KEY, serializePresenceSettings(valid));
     assert.deepEqual(loadPresenceSettings(storage, defaults).settings, valid);
+    assert.equal(removeStoredPresenceSettings(storage), null);
+    assert.equal(storage.data.has(PRESENCE_STORAGE_KEY), false);
+    assert.equal(removeStoredPresenceSettings(undefined), null); // 저장소 없음
   });
 
-  it('저장소 읽기·쓰기가 실패해도 예외를 던지지 않는다', () => {
-    const broken = { getItem() { throw new Error('denied'); }, setItem() { throw new Error('quota'); } };
+  it('저장소 읽기·지우기가 실패해도 예외를 던지지 않는다', () => {
+    const broken = { getItem() { throw new Error('denied'); }, removeItem() { throw new Error('blocked'); } };
     const loaded = loadPresenceSettings(broken, defaults);
     assert.equal(loaded.source, 'default');
     assert.match(loaded.issues[0], /denied/);
-    assert.equal(savePresenceSettings(broken, valid), 'quota');
+    assert.equal(removeStoredPresenceSettings(broken), 'blocked');
   });
 
   it('samePresenceSettings', () => {

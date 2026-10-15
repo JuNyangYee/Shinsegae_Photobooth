@@ -58,6 +58,7 @@ body {
 .status[hidden],
 .presence[hidden],
 .notice[hidden],
+.pause-badge[hidden],
 .result[hidden],
 .countdown[hidden],
 .dev-overlay[hidden],
@@ -291,4 +292,18 @@ body {
   width: 100%;
   margin: 6px 0;
   font: 13px / 1.4 Consolas, monospace;
+}
+
+/* 운영자 표시: 자동 촬영 일시정지(P). 관람객 시선을 끌지 않게 9:16 영역 오른쪽 위에 작게 둔다 (가안). */
+.pause-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  margin: 0;
+  padding: 0.2em 0.6em;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #ffd54a;
+  font: 600 clamp(10px, 1.6cqw, 18px) / 1.4 system-ui, sans-serif;
+  pointer-events: none;
 }
