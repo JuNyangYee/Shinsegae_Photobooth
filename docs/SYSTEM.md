@@ -1,6 +1,6 @@
 # SYSTEM — 기술 구조와 제약
 
-> 실제로 만든 부분은 "구현됨"으로, 아직 만들지 않은 계획은 "가안"으로 표시한다. 구현 범위는 1단계(정적 서버, 9:16 반전 미리보기, 카메라 상태·자동 회복)와 2-1(MediaPipe 로컬 라이브러리 배치)까지다. 앱 화면에는 아직 감지를 연결하지 않았다.
+> 실제로 만든 부분은 "구현됨"으로, 아직 만들지 않은 계획은 "가안"으로 표시한다. 구현 범위는 1단계(정적 서버, 9:16 반전 미리보기, 카메라 상태·자동 회복), 2-1(MediaPipe 로컬 라이브러리 배치), 2-2(얼굴 감지와 인식 상태)까지다. 인식 범위 조절 화면(2-3)과 촬영(3단계)은 아직 없다.
 
 ## 1. 전체 구성
 
@@ -49,18 +49,22 @@ bin/
 src/web/                    (구현됨)
   index.html
   css/app.css
-  js/main.js                화면 조립, 개발용 정보(D 키)
-  js/config.js              바꿀 수 있는 값 (반전, 화면 비율, 우선 카메라 라벨, 해상도 권장값, 회복 시간)
+  js/main.js                화면 조립, 인식 상태 임시 표시, 개발용 정보·감지 박스 겹쳐 그리기(D 키)
+  js/config.js              바꿀 수 있는 값 (반전, 화면 비율, 카메라, 회복 시간, 감지기, 인식 판정)
   js/camera.js              카메라 장치 선택·스트림 시작·종료
   js/camera-monitor.js      카메라 상태 감시(첫 프레임·끊김)·자동 회복·상태 구독
-  js/(trigger, session, capture 등 책임별 모듈은 해당 단계에서 추가)
+  js/face-detector.js       MediaPipe Face Detector 생성(GPU→CPU)·감지·종료
+  js/presence.js            인식 판정 순수 함수 (좌표 변환, 인정 조건, 시간 안정화)
+  js/presence-monitor.js    감지 루프, 인식 상태 구독 (isPresent·subscribe)
+  js/(session, capture 등 책임별 모듈은 해당 단계에서 추가)
+tests/presence.test.mjs     판정 모듈 Node 테스트 (개발 PC 전용, `npm test`)
 lib/mediapipe/              MediaPipe 런타임·모델 (구현됨, 커밋 대상. 직접 고치지 않고 스크립트로 갱신)
   tasks-vision/vision_bundle.mjs
   tasks-vision/wasm/        vision_wasm_internal.{js,wasm}, vision_wasm_nosimd_internal.{js,wasm}
   tasks-vision/LICENSE      Apache-2.0
   models/blaze_face_short_range.tflite
 tools/vendor-mediapipe.mjs  node_modules → lib/mediapipe 복사, 모델·LICENSE 다운로드·SHA-256 검증 (개발 PC 전용)
-package.json                private, @mediapipe/tasks-vision 정확 버전 고정 (개발 PC 전용)
+package.json                private, type module, @mediapipe/tasks-vision 정확 버전 고정, test·vendor:mediapipe 스크립트 (개발 PC 전용)
 package-lock.json
 .npmrc                      save-exact=true
 ```
@@ -79,6 +83,20 @@ package-lock.json
 - 모든 응답에 `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`. GET·HEAD만 허용(그 외 405).
 - Ctrl+C로 종료한다. 요청 대기를 짧게 끊어 기다리므로 Ctrl+C가 바로 반영되고 리스너를 닫는다.
 
+### 외부 전송 차단: CSP (구현됨)
+
+`src/web/index.html`의 `<meta http-equiv="Content-Security-Policy">`(다른 스크립트보다 먼저)로 같은 출처만 허용한다. MediaPipe 1.x의 사용 통계 전송(5절)을 막기 위해 넣었고, 오프라인 원칙의 안전장치이기도 하다(사용자 결정, 2026-10-15).
+
+```text
+default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'
+```
+
+- `connect-src 'self'`: `fetch`·XHR·WebSocket은 `localhost`로만 갈 수 있다. 통계 전송은 브라우저가 보내기 전에 막는다.
+- `script-src 'self' 'wasm-unsafe-eval'`: MediaPipe WASM 컴파일에 `wasm-unsafe-eval`이 필요하다. `unsafe-eval`·`unsafe-inline`은 넣지 않았다(필요 없음을 확인).
+- 나머지(`style`·`img`·`media`·`worker` 등)는 `default-src 'self'`를 따른다. 카메라 영상(`srcObject`), CSSOM으로 바꾸는 CSS 변수, 캔버스는 영향을 받지 않는다.
+- 차단 때문에 콘솔에 `Connecting to 'https://odml.pa.googleapis.com/v1/log' violates the following Content Security Policy directive` 오류가 감지기마다 한 번(생성 후 약 60초) 찍힌다. 무해하다. 한 번 실패하면 그 감지기의 통계 로거가 멈추므로 반복되지 않는다.
+- 새 기능이 외부 자원이나 다른 출처를 써야 하면 이 정책을 함께 고친다. 넓히지 않는 것이 원칙이다.
+
 ### 스크립트 인코딩 규칙
 
 - `.ps1`, `.bat`, `.cmd` 파일은 **ASCII 문자만** 쓴다. 주석도 영어로 쓴다. Windows PowerShell 5.1은 BOM 없는 UTF-8 파일을 시스템 코드 페이지로 읽어 한글이 깨지고 구문 오류가 날 수 있다.
@@ -90,11 +108,13 @@ package-lock.json
 | 영역 | 책임 |
 |---|---|
 | 카메라 | OBS 가상카메라 장치 선택, 스트림 시작·종료, 첫 프레임 준비 확인, 단절 감지 |
-| 촬영 시작 판정 | 감지 모델 또는 개발용 키 입력을 받아 "시작 가능 / 대상 이탈" 같은 최소 신호만 전달 |
+| 얼굴 감지 (구현됨) | `face-detector.js`: MediaPipe 생성·감지·종료만. 영상 기준 정규화 박스·점수만 돌려주고 MediaPipe 자료형을 내보내지 않음 |
+| 인식 판정 (구현됨) | `presence.js`: 좌표 변환·인정 조건·시간 안정화 순수 함수. `presence-monitor.js`: 감지 루프, "인식됨 / 인식 안됨"만 밖에 알림 |
+| 촬영 시작 판정 | 인식 상태 또는 개발용 키 입력을 받아 "시작 가능 / 대상 이탈" 같은 최소 신호만 전달 (3단계) |
 | 촬영 진행 | 상태 전환, 카운트다운·결과·쿨타임 타이머, 회차 관리, 취소 |
 | 이미지·결과 | Canvas 캡처, 결과 표시, 이미지 자원 정리 |
 
-- 감지 모델의 세부 출력(좌표, 신뢰도 등)이 촬영 진행 코드나 화면 전체로 퍼지지 않게 한다.
+- 감지 모델의 세부 출력(좌표, 신뢰도 등)이 촬영 진행 코드나 화면 전체로 퍼지지 않게 한다. 좌표·점수는 `presence-monitor.js`의 `getDebugSnapshot()`(D 개발용 화면 전용)으로만 꺼낸다.
 - 사진 효과는 "캡처 이미지 → 결과 화면" 사이에 끼울 수 있는 경계만 둔다. 범용 플러그인 구조는 만들지 않는다.
 
 ## 3. 카메라와 영상
@@ -154,7 +174,7 @@ package-lock.json
 - **설정값 (확정):** `config.cameraRecovery` — 재시도 간격 3초, 첫 프레임 제한 5초, 프레임 정지 판정 3초, 직원 문의 문구 전환 30초.
 - **관람객 문구 (확정):** 정상이 아니면 "준비 중입니다. 잠시만 기다려 주세요." 정상이 아닌 상태가 30초 이상 이어지거나, 스스로 풀리기 어려운 상태(`unsupported`, `permission-denied`)면 "준비 중입니다. 직원에게 문의해 주세요." 기술 용어는 쓰지 않는다. 끊기면 영상을 지워 검은 화면 위에 문구를 띄운다.
 - **운영자용 상세:** `D` 개발용 정보에 상태, 원인(오류 종류·끊김 원인)과 원본 오류 이름, 시도 횟수와 정상 이후 연속 실패 횟수, 마지막 시도 시각, 정상이 아닌 시간, 권한 상태를 보인다.
-- **이후 단계용 경계:** `createCameraMonitor()`가 돌려주는 `isReady()`, `getState()`, `subscribe(listener)`(해제 함수 반환)만 쓴다. 촬영 진행 코드는 `ready`가 아니면 촬영을 시작하지 않고, 진행 중 `ready`가 아니게 되면 회차를 취소한다(촬영 한 사이클 단계에서 연결). 다음 단계의 얼굴 감지도 같은 인터페이스로 카메라 준비 여부를 받는다.
+- **이후 단계용 경계:** `createCameraMonitor()`가 돌려주는 `isReady()`, `getState()`, `subscribe(listener)`(해제 함수 반환)만 쓴다. 촬영 진행 코드는 `ready`가 아니면 촬영을 시작하지 않고, 진행 중 `ready`가 아니게 되면 회차를 취소한다(촬영 한 사이클 단계에서 연결). 얼굴 감지(`presence-monitor.js`)도 같은 인터페이스로 카메라 준비 여부를 받는다(구현됨).
 
 ## 4. 촬영 상태
 
@@ -209,6 +229,78 @@ package-lock.json
 | MediaPipe Pose Landmarker | 대안 | 신체 위치 조건이 필요할 때만 비교 |
 | 프레임 변화량 | 보조 시험 | 변화량만으로 사람 여부를 구분한다고 가정하지 않음 |
 
+### 얼굴 감지와 인식 상태 (구현됨, 2-2)
+
+```text
+camera-monitor (ready·페이지 표시) ──▶ presence-monitor 감지 루프 (최대 15fps)
+  <video> ─drawImage─▶ 축소 캔버스(긴 변 ≤ 640px) ─▶ face-detector.detect()  영상 좌표 박스·점수
+                                                     ─▶ presence.classifyFaces()  화면 좌표 변환, 얼굴별 인정 여부
+                                                     ─▶ presence.stepPresence()  시간 안정화
+                                                     ─▶ isPresent() / subscribe({ present })
+```
+
+**감지기 (`face-detector.js`)**
+
+- bundle을 동적 `import`로 불러온다. 불러오기나 생성에 실패해도 카메라 미리보기는 계속 동작하고, 실패 사실은 `D` 화면 `detector : error / ...`에 보인다.
+- `config.faceDetection.delegates` 순서(`GPU` → `CPU`)로 생성을 시도한다. 앞선 delegate가 실패한 이유는 `D` 화면 `delegate` 줄에 보인다.
+- 감지기 자체의 `minDetectionConfidence`(`detectorMinConfidence` 0.3)는 낮게 둔다. 신뢰도는 판정 쪽 `presence.minScore`로 거른다. 2-3에서 감지기를 다시 만들지 않고 실시간으로 조절하기 위해서다.
+- 결과: `{ x, y, width, height, score }[]`. 감지 입력(영상 프레임 전체를 축소한 캔버스) 기준 0~1 정규화, 왼쪽 위 원점, 반전 전.
+- WebGL을 전혀 쓸 수 없으면 CPU delegate도 생성은 되지만 매 프레임 감지에 실패한다(MediaPipe가 입력을 WebGL 텍스처로 올리기 때문, `ImageData` 입력도 같음). 이때 감지 루프가 `error`로 표시한다(아래).
+
+**좌표 기준 (`presence.js`)**
+
+- 판정·영역·최소 크기·겹쳐 그리기는 모두 **화면 좌표**를 쓴다. 9:16 영역(`#stage`) 기준 0~1, 관람객이 보는 그대로(cover 크롭·좌우 반전 후)다.
+- 변환: 영상 비율이 9:16보다 넓으면 가운데 세로 띠(폭 = `(9/16) / 영상 비율`)만 보이고, 좁으면 가운데 가로 띠만 보인다(미리보기 `object-fit: cover`, `object-position` 기본값 가운데). 보이는 띠 기준으로 늘린 뒤 `config.mirror`면 `x' = 1 - x - width`로 뒤집는다.
+- 잘려서 화면에 보이지 않는 얼굴은 중심이 영역 밖이 되어 제외된다.
+
+**인정 조건과 안정화**
+
+- 얼굴 하나가 인정되려면 세 조건을 모두 만족해야 한다. 경계값은 포함한다.
+  - 박스 중심이 `presence.region` 안
+  - 박스 높이(9:16 영역 높이 대비)가 `presence.minFaceHeight` 이상
+  - 점수가 `presence.minScore` 이상
+- 인정된 얼굴이 1명 이상이면 그 프레임은 "있음"이다.
+- 처음은 **인식 안됨**이다. "있음"이 `presentHoldMs` 동안 끊기지 않고 이어지면 **인식됨**, "없음"이 `absentGraceMs` 동안 이어지면 **인식 안됨**이 된다. 도중에 한 프레임이라도 반대가 나오면 그 시간을 처음부터 다시 잰다.
+- 시간은 감지 프레임이 들어올 때만 판정한다(별도 타이머 없음). 따라서 전환은 기준 시간을 넘긴 뒤 다음 감지 프레임(15fps면 최대 약 67ms 늦게)에 일어난다.
+
+**감지 루프 (`presence-monitor.js`)**
+
+- 카메라가 `ready`이고 페이지가 보이며 영상 크기가 0이 아닐 때만 돈다. 아니면 즉시 멈추고(`paused`) 인식 상태를 **인식 안됨**으로 되돌린다. 카메라 감시 모듈의 `subscribe()`와 `visibilitychange`로 시작·중지한다.
+- 4K 영상을 그대로 넣지 않는다. 긴 변을 `inputMaxSize`(640px) 이하로 줄인 캔버스에 그려 감지한다(OBS 1080×1920 → 360×640).
+- 호출 간격은 `1000 / maxFps`에서 처리 시간을 뺀 값이다. `detectForVideo` 타임스탬프는 `max(performance.now(), 직전 + 1)`로 항상 증가시킨다.
+- 감지가 실패한 프레임은 "없음"으로 판정한다. 15번 연속 실패하면(약 1초) `error`로 표시하고 1초 간격으로 다시 시도한다. 성공하면 `running`으로 돌아온다. 콘솔 경고는 연속 실패의 첫 번째와 `error`로 바뀔 때만 남긴다.
+- 상태(`DetectorStatus`): `loading`(생성 중), `running`, `paused`(카메라 미준비·페이지 숨김), `error`(생성 실패 또는 연속 감지 실패).
+
+**이후 단계용 경계**
+
+- `createPresenceMonitor()`가 돌려주는 `isPresent()`와 `subscribe(listener)`만 쓴다. `listener`는 등록 즉시 한 번, 그 뒤로는 인식 상태가 바뀔 때만 `{ present }`로 호출된다. 해제 함수를 돌려준다.
+- 좌표·점수·감지 시간은 `getDebugSnapshot()`으로만 꺼내며 `D` 개발용 화면에서만 쓴다. 촬영 진행 코드는 쓰지 않는다.
+
+**화면**
+
+- 인식 상태 임시 표시: 9:16 영역 아래쪽 가운데에 "인식됨"(초록 배경)·"인식 안됨". 카메라가 준비되지 않았으면 숨긴다(이때는 "준비 중" 문구). `config.showPresenceIndicator`로 끈다. 최종 디자인 전 기본 UI다(가안).
+- `D` 화면에 추가된 정보: 감지기 상태와 오류, delegate(실패한 delegate 이유), 감지 시간(마지막·평균)과 그리기 시간, 실제 감지 빈도, 감지 입력 크기, 감지된 얼굴 수와 인정된 얼굴 수, 판정과 안정화 진행(`-> present 343/500ms`), 현재 기준값, 얼굴별 점수·높이·중심과 제외 이유(`region`·`size`·`score`), 감지 오류 횟수.
+- `D` 화면을 켜면 9:16 영역 위에 인식 영역(노란 점선)과 감지 박스를 겹쳐 그린다. 인정된 얼굴은 초록, 제외된 얼굴은 빨강이며, 박스 위에 점수, 중심에 점을 찍는다.
+
+**설정값 (`config.js`, 가안)**
+
+| 값 | 기본값 | 뜻 |
+|---|---|---|
+| `faceDetection.delegates` | `['GPU', 'CPU']` | 시도 순서 |
+| `faceDetection.detectorMinConfidence` | 0.3 | 감지기 자체 기준 (낮게) |
+| `faceDetection.maxFps` | 15 | 감지 최대 빈도 |
+| `faceDetection.inputMaxSize` | 640 | 감지 입력 캔버스 긴 변 최대 px |
+| `presence.region` | `{ x: 0.1, y: 0.1, width: 0.8, height: 0.8 }` | 인식 영역 (화면 좌표, 가운데 넓은 사각형) |
+| `presence.minFaceHeight` | 0.05 | 최소 얼굴 높이 / 9:16 영역 높이 |
+| `presence.minScore` | 0.6 | 최소 신뢰도 |
+| `presence.presentHoldMs` | 500 | 인식됨까지 "있음" 유지 시간 |
+| `presence.absentGraceMs` | 1000 | 인식 안됨까지 "없음" 유지 시간 |
+| `showPresenceIndicator` | `true` | 인식 상태 임시 표시 |
+
+영역·최소 크기·신뢰도는 2-3에서 운영자가 숨김 화면으로 조절하고 `localStorage`에 저장한다(가안). 판정은 매 프레임 설정 객체를 읽으므로 값만 바꾸면 다음 감지부터 반영된다.
+
+**테스트:** `npm test`(`node --test "tests/**/*.test.mjs"`, glob 인자 때문에 Node 22 이상, 의존성 없음). `tests/presence.test.mjs`가 좌표 변환(반전, 가로 영상·9:16·세로로 긴 영상의 cover 크롭), 영역 경계·최소 크기·신뢰도, 안정화(유지 시간 경계, 깜빡임, 짧은 끊김, 시간값 0)를 확인한다. 감지 루프와 화면은 브라우저 하네스로 확인한다(로그 05).
+
 ### 다인원과 스무딩
 
 - 사용자 경험상 MediaPipe는 여러 명을 감지할 때 좌표 스무딩(보간)이 적용되지 않는 문제가 있었다.
@@ -223,6 +315,7 @@ package-lock.json
 
 - MediaPipe 웹 감지 호출은 메인 스레드를 막을 수 있다. 미리보기·카운트다운이 끊기는지 측정한다.
 - 4K 영상을 그대로 감지에 넣지 않는다. 감지 빈도와 분석 해상도를 낮춰 쓰고, 그래도 부족할 때 Worker 분리를 검토한다.
+- 측정 (2-2, 개발 PC RTX 5090, headless Chrome 155): OBS 1080×1920 60fps에서 GPU delegate 감지 약 3ms, 그리기 약 3ms, 15fps. 미리보기 60fps, rAF 60을 유지했고 실행 중 50ms 넘는 긴 작업은 없었다. 시작할 때 감지기 생성(wasm 컴파일·그래프 초기화)으로 0.7~1.0초짜리 긴 작업이 한 번 생긴다. 현장 PC에서 다시 잰다.
 
 ### MediaPipe 로컬 라이브러리 (구현됨, 2-1)
 
@@ -236,7 +329,7 @@ package-lock.json
 | wasm | `FilesetResolver.forVisionTasks()`는 WebAssembly SIMD를 지원하면 `vision_wasm_internal.*`, 아니면 `vision_wasm_nosimd_internal.*`를 고른다. 둘 다 둔다. `vision_wasm_module_internal.*`(`forVisionTasks(path, true)` 전용)과 `.cjs`·`.map`·`.d.ts`는 복사하지 않는다 |
 | 크기 | 합계 약 27.2MB (가장 큰 파일 `vision_wasm_internal.wasm` 13.5MB, GitHub 100MB 단일 파일 제한 이내) |
 
-사용 형태 (2-1에서 임시 하네스로 확인, 앱 연결은 2-2):
+기본 사용 형태 (앱에서는 `js/face-detector.js`가 이렇게 부르고, 경로는 `config.faceDetection`에 있다):
 
 ```js
 import { FilesetResolver, FaceDetector } from '/lib/mediapipe/tasks-vision/vision_bundle.mjs';
@@ -252,9 +345,9 @@ const detector = await FaceDetector.createFromOptions(fileset, {
 1. `npm install --save-dev @mediapipe/tasks-vision@<버전>` (`.npmrc`의 `save-exact=true`로 정확 버전이 기록된다)
 2. 버전을 바꾸면 `tools/vendor-mediapipe.mjs`의 LICENSE URL(새 태그의 커밋)과 SHA-256도 함께 고친다. 모델을 바꿀 때도 URL과 SHA-256을 같이 고친다.
 3. `npm run vendor:mediapipe` — `lib/mediapipe/tasks-vision/`를 비우고 다시 채우며, 다운로드 파일은 SHA-256이 다르면 실패한다. 이미 맞는 해시의 모델은 다시 받지 않는다. `models/`의 관리 대상이 아닌 파일은 지운다.
-4. 텔레메트리 코드 변화(아래)를 확인하고, 하네스나 앱으로 로딩·외부 요청을 다시 검증한 뒤 `lib/mediapipe/`, `package.json`, `package-lock.json`을 커밋한다.
+4. 텔레메트리 코드 변화(아래)를 확인하고, 앱으로 로딩·외부 요청·CSP 위반을 다시 검증한 뒤 `lib/mediapipe/`, `package.json`, `package-lock.json`을 커밋한다.
 
-**사용 통계 전송 (미해결):** `tasks-vision` 1.0.0부터 번들에 사용 통계 로거가 들어 있다(0.10.35 이하에는 없음). 태스크를 만들면 항상 켜지며 끄는 옵션이 없다. 번들 코드상 태스크 종류·실행 모드·OS 종류·라이브러리 버전·처리 횟수와 시간 통계를 모으며(이미지·감지 좌표를 넣는 코드는 보지 못했다. 실제 전송 내용을 해독해 확인하지는 않았다) 생성 후 60초마다, 그리고 `close()` 때 `fetch`로 `https://odml.pa.googleapis.com/v1/log`에 POST한다. 전송이 한 번 실패하면 그 인스턴스의 로거는 멈춘다. 현장이 오프라인이면 실패로 끝나지만, 인터넷이 연결된 PC에서는 실제로 전송된다. 문서의 `connect-src 'self'` CSP를 두면 브라우저가 이 요청을 보내기 전에 막는 것을 확인했다(로딩·감지에는 영향 없음). 적용 방식(CSP를 `index.html` meta로 둘지 서버 헤더로 둘지, 다른 방식을 쓸지)은 결정이 필요하다.
+**사용 통계 전송 (CSP로 차단, 구현됨):** `tasks-vision` 1.0.0부터 번들에 사용 통계 로거가 들어 있다(0.10.35 이하에는 없음). 태스크를 만들면 항상 켜지며 끄는 옵션이 없다. 번들 코드상 태스크 종류·실행 모드·OS 종류·라이브러리 버전·처리 횟수와 시간 통계를 모으며(이미지·감지 좌표를 넣는 코드는 보지 못했다. 실제 전송 내용을 해독해 확인하지는 않았다) 생성 후 60초마다, 그리고 `close()` 때 `fetch`로 `https://odml.pa.googleapis.com/v1/log`에 POST한다. 전송이 한 번 실패하면 그 인스턴스의 로거는 멈춘다. 현장이 오프라인이면 실패로 끝나지만, 인터넷이 연결된 PC에서는 실제로 전송된다. 그래서 `index.html`의 CSP(`connect-src 'self'`, 1절 "외부 전송 차단: CSP")로 브라우저가 보내기 전에 막는다(사용자 결정, 2026-10-15). 앱에서 외부 요청 0건을 확인했다(로그 05). 버전을 올릴 때는 다른 외부 연결이 생겼는지 다시 확인한다.
 
 ## 6. 사진 처리
 

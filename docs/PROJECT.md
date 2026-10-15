@@ -47,7 +47,7 @@
 | 로컬 서버 | PowerShell `HttpListener` 정적 서버, 빌드 없는 바닐라 ES 모듈 (`docs/SYSTEM.md` 1절) |
 | 개발·운영 입력 | 관람객용이 아닌 키보드 단축키로 수동 촬영·초기화 (개발 및 현장 운영자 전용) |
 | 사진 처리 | 브라우저 메모리에서만 현재 회차용으로 유지. 외부 전송·자동 저장 없음 |
-| 오프라인 | 외부 서비스 없이 로컬에서 처리. MediaPipe 라이브러리·WASM·모델도 저장소 `lib/`에 둔다. MediaPipe 1.x가 보내는 사용 통계를 어떻게 막을지는 결정 필요 (`docs/SYSTEM.md` 5절) |
+| 오프라인 | 외부 서비스 없이 로컬에서 처리. MediaPipe 라이브러리·WASM·모델도 저장소 `lib/`에 둔다. MediaPipe 1.x가 보내는 사용 통계는 `index.html`의 CSP(`connect-src 'self'`)로 막는다 (사용자 결정 2026-10-15, `docs/SYSTEM.md` 1절) |
 
 ### TBD (결정 필요)
 
