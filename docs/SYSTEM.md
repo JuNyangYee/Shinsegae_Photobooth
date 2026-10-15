@@ -1,6 +1,6 @@
 # SYSTEM — 기술 구조와 제약
 
-> 실제로 만든 부분은 "구현됨"으로, 아직 만들지 않은 계획은 "가안"으로 표시한다. 구현 범위는 1단계(정적 서버, 9:16 반전 미리보기, 카메라 상태·자동 회복), 2-1(MediaPipe 로컬 라이브러리 배치), 2-2(얼굴 감지와 인식 상태), 2-3(운영자용 인식 범위 조절), 3-1(촬영 상태 기계와 키보드 수동 시작 한 사이클), 3-2(인식 결과로 자동 시작·이탈 취소), 3-3(3단계 검수 반영), 4-1(감지기 안정성·장애 안내), 4-2(현장 실행 스크립트), 4-3(조절값 파일 저장·자동 촬영 일시정지), 4-4(브라우저 확인 도구·장시간 실측)까지다. 사진 효과·인쇄는 아직 없다.
+> 실제로 만든 부분은 "구현됨"으로, 아직 만들지 않은 계획은 "가안"으로 표시한다. 구현 범위는 1단계(정적 서버, 9:16 반전 미리보기, 카메라 상태·자동 회복), 2-1(MediaPipe 로컬 라이브러리 배치), 2-2(얼굴 감지와 인식 상태), 2-3(운영자용 인식 범위 조절), 3-1(촬영 상태 기계와 키보드 수동 시작 한 사이클), 3-2(인식 결과로 자동 시작·이탈 취소), 3-3(3단계 검수 반영), 4-1(감지기 안정성·장애 안내), 4-2(현장 실행 스크립트), 4-3(조절값 파일 저장·자동 촬영 일시정지), 4-4(브라우저 확인 도구·장시간 실측), 4-5(4단계 검수 반영)까지다. 사진 효과·인쇄는 아직 없다.
 
 **목차**
 
@@ -94,7 +94,10 @@ tests/detector-keeper.test.mjs    감지기 재생성·재시도 간격·상태 
 tests/face-detector.test.mjs      사전 확인·생성 실패 정리 Node 테스트 (가짜 bundle·fetch·캔버스·document), 모델 SHA-256 기록 대조
 tests/guidance.test.mjs           안내 규칙 Node 테스트
 tests/log-limit.test.mjs          로그 제한 Node 테스트
-tests/settings-file.test.mjs      조절값 불러오기 순서·마이그레이션·시간 초과, API 클라이언트 Node 테스트
+tests/settings-file.test.mjs      조절값 불러오기 순서·마이그레이션·시간 초과(본문 멈춤 포함), API 클라이언트 Node 테스트
+tests/presence-tuning.test.mjs    조절 화면 저장 중 닫기 Node 테스트 (최소한의 가짜 DOM)
+tests/browser-check-lib.test.mjs  확인 도구의 조절값 파일 백업·복원, CDP 제한 시간·끊김 Node 테스트
+tests/fixtures/fake-vision-bundle.mjs  face-detector 테스트용 MediaPipe 흉내 (번들 파일 이름으로 라이브러리 코드를 알아보므로 별도 파일)
 lib/mediapipe/              MediaPipe 런타임·모델 (구현됨, 커밋 대상. 직접 고치지 않고 스크립트로 갱신)
   tasks-vision/vision_bundle.mjs
   tasks-vision/wasm/        vision_wasm_internal.{js,wasm}, vision_wasm_nosimd_internal.{js,wasm}
@@ -102,6 +105,7 @@ lib/mediapipe/              MediaPipe 런타임·모델 (구현됨, 커밋 대�
   models/blaze_face_short_range.tflite
 tools/vendor-mediapipe.mjs  node_modules → lib/mediapipe 복사, 모델·LICENSE 다운로드·SHA-256 검증 (개발 PC 전용)
 tools/browser-check.mjs     브라우저 확인 도구·장시간 실측 (개발 PC 전용, `npm run check:browser`, 4-4)
+tools/browser-check-lib.mjs 확인 도구 부품: 파일 백업·복원, CDP 세션(제한 시간·끊김) (4-5)
 package.json                private, type module, @mediapipe/tasks-vision 정확 버전 고정, test·vendor:mediapipe 스크립트 (개발 PC 전용)
 package-lock.json
 .npmrc                      save-exact=true
@@ -225,7 +229,7 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 **Chrome 단계**
 
 - 같은 전용 프로필로 이미 떠 있는 Chrome이 있으면 먼저 닫는다(창 닫기 요청 → 5초 뒤 남은 것만 강제 종료). 같은 프로필로 다시 시작하면 기존 인스턴스에 창만 하나 더 생기기 때문이다.
-- 하드웨어 가속: 감지기가 WebGL을 쓰므로 꺼지면 안 된다. 사용자가 Chrome 설정에서 끄면 프로필의 `Local State`에 `"hardware_acceleration_mode":{"enabled":false}`가 남는다. 실행 전에 이 값이 있으면 `true`로 바꾸고 경고를 남긴다. 기본값(키 없음)은 켜짐이다. GPU를 끄는 플래그(`--disable-gpu` 등)는 쓰지 않는다. 실행 화면 쪽 WebGL 점검은 4-1이 맡는다.
+- 하드웨어 가속: 감지기가 WebGL을 쓰므로 꺼지면 안 된다. 사용자가 Chrome 설정에서 끄면 프로필의 `Local State`에 `"hardware_acceleration_mode":{"enabled":false}`가 남는다. 실행 전에 이 값이 있으면 `true`로 바꾸고 경고를 남긴다. 기본값(키 없음)은 켜짐이다. 고칠 때는 그 값만 바꾼 내용을 같은 폴더의 임시 파일에 쓰고, JSON으로 읽히고 값이 `true`인지 확인한 뒤 `File.Replace`(`[NullString]::Value`)로 원자적으로 바꾼다. 문제가 있으면 원본을 그대로 두고 경고만 남긴다(실행은 계속, 4단계 검수 7). GPU를 끄는 플래그(`--disable-gpu` 등)는 쓰지 않는다. 실행 화면 쪽 WebGL 점검은 4-1이 맡는다.
 - `--kiosk <url>`로 연다. `kiosk=false`면 `--app=<url>`과 `--window-size`를 쓴다.
 
 | 플래그 | 이유 |
@@ -285,7 +289,10 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 - **기록:** 외부 요청(`Network.requestWillBeSent`), CSP 위반(`Log.entryAdded`), 페이지 예외(`Runtime.exceptionThrown`), 콘솔 메시지 수
   - MediaPipe 사용 통계 전송(`odml.pa.googleapis.com`)의 CSP 차단은 의도된 동작이라 따로 세고 실패로 보지 않는다.
 - **결과:** 통과/실패 표를 출력하고, 하나라도 실패하면 종료 코드 1이다.
-- **정리:** 성공·실패·Ctrl+C 모두 자신이 띄운 Chrome(프로세스 트리)·서버·임시 프로필만 정리한다. 사용자 Chrome·OBS·현장 서버는 건드리지 않는다. `--keep-profile`이면 조사용으로 프로필을 남긴다.
+- **정리:** 성공·실패·Ctrl+C·처리 안 된 예외 모두 자신이 띄운 Chrome(프로세스 트리)·서버·임시 프로필만 정리한다. 사용자 Chrome·OBS·현장 서버는 건드리지 않는다. `--keep-profile`이면 조사용으로 프로필을 남긴다.
+- **조절값 파일 복원 (4단계 검수 1):** 시작할 때 `config/presence.local.json`을 바이트 그대로(또는 "없음"으로) 백업하고, 조절값 시나리오 직후와 마지막 정리에서 **파일 시스템으로 직접** 되돌린다(같은 폴더 임시 파일 → rename). 서버 API로 되돌리면 잘못된 JSON·16KB를 넘는 원본이 거절돼 시험 값이 남았다. 없던 파일은 지우고, 도구가 만든 빈 `config/` 폴더도 지운다. 실패하면 결과 표에 실패로 나온다.
+- **CDP (4단계 검수 2):** 요청마다 제한 시간(기본 15초)이 있다. 연결이 닫히거나 오류가 나면 기다리던 요청을 모두 실패시키고 이후 요청도 바로 실패한다. 대기 루프도 바로 끝나므로, Chrome이 죽어도 도구가 몇 초 안에 실패로 끝나고 정리한다(`tools/browser-check-lib.mjs`).
+- **계측 스크립트:** 생성 실패 정리 시나리오를 위해, 도구가 페이지 스크립트보다 먼저 `setInterval`·`clearInterval`을 감싸 살아 있는 타이머를 센다(`Page.addScriptToEvaluateOnNewDocument`). 앱 코드는 바꾸지 않는다.
 - 사진·프레임을 저장하지 않는다.
 
 **시나리오 (한 번에 약 40초)**
@@ -293,8 +300,9 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 | 시나리오 | 확인 |
 |---|---|
 | 페이지 로드 | 카메라 `ready`, 감지기 `running, health ok`와 delegate 표시, 조절값 불러오기 끝남, 안내 없음 |
-| `S` 수동 한 사이클 | 카운트다운 → 결과 → 쿨타임 → 대기, `completed` +1, 사진 자원(Object URL·캔버스·대기 작업) 0 |
-| 조절값 API | 페이지 안 `fetch`로 `GET` → `PUT` → `GET` 같은 내용, `X-Photobooth` 없는 `PUT` 403. **실행 전 `config/presence.local.json`을 읽어 두었다가 같은 바이트로 되돌린다**(없던 파일은 지운다). 그사이 몇 초 동안은 시험 값이 들어 있으므로, 현장 서버가 같은 저장소에서 도는 PC에서는 돌리지 않는다 |
+| `S` 수동 한 사이클 | 카운트다운 → 결과 → 쿨타임 → 대기, `completed` +1, 사진 자원(Object URL·캔버스·대기 작업) 0. 결과 상태에서 결과 `<img>`가 보이고(숨김 아님, 크기 0 아님) `naturalWidth`·`naturalHeight`가 D `capture` 줄의 캡처 크기와 같다(4단계 검수 8) |
+| 조절값 API | 페이지 안 `fetch`로 `GET` → `PUT` → `GET` 같은 내용, `X-Photobooth` 없는 `PUT` 403. 원본은 위 "조절값 파일 복원"으로 되돌린다. 그사이 몇 초 동안은 시험 값이 들어 있으므로, 현장 서버가 같은 저장소에서 도는 PC에서는 돌리지 않는다 |
+| 감지기 생성 실패 정리 | 페이지에서 `createFaceDetector`를 모델 대신 LICENSE 파일(크기·SHA-256은 맞춤)로 3번 불러 실제 MediaPipe 그래프 시작에서 실패시킨다. 60초 타이머·로더 스크립트 수가 늘지 않고, 앱의 감지기는 `ok` 그대로 (4단계 검수 6의 실제 브라우저 확인) |
 | 권한 거절 → 허용 | 거절 상태로 열면 카메라 `permission-denied`와 "직원에게 문의해 주세요", 허용하면 권한 `change` 이벤트로 바로 다시 연결해 `ready`(개발 PC 약 0.3초), 안내 사라짐 |
 | 모델 차단 | 모델 요청 404 → 감지기 `retrying / model-unavailable`, "준비 중입니다", 인식 표시 숨김, 그 상태에서 `S` 한 사이클과 자원 0 |
 | 전체 기록 | 외부 요청 0, CSP 위반 0(통계 차단 제외), 페이지 예외 0 |
@@ -311,6 +319,7 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
   - 이 도구 프로필의 `chrome.exe` 전체 메모리: `Win32_Process`의 `PrivatePageCount`·`WorkingSetSize` 합. 작업 관리자 값의 근사치
   - 콘솔 메시지 누적 수, 페이지 예외 수
 - 끝나면 항목별 시작·중간·끝·최소·최대와 시간당 기울기(최소제곱)를 출력한다. 처음 5분을 뺀 기울기도 함께 낸다.
+- **통과 조건 (4단계 검수 5):** 모든 기록에서 카메라 `ready`와 감지기 `health ok`, `S`를 누르기 직전(대기 상태)마다 사진 자원 0이고 `taken = released`, 측정값을 모두 읽음(숫자가 아니거나 Chrome 메모리를 못 읽으면 실패), 외부 요청·CSP 위반(통계 차단 제외)·페이지 예외 0, 완료 회차 1 이상
 
 ## 2. 코드 책임 구분
 
@@ -560,8 +569,13 @@ camera-monitor (ready·페이지 표시) ──▶ presence-monitor 감지 루�
   - 확인한 바이트를 `baseOptions.modelAssetBuffer`(복사본)로 넘긴다. 그래서 생성 중에 모델 받기가 실패할 수 없다.
 - **실패한 생성의 정리 (4-1):** 사전 확인을 통과하고도 MediaPipe 생성이 실패할 수 있다(아래 "MediaPipe 1.1.1 생성 실패 누적"). 그래서 delegate 시도마다 다음을 한다.
   - MediaPipe가 쓸 WebGL 캔버스(1×1 `OffscreenCanvas`)를 직접 만들어 `canvas` 옵션으로 넘긴다. 라이브러리 기본값과 같은 종류다. 실패하면 그 캔버스의 컨텍스트를 놓는다.
-  - 생성하는 동안만 `setInterval`을 감싸 60초 간격 타이머(통계 로거)를 기록하고, 실패하면 지운다. 생성이 끝나면 원래 함수로 되돌린다. 다른 간격의 타이머는 건드리지 않는다.
-  - 성공·실패와 관계없이, 실행이 끝난 wasm 로더 `<script>`(`fileset.wasmLoaderPath`) 요소를 지운다.
+  - 생성하는 동안만 `setInterval`을 감싸, 그 시도가 만든 통계 타이머를 기록했다가 실패하면 지운다. 생성이 끝나면 원래 함수로 되돌린다.
+  - 실행이 끝난 wasm 로더 `<script>`(`fileset.wasmLoaderPath`) 요소를 성공·실패와 관계없이 지운다.
+  - **소유자 구분 (4단계 검수 6):** 정리는 그 시도가 만든 자원으로 한정한다.
+    - 타이머는 진행 중인 시도가 하나뿐일 때, 라이브러리 번들이 **직접** 부른(호출 스택에서 바로 위 프레임이 번들 파일 `vision_bundle.mjs`) 60초 간격만 그 시도의 것으로 기록한다. 같은 시간에 다른 코드가 만든 60초 타이머는 지우지 않는다.
+    - 로더 요소는 첫 시도가 시작될 때 이미 있던 같은 URL의 요소를 기억해 두고 건드리지 않는다.
+    - 시도가 겹치면(앱은 `detector-keeper`가 하나씩만 만든다) 감싼 `setInterval`은 하나만 두고 마지막 시도가 끝날 때 되돌린다. 로더 요소도 모두 끝난 뒤에만 지운다(불러오는 중인 로더를 지우면 그 시도가 멈춘다). 겹친 동안 생긴 타이머는 누구 것인지 몰라 지우지 않는다.
+    - 확인: Node 테스트(가짜 번들은 `tests/fixtures/`의 별도 파일)와 확인 도구의 실제 MediaPipe 시나리오. 판별을 끄면 실제 브라우저에서 60초 타이머가 1→7로 늘어 시나리오가 실패했다.
   - 실패 원인은 오류의 `code`(`DetectorFault`)로 붙인다: `bundle-load-failed`, `model-unavailable`, `model-invalid`, `webgl-unavailable`, `create-failed`. 실행 중 원인은 `webgl-context-lost`, `detect-failing`이다.
 - Chrome은 실패한 동적 `import()` 결과를 기억해, 원인이 없어져도 같은 URL로는 다시 받지 않는다(2단계 검수 수정 중 확인). 그래서 불러오기에 실패한 적이 있으면 다음 시도에 `?retry=N`을 붙여 새로 받는다. 한 번 성공한 bundle 모듈은 감지기를 다시 만들 때도 그대로 쓴다.
 - `config.faceDetection.delegates` 순서(`GPU` → `CPU`)로 생성을 시도한다. 앞선 delegate가 실패한 이유는 `D` 화면 `delegate` 줄에 보인다.
@@ -724,6 +738,7 @@ camera-monitor (ready·페이지 표시) ──▶ presence-monitor 감지 루�
 - **저장**을 눌러야 조절값 파일(`config/presence.local.json`, 1절 "조절값 파일 API")에 기록한다 (4-3. 2-3~4-2는 `localStorage`).
   - 값: `{ "version": 1, "settings": { "region": {...}, "minFaceHeight", "maxFaceHeight", "minScore", "presentHoldMs", "absentGraceMs" } }` (2칸 들여쓴 JSON. 메모장으로 열어 볼 수 있다)
   - 저장 중에는 버튼을 막고 "저장 중..."을 보인다. 서버가 204로 답해야 저장된 값으로 인정한다.
+  - **저장 중에 닫으면(`R`·`Esc`·닫기) 저장이 끝난 뒤 닫는다** (4단계 검수 4). "저장 중입니다. 저장이 끝나면 닫습니다."를 보이고, 응답(최대 3초)을 받은 뒤 닫으면서 마지막으로 파일에 저장된 값으로 맞춘다. 성공하면 저장한 값, 실패하면 이전 파일 값이다. 그래서 실행 중인 판정값과 파일 값이 늘 같다. 닫기를 아예 막으면 운영자가 키를 다시 눌러야 하므로 미루는 쪽을 골랐다.
   - 실패하면(서버 없음·거절·시간 초과 3초) 패널에 "저장하지 못했습니다: HTTP 500 (...)" 같은 이유를 보이고 **저장되지 않은 상태를 유지**한다. 닫으면 마지막으로 저장된 값으로 돌아간다.
   - 저장 중에 슬라이더를 더 움직였으면, 누른 순간의 값만 저장하고 그 뒤 변경은 저장하지 않은 변경으로 남긴다.
 - **취소 (저장된 값으로)**: 마지막 저장값(없으면 기본값)으로 되돌린다.
@@ -741,7 +756,7 @@ camera-monitor (ready·페이지 표시) ──▶ presence-monitor 감지 루�
 | 2 | 파일 404 + `localStorage`(`photobooth.presence.v1`)에 쓸 수 있는 값 | 그 값을 파일로 옮긴다(`PUT` → 다시 `GET`해 같은지 확인) → 확인되면 `localStorage` 키를 지운다 | `migrated (from localStorage (removed))` |
 | 2-1 | 옮기기 실패 | 이번 실행은 `localStorage` 값. 지우지 않으므로 다음 시작에 다시 옮긴다 | `localStorage (migration to file failed: ...)` |
 | 3 | 파일 404 + `localStorage` 없음·깨짐 | 기본값 (파일을 만들지 않는다) | `defaults (no file)` |
-| — | 파일 읽기 실패(서버 오류·연결 실패)·시간 초과(`config.settingsFile.timeoutMs` 3초, 가안) | 기본값. 파일이 있는데 못 읽었을 수 있으므로 옮기지 않는다 | `defaults (file read failed: timeout 3000ms)` 등. 콘솔 경고 1줄, 조절 화면을 열면 패널에도 |
+| — | 파일 읽기 실패(서버 오류·연결 실패)·시간 초과(`config.settingsFile.timeoutMs` 3초, 가안. 응답 헤더 뒤 본문이 멈춰도 같은 제한 시간 안에 끝난다, 4단계 검수 3) | 기본값. 파일이 있는데 못 읽었을 수 있으므로 옮기지 않는다 | `defaults (file read failed: timeout 3000ms)` 등. 콘솔 경고 1줄, 조절 화면을 열면 패널에도 |
 
 - 불러오기가 끝날 때까지 `R`은 열리지 않고, D `settings` 줄은 `loading`, 자동 시작은 `blocked: settings-loading`이다.
 - **`localStorage`를 옮긴 뒤 지우는 이유:** 파일이 생긴 뒤에는 `localStorage`를 읽지 않는다. 남겨 두면, 운영자가 초기화하려고 파일을 지웠을 때 옛 값이 말없이 다시 옮겨진다. 다시 읽어 파일 내용을 확인한 뒤에만 지우므로 값을 잃지 않는다. 앱은 `localStorage`에 더 쓰지 않는다.
