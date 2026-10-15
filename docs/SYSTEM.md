@@ -1,6 +1,6 @@
 # SYSTEM — 기술 구조와 제약
 
-> 실제로 만든 부분은 "구현됨"으로, 아직 만들지 않은 계획은 "가안"으로 표시한다. 구현 범위는 1단계(정적 서버, 9:16 반전 미리보기, 카메라 상태·자동 회복)까지다.
+> 실제로 만든 부분은 "구현됨"으로, 아직 만들지 않은 계획은 "가안"으로 표시한다. 구현 범위는 1단계(정적 서버, 9:16 반전 미리보기, 카메라 상태·자동 회복)와 2-1(MediaPipe 로컬 라이브러리 배치)까지다. 앱 화면에는 아직 감지를 연결하지 않았다.
 
 ## 1. 전체 구성
 
@@ -30,8 +30,8 @@
 | 정적 서버 (구현됨) | `bin/server/serve.ps1`. 아래 "정적 서버" 참고 |
 | OBS 실행 | OBS가 실행 중이 아니면 `--startvirtualcam --minimize-to-tray` 등으로 실행 |
 | 브라우저 실행 | 서버 준비 확인(`GET /` 응답 대기) 후 Chrome `--app=<url>` 전용 `--user-data-dir` 프로필로 실행. 전체화면·키오스크 플래그는 1단계 이후 확정 |
-| 프런트엔드 (구현됨) | 빌드 없는 바닐라 ES 모듈. `package.json` 없음 |
-| MediaPipe | CDN이 아닌 저장소 `lib/mediapipe/`에 `tasks-vision` 번들·WASM·모델을 둠 |
+| 프런트엔드 (구현됨) | 빌드 없는 바닐라 ES 모듈. `package.json`은 라이브러리 받기(`vendor:mediapipe`)에만 쓰고 빌드 스크립트·번들러는 없다 |
+| MediaPipe (구현됨) | CDN이 아닌 저장소 `lib/mediapipe/`에 `tasks-vision` 번들·WASM·모델을 둠 (5절 "MediaPipe 로컬 라이브러리") |
 | 상태 관리 | 고정된 상태 목록 + 상태 변경 알림 정도의 작은 상태 모듈 |
 | 자동 시작 | 시작 프로그램 폴더에 `Launch.bat` 바로가기 생성 (4단계) |
 | 인쇄 (이후) | 브라우저 → `localhost` HTTP 인쇄 서비스로 요청, 작업 상태를 조회하는 사이드카 패턴 |
@@ -54,8 +54,19 @@ src/web/                    (구현됨)
   js/camera.js              카메라 장치 선택·스트림 시작·종료
   js/camera-monitor.js      카메라 상태 감시(첫 프레임·끊김)·자동 회복·상태 구독
   js/(trigger, session, capture 등 책임별 모듈은 해당 단계에서 추가)
-lib/mediapipe/              (3단계에서 추가)
+lib/mediapipe/              MediaPipe 런타임·모델 (구현됨, 커밋 대상. 직접 고치지 않고 스크립트로 갱신)
+  tasks-vision/vision_bundle.mjs
+  tasks-vision/wasm/        vision_wasm_internal.{js,wasm}, vision_wasm_nosimd_internal.{js,wasm}
+  tasks-vision/LICENSE      Apache-2.0
+  models/blaze_face_short_range.tflite
+tools/vendor-mediapipe.mjs  node_modules → lib/mediapipe 복사, 모델·LICENSE 다운로드·SHA-256 검증 (개발 PC 전용)
+package.json                private, @mediapipe/tasks-vision 정확 버전 고정 (개발 PC 전용)
+package-lock.json
+.npmrc                      save-exact=true
 ```
+
+- `node_modules/`는 Git에서 제외한다. 현장 PC에는 Node와 `node_modules/`가 필요 없다.
+- `lib/mediapipe/**`는 `.gitattributes`에서 `-text`로 지정해 줄바꿈 변환 없이 받은 바이트 그대로 둔다(`core.autocrlf=true` 환경에서 bundle·wasm 로더 JS가 CRLF로 바뀌지 않게).
 
 ### 정적 서버 (구현됨)
 
@@ -193,7 +204,7 @@ lib/mediapipe/              (3단계에서 추가)
 | 후보 | 역할 | 메모 |
 |---|---|---|
 | 개발용 키 입력 | 감지 구현 전 촬영 흐름 검증, 현장 운영자 수동 조작 | 관람객용 입력이 아님 |
-| MediaPipe Face Detector | **우선 시험.** 화면 내 지정 영역에 얼굴이 있는지 판정 | 정면 여부·랜드마크 불필요. 웹 모델은 short-range(공식 문서 기준 약 2m 이내 얼굴)로 요구 거리와 맞음. 아이 키·고개 돌림은 실측 필요 |
+| MediaPipe Face Detector | **2단계 감지기(사용자 결정).** 화면 내 지정 영역에 최소 크기 이상의 얼굴이 있는지 판정 | 정면 여부·랜드마크 불필요. 웹 모델은 short-range(공식 문서 기준 약 2m 이내 얼굴)로 요구 거리와 맞음. 아이 키·고개 돌림은 실측 필요 |
 | MediaPipe Object Detector (`person`) | 대안 | 얼굴이 작거나 돌아선 경우에도 사람 단위로 감지. 얼굴 누락이 잦을 때 비교 |
 | MediaPipe Pose Landmarker | 대안 | 신체 위치 조건이 필요할 때만 비교 |
 | 프레임 변화량 | 보조 시험 | 변화량만으로 사람 여부를 구분한다고 가정하지 않음 |
@@ -212,6 +223,38 @@ lib/mediapipe/              (3단계에서 추가)
 
 - MediaPipe 웹 감지 호출은 메인 스레드를 막을 수 있다. 미리보기·카운트다운이 끊기는지 측정한다.
 - 4K 영상을 그대로 감지에 넣지 않는다. 감지 빈도와 분석 해상도를 낮춰 쓰고, 그래도 부족할 때 Worker 분리를 검토한다.
+
+### MediaPipe 로컬 라이브러리 (구현됨, 2-1)
+
+| 항목 | 내용 |
+|---|---|
+| 패키지 | `@mediapipe/tasks-vision` **1.1.1** (`devDependencies`, `^`·`~` 없이 고정, `package-lock.json` 커밋) |
+| 위치 | `lib/mediapipe/tasks-vision/` (번들·wasm·LICENSE), `lib/mediapipe/models/` (모델) |
+| 서버 경로 | `/lib/mediapipe/tasks-vision/vision_bundle.mjs`, `/lib/mediapipe/tasks-vision/wasm`, `/lib/mediapipe/models/blaze_face_short_range.tflite` |
+| 모델 | `blaze_face_short_range.tflite` (float16, 버전 `1`), 출처 `https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite`, SHA-256 `b4578f35940bf5a1a655214a1cce5cab13eba73c1297cd78e1a04c2380b0152f` |
+| LICENSE | npm 패키지에 라이선스 파일이 없어 공식 저장소 `google-ai-edge/mediapipe`의 `v1.1.1` 태그 커밋(`50505c8312c7eacb1bd411cecdc4cc9fd08d53cb`)에서 받는다. SHA-256 `8707eef0533987efc5b155d64761eeb6e20793f50b9bd1a68dad1cf4719d0ed8` |
+| wasm | `FilesetResolver.forVisionTasks()`는 WebAssembly SIMD를 지원하면 `vision_wasm_internal.*`, 아니면 `vision_wasm_nosimd_internal.*`를 고른다. 둘 다 둔다. `vision_wasm_module_internal.*`(`forVisionTasks(path, true)` 전용)과 `.cjs`·`.map`·`.d.ts`는 복사하지 않는다 |
+| 크기 | 합계 약 27.2MB (가장 큰 파일 `vision_wasm_internal.wasm` 13.5MB, GitHub 100MB 단일 파일 제한 이내) |
+
+사용 형태 (2-1에서 임시 하네스로 확인, 앱 연결은 2-2):
+
+```js
+import { FilesetResolver, FaceDetector } from '/lib/mediapipe/tasks-vision/vision_bundle.mjs';
+const fileset = await FilesetResolver.forVisionTasks('/lib/mediapipe/tasks-vision/wasm');
+const detector = await FaceDetector.createFromOptions(fileset, {
+  baseOptions: { modelAssetPath: '/lib/mediapipe/models/blaze_face_short_range.tflite', delegate: 'GPU' },
+  runningMode: 'VIDEO',
+});
+```
+
+**갱신 방법 (개발 PC 전용, 현장 불필요):** Node 18 이상에서 실행한다.
+
+1. `npm install --save-dev @mediapipe/tasks-vision@<버전>` (`.npmrc`의 `save-exact=true`로 정확 버전이 기록된다)
+2. 버전을 바꾸면 `tools/vendor-mediapipe.mjs`의 LICENSE URL(새 태그의 커밋)과 SHA-256도 함께 고친다. 모델을 바꿀 때도 URL과 SHA-256을 같이 고친다.
+3. `npm run vendor:mediapipe` — `lib/mediapipe/tasks-vision/`를 비우고 다시 채우며, 다운로드 파일은 SHA-256이 다르면 실패한다. 이미 맞는 해시의 모델은 다시 받지 않는다. `models/`의 관리 대상이 아닌 파일은 지운다.
+4. 텔레메트리 코드 변화(아래)를 확인하고, 하네스나 앱으로 로딩·외부 요청을 다시 검증한 뒤 `lib/mediapipe/`, `package.json`, `package-lock.json`을 커밋한다.
+
+**사용 통계 전송 (미해결):** `tasks-vision` 1.0.0부터 번들에 사용 통계 로거가 들어 있다(0.10.35 이하에는 없음). 태스크를 만들면 항상 켜지며 끄는 옵션이 없다. 번들 코드상 태스크 종류·실행 모드·OS 종류·라이브러리 버전·처리 횟수와 시간 통계를 모으며(이미지·감지 좌표를 넣는 코드는 보지 못했다. 실제 전송 내용을 해독해 확인하지는 않았다) 생성 후 60초마다, 그리고 `close()` 때 `fetch`로 `https://odml.pa.googleapis.com/v1/log`에 POST한다. 전송이 한 번 실패하면 그 인스턴스의 로거는 멈춘다. 현장이 오프라인이면 실패로 끝나지만, 인터넷이 연결된 PC에서는 실제로 전송된다. 문서의 `connect-src 'self'` CSP를 두면 브라우저가 이 요청을 보내기 전에 막는 것을 확인했다(로딩·감지에는 영향 없음). 적용 방식(CSP를 `index.html` meta로 둘지 서버 헤더로 둘지, 다른 방식을 쓸지)은 결정이 필요하다.
 
 ## 6. 사진 처리
 
