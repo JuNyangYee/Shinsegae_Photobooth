@@ -1,14 +1,14 @@
 # SYSTEM — 기술 구조와 제약
 
-> 실제로 만든 부분은 "구현됨"으로, 아직 만들지 않은 계획은 "가안"으로 표시한다. 구현 범위는 1단계(정적 서버, 9:16 반전 미리보기, 카메라 상태·자동 회복), 2-1(MediaPipe 로컬 라이브러리 배치), 2-2(얼굴 감지와 인식 상태), 2-3(운영자용 인식 범위 조절), 3-1(촬영 상태 기계와 키보드 수동 시작 한 사이클), 3-2(인식 결과로 자동 시작·이탈 취소), 3-3(3단계 검수 반영)까지다. 사진 효과·인쇄·현장 실행은 아직 없다.
+> 실제로 만든 부분은 "구현됨"으로, 아직 만들지 않은 계획은 "가안"으로 표시한다. 구현 범위는 1단계(정적 서버, 9:16 반전 미리보기, 카메라 상태·자동 회복), 2-1(MediaPipe 로컬 라이브러리 배치), 2-2(얼굴 감지와 인식 상태), 2-3(운영자용 인식 범위 조절), 3-1(촬영 상태 기계와 키보드 수동 시작 한 사이클), 3-2(인식 결과로 자동 시작·이탈 취소), 3-3(3단계 검수 반영), 4-1(감지기 안정성·장애 안내)까지다. 사진 효과·인쇄·현장 실행은 아직 없다.
 
 **목차**
 
 1. 전체 구성 — 구성도, 참고 구조, 폴더, 정적 서버, CSP, 스크립트 인코딩
-2. 코드 책임 구분
+2. 코드 책임 구분 — 반복 오류 로그 제한
 3. 카메라와 영상 — OBS, 화면 배치, 좌우 반전, 권한, 카메라 상태와 자동 회복
 4. 촬영 상태 — 촬영 한 사이클, 실패와 취소 경계, 운영자 단축키, 자동 시작과 이탈 취소, 출력 연동 참고
-5. 촬영 시작 인식 — 얼굴 감지와 인식 상태, 인식 범위 조절, 다인원, 성능, MediaPipe 로컬 라이브러리
+5. 촬영 시작 인식 — 얼굴 감지와 인식 상태, 감지기 상태와 장애 안내, 인식 범위 조절, 다인원, 성능, MediaPipe 로컬 라이브러리
 6. 사진 처리 — 캡처와 결과 이미지
 7. 참고 자료
 
@@ -63,13 +63,15 @@ src/web/                    (구현됨)
   js/config.js              바꿀 수 있는 값 (반전, 화면 비율, 카메라, 회복 시간, 감지기, 인식 판정, 촬영 시간, 결과 이미지 형식)
   js/camera.js              카메라 장치 선택·스트림 시작·종료
   js/camera-monitor.js      카메라 상태 감시(첫 프레임·끊김)·자동 회복·상태 구독
-  js/face-detector.js       MediaPipe Face Detector 생성(GPU→CPU)·감지·종료
+  js/face-detector.js       MediaPipe Face Detector 사전 확인(WebGL·모델 SHA-256)·생성(GPU→CPU)·실패 정리·감지·종료
   js/presence.js            인식 판정 순수 함수 (좌표 변환, 인정 조건, 시간 안정화)
   js/presence-monitor.js    감지 루프, 인식 상태 구독 (isPresent·subscribe), 판정 설정 교체 (setSettings)
   js/presence-settings.js   판정 설정 검증·정규화·저장 형식, 영역 이동·크기 조절 계산 (순수 함수)
   js/presence-tuning.js     운영자용 인식 범위 조절 화면 (R 키), localStorage 저장
   js/region-drag.js         인식 영역 마우스 끌기 (이동·크기 조절, 끌기 종료 조건)
-  js/detector-keeper.js     감지기 생성·재시도·폐기 후 재생성 (한 번에 하나만)
+  js/detector-keeper.js     감지기 생성·재시도(간격 늘림·상한)·폐기 후 재생성 (한 번에 하나만), 감지기 상태(DetectorHealth)
+  js/guidance.js            관람객 안내 규칙: 카메라·감지기 상태 → "준비 중"/"직원 문의" (순수 함수)
+  js/log-limit.js           반복 오류 로그 제한 (처음 한 번과 주기적인 요약)
   js/session.js             촬영 한 사이클 상태 기계 (상태 전이·타이머·회차, 시작·취소·초기화 입구)
   js/auto-start.js          인식 상태 → 상태 기계 연결 (자동 시작 레벨 판정 순수 함수, 이탈 취소)
   js/capture.js             9:16 보이는 영역 캡처(원본 해상도, 반전), 사진 효과 자리, 결과 이미지(Object URL) 정리
@@ -81,7 +83,10 @@ tests/presence-settings.test.mjs  설정 검증·영역 편집 계산 Node 테�
 tests/region-drag.test.mjs  영역 끌기 종료 조건 Node 테스트 (EventTarget으로 흉내)
 tests/presence-monitor.test.mjs  감지 루프 Node 테스트 (실제 presence-monitor + 가짜 감지기·document·카메라 프레임)
 tests/helpers.mjs           테스트 공용 흉내 (가짜 시계·타이머, 인식 상태, 캔버스·Object URL). npm test가 직접 실행하지 않는다
-tests/detector-keeper.test.mjs    감지기 재생성 Node 테스트
+tests/detector-keeper.test.mjs    감지기 재생성·재시도 간격·상태 전이 Node 테스트
+tests/face-detector.test.mjs      사전 확인·생성 실패 정리 Node 테스트 (가짜 bundle·fetch·캔버스·document), 모델 SHA-256 기록 대조
+tests/guidance.test.mjs           안내 규칙 Node 테스트
+tests/log-limit.test.mjs          로그 제한 Node 테스트
 lib/mediapipe/              MediaPipe 런타임·모델 (구현됨, 커밋 대상. 직접 고치지 않고 스크립트로 갱신)
   tasks-vision/vision_bundle.mjs
   tasks-vision/wasm/        vision_wasm_internal.{js,wasm}, vision_wasm_nosimd_internal.{js,wasm}
@@ -133,8 +138,9 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 | 영역 | 책임 |
 |---|---|
 | 카메라 | OBS 가상카메라 장치 선택, 스트림 시작·종료, 첫 프레임 준비 확인, 단절 감지 |
-| 얼굴 감지 (구현됨) | `face-detector.js`: MediaPipe 생성·감지·종료만. 영상 기준 정규화 박스·점수만 돌려주고 MediaPipe 자료형을 내보내지 않음 |
-| 인식 판정 (구현됨) | `presence.js`: 좌표 변환·인정 조건·시간 안정화 순수 함수. `presence-monitor.js`: 감지 루프, "인식됨 / 인식 안됨"만 밖에 알림 |
+| 얼굴 감지 (구현됨) | `face-detector.js`: 사전 확인(WebGL·모델), MediaPipe 생성·실패 정리·감지·종료만. 영상 기준 정규화 박스·점수만 돌려주고 MediaPipe 자료형을 내보내지 않음. `detector-keeper.js`: 재생성과 감지기 상태 |
+| 관람객 안내 (구현됨, 4-1) | `guidance.js`: 카메라·감지기 상태 → "준비 중"/"직원 문의" 판정. `main.js`가 화면에 보인다 |
+| 인식 판정 (구현됨) | `presence.js`: 좌표 변환·인정 조건·시간 안정화 순수 함수. `presence-monitor.js`: 감지 루프, "인식됨 / 인식 안됨"과 감지기 상태(`{ health, cause, since }`)만 밖에 알림 |
 | 촬영 시작 입력 (구현됨) | 키보드(`main.js`)와 인식 상태(`auto-start.js`)가 `session.request('start' \| 'cancel' \| 'reset')` 한 입구로 요청만 보낸다. 시작할 수 있는지는 상태 기계가 정한다. `auto-start.js`는 "인식됨 / 인식 안됨"(`isPresent`·`subscribe`)만 받는다 |
 | 촬영 진행 (구현됨) | `session.js`: 상태 전환, 카운트다운·결과·쿨타임 타이머, 회차 식별자, 취소·강제 초기화, 결과 종료 시계 시작 지점. DOM·카메라를 모르고 시계·타이머·사진 함수를 주입받는다 |
 | 이미지 (구현됨) | `capture.js`: 보이는 9:16 영역을 원본 해상도로 잘라 반전 캡처, 사진 효과 자리(지금은 그대로 통과), JPEG 인코딩, Object URL 생성·정리, 남은 자원 수 |
@@ -142,6 +148,16 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 
 - 감지 모델의 세부 출력(좌표, 신뢰도 등)이 촬영 진행 코드나 화면 전체로 퍼지지 않게 한다. 좌표·점수는 `presence-monitor.js`의 `getDebugSnapshot()`(D 개발용 화면 전용)으로만 꺼낸다.
 - 사진 효과는 "캡처 이미지 → 결과 화면" 사이에 끼울 수 있는 경계만 둔다. 범용 플러그인 구조는 만들지 않는다.
+
+### 반복 오류 로그 제한 (구현됨, 4-1)
+
+무인 키오스크에서는 같은 오류(카메라 재시도, 감지기 재시도, 촬영 실패)가 하루 종일 반복될 수 있다. 콘솔이 같은 줄로 가득 차지 않도록 `js/log-limit.js`의 `errorLog` 하나로 모은다.
+
+- 분류(`camera`, `detector`, `detection`, `capture` 등)마다 마지막 오류를 기억한다. 숫자만 다른 오류(경과 ms 등)는 같은 오류로 센다.
+- 처음 나거나 오류가 바뀌면 바로 남긴다. 같은 오류가 이어지면 세기만 한다. 마지막으로 남긴 뒤 60초(`LOG_SUMMARY_MS`, 가안)가 지나면 `[camera] 같은 오류 20회 더 (마지막 10:01:00): ...` 한 줄을 남긴다.
+- 회복하면(카메라 `ready`, 감지기 생성 성공, 감지 성공, 촬영 성공) 감춰진 횟수를 요약하고 기억을 지운다. 다음 오류는 다시 처음부터 남긴다.
+- 별도 타이머는 없다. 요약은 다음 오류나 회복 때 남는다. 시각 표시는 `Date`, 간격 계산은 `performance.now()`를 쓴다.
+- 브라우저가 직접 찍는 메시지(네트워크 404, CSP 위반)는 이 규칙에 포함되지 않는다.
 
 ## 3. 카메라와 영상
 
@@ -198,7 +214,7 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 - **`devicechange`:** 0.5초 묶은 뒤 처리한다. 정상이 아니면 즉시 재시도한다. 정상이면 현재 장치가 목록에서 사라졌는지(→ `disconnected`), 기본 카메라로 대신 연결된 상태에서 우선 장치(OBS)가 나타났는지(→ OBS로 전환) 확인한다. 현장은 OBS 사용이 확정이므로 대체 카메라보다 OBS를 우선한다.
 - **겹침 방지:** 연결 시도는 한 번에 하나만 진행한다. 진행 중에 새 요청이 오면 끝난 뒤 한 번 더 시도하고, 그 사이에 얻은 스트림은 버린다(닫는다). 연결 세대 번호로 늦게 도착한 이벤트·결과를 무시한다.
 - **설정값 (확정):** `config.cameraRecovery` — 재시도 간격 3초, 첫 프레임 제한 5초, 프레임 정지 판정 3초, 직원 문의 문구 전환 30초.
-- **관람객 문구 (확정):** 정상이 아니면 "준비 중입니다. 잠시만 기다려 주세요." 정상이 아닌 상태가 30초 이상 이어지거나, 스스로 풀리기 어려운 상태(`unsupported`, `permission-denied`)면 "준비 중입니다. 직원에게 문의해 주세요." 기술 용어는 쓰지 않는다. 끊기면 영상을 지워 검은 화면 위에 문구를 띄운다.
+- **관람객 문구 (확정):** 정상이 아니면 "준비 중입니다. 잠시만 기다려 주세요." 정상이 아닌 상태가 30초 이상 이어지거나, 스스로 풀리기 어려운 상태(`unsupported`, `permission-denied`)면 "준비 중입니다. 직원에게 문의해 주세요." 기술 용어는 쓰지 않는다. 끊기면 영상을 지워 검은 화면 위에 문구를 띄운다. 4-1부터 이 규칙은 감지기 상태와 합쳐 하나로 판정한다(5절 "감지기 상태와 장애 안내").
 - **운영자용 상세:** `D` 개발용 정보에 상태, 원인(오류 종류·끊김 원인)과 원본 오류 이름, 시도 횟수와 정상 이후 연속 실패 횟수, 마지막 시도 시각, 정상이 아닌 시간, 권한 상태를 보인다.
 - **이후 단계용 경계:** `createCameraMonitor()`가 돌려주는 `isReady()`, `getState()`, `subscribe(listener)`(해제 함수 반환), `getFrameInfo()`만 쓴다. 촬영 진행 코드는 `ready`가 아니면 촬영을 시작하지 않고, 카운트다운 중 `ready`가 아니게 되면 회차를 취소한다. 결과 표시 중이면 사진이 이미 있으므로 결과를 계속 보인다(구현됨, 4절). 얼굴 감지(`presence-monitor.js`)도 같은 인터페이스로 카메라 준비 여부를 받는다(구현됨).
 - **새 프레임 정보 (구현됨, 3-3):** `getFrameInfo()`는 `requestVideoFrameCallback`으로 실제 새 프레임을 받은 마지막 시각(`performance.now()` 기준, 없으면 `null`)과 누적 프레임 수(세대)를 돌려준다. 영상 내용은 내보내지 않는다. 끊김 판정용 `lastFrameAt`은 페이지가 숨겨진 동안 현재 시각으로 밀어 두므로 따로 둔다. 캡처는 촬영 직전 이 시각으로 정지 화면을 거르고(6절), 감지 루프는 누적 수로 같은 프레임을 다시 세지 않는다(5절).
@@ -346,12 +362,26 @@ camera-monitor (ready·페이지 표시) ──▶ presence-monitor 감지 루�
 
 **감지기 (`face-detector.js`)**
 
-- bundle을 동적 `import`로 불러온다. 불러오기나 생성에 실패해도 카메라 미리보기는 계속 동작하고, 실패 사실은 `D` 화면 `detector : error / ...`에 보인다. 실패하면 아래 "감지기 재생성" 규칙으로 다시 만든다.
+- bundle을 동적 `import`로 불러온다. 불러오기나 생성에 실패해도 카메라 미리보기는 계속 동작하고, 실패 사실은 `D` 화면 `detector` 줄에 보인다. 실패하면 아래 "감지기 재생성" 규칙으로 다시 만든다.
+- **생성 전 사전 확인 (4-1):** MediaPipe 생성을 시작하기 전에 비용이 적은 확인부터 한다. 확인이 실패하면 로더·wasm·통계 타이머를 아예 만들지 않는다.
+  1. WebGL: 1×1 `OffscreenCanvas`에 `webgl2` 컨텍스트를, 없으면 `webgl` 컨텍스트를 만들어 본다. 둘 다 없으면 `webgl-unavailable`("하드웨어 가속 꺼짐 또는 WebGL 없음")이다. 확인용 컨텍스트는 `WEBGL_lose_context`로 바로 놓는다. 렌더러 이름(`WEBGL_debug_renderer_info`)은 D 화면에 보이고, SwiftShader·Basic Render Driver 같은 소프트웨어 렌더러는 `(software)`로 표시한다.
+  2. 모델: `modelPath`를 받아 HTTP 상태(실패하면 `model-unavailable`), 크기 `modelBytes`, SHA-256 `modelSha256`(다르면 `model-invalid`)을 확인한다. 기준값은 `config.faceDetection`에 있고 `tools/vendor-mediapipe.mjs`의 기록과 같아야 한다(`tests/face-detector.test.mjs`가 실제 파일과 대조한다). 통과한 바이트는 기억해 두고 다음 생성 때 다시 받지 않는다.
+  - 확인한 바이트를 `baseOptions.modelAssetBuffer`(복사본)로 넘긴다. 그래서 생성 중에 모델 받기가 실패할 수 없다.
+- **실패한 생성의 정리 (4-1):** 사전 확인을 통과하고도 MediaPipe 생성이 실패할 수 있다(아래 "MediaPipe 1.1.1 생성 실패 누적"). 그래서 delegate 시도마다 다음을 한다.
+  - MediaPipe가 쓸 WebGL 캔버스(1×1 `OffscreenCanvas`)를 직접 만들어 `canvas` 옵션으로 넘긴다. 라이브러리 기본값과 같은 종류다. 실패하면 그 캔버스의 컨텍스트를 놓는다.
+  - 생성하는 동안만 `setInterval`을 감싸 60초 간격 타이머(통계 로거)를 기록하고, 실패하면 지운다. 생성이 끝나면 원래 함수로 되돌린다. 다른 간격의 타이머는 건드리지 않는다.
+  - 성공·실패와 관계없이, 실행이 끝난 wasm 로더 `<script>`(`fileset.wasmLoaderPath`) 요소를 지운다.
+  - 실패 원인은 오류의 `code`(`DetectorFault`)로 붙인다: `bundle-load-failed`, `model-unavailable`, `model-invalid`, `webgl-unavailable`, `create-failed`. 실행 중 원인은 `webgl-context-lost`, `detect-failing`이다.
 - Chrome은 실패한 동적 `import()` 결과를 기억해, 원인이 없어져도 같은 URL로는 다시 받지 않는다(2단계 검수 수정 중 확인). 그래서 불러오기에 실패한 적이 있으면 다음 시도에 `?retry=N`을 붙여 새로 받는다. 한 번 성공한 bundle 모듈은 감지기를 다시 만들 때도 그대로 쓴다.
 - `config.faceDetection.delegates` 순서(`GPU` → `CPU`)로 생성을 시도한다. 앞선 delegate가 실패한 이유는 `D` 화면 `delegate` 줄에 보인다.
 - 감지기 자체의 `minDetectionConfidence`(`detectorMinConfidence` 0.3)는 낮게 둔다. 신뢰도는 판정 쪽 `presence.minScore`로 거른다. 2-3에서 감지기를 다시 만들지 않고 실시간으로 조절하기 위해서다.
 - 결과: `{ x, y, width, height, score }[]`. 감지 입력(영상 프레임 전체를 축소한 캔버스) 기준 0~1 정규화, 왼쪽 위 원점, 반전 전.
-- WebGL을 전혀 쓸 수 없으면 CPU delegate도 생성은 되지만 매 프레임 감지에 실패한다(MediaPipe가 입력을 WebGL 텍스처로 올리기 때문, `ImageData` 입력도 같음). 이때 감지 루프가 감지기를 버리고 다시 만든다(아래). WebGL이 끝내 없으면 이를 되풀이하므로, 현장 Chrome의 하드웨어 가속 점검은 4단계에서 다룬다.
+- WebGL을 전혀 쓸 수 없으면 CPU delegate도 생성은 되지만 매 프레임 감지에 실패한다(MediaPipe가 입력을 WebGL 텍스처로 올리기 때문, `ImageData` 입력도 같음). 4-1부터는 사전 확인에서 `webgl-unavailable` 장애로 멈추고 생성하지 않는다.
+- **실행 중 WebGL 컨텍스트 손실 (4-1):** 넘긴 캔버스에서 `webglcontextlost`를 받으면, 감지 실패 15회를 기다리지 않고 바로 감지기를 버린다(`webgl-context-lost`). 재생성은 재시도 간격을 따른다. 닫은 감지기에서는 알리지 않는다. 감지기를 닫을 때도 그 컨텍스트를 놓는다.
+- **Chrome 플래그 관찰 (4-1, Chrome 155, 개발 PC):**
+  - `--disable-gpu`만으로는 WebGL이 꺼지지 않았다. 소프트웨어 렌더러(`Microsoft Basic Render Driver`)로 감지가 계속 동작했다.
+  - `--disable-webgl`은 `<canvas>` 요소의 WebGL만 끄고, MediaPipe가 쓰는 `OffscreenCanvas`의 WebGL은 끄지 못했다.
+  - WebGL이 완전히 없어진 경우는 `--disable-gpu --disable-software-rasterizer`와 `--use-gl=disabled`였다.
 
 **좌표 기준 (`presence.js`)**
 
@@ -378,18 +408,45 @@ camera-monitor (ready·페이지 표시) ──▶ presence-monitor 감지 루�
 - 시계·타이머·document를 주입할 수 있다(`timers`, `now`, `doc`). 기본은 전역 타이머, `performance.now()`, `document`이고, Node 테스트(`tests/presence-monitor.test.mjs`)에서 실제 감지 루프를 돌리는 데 쓴다.
 - 4K 영상을 그대로 넣지 않는다. 긴 변을 `inputMaxSize`(640px) 이하로 줄인 캔버스에 그려 감지한다(OBS 1080×1920 → 360×640).
 - 호출 간격은 `1000 / maxFps`에서 처리 시간을 뺀 값이다. `detectForVideo` 타임스탬프는 `max(performance.now(), 직전 + 1)`로 항상 증가시킨다.
-- 감지가 실패한 프레임은 "없음"으로 판정한다. 15번 연속 실패하면(약 1초) 감지기를 버리고 다시 만든다(아래). 콘솔 경고는 연속 실패의 첫 번째와 15번째에만 남긴다.
+- 감지가 실패한 프레임은 "없음"으로 판정한다. 15번 연속 실패하면(약 1초) 감지기를 버리고 다시 만든다(아래, `detect-failing`). 콘솔 경고는 반복 오류 로그 제한(2절)을 따른다. 감지가 성공하면 재시도 간격을 처음으로 돌린다.
 - 상태(`DetectorStatus`): `loading`(생성 중), `running`, `paused`(카메라 미준비·페이지 숨김), `error`(감지기 없음: 생성 실패 또는 계속 실패해 버림, 재생성을 기다리는 중). 인식 알림은 감지 한 번(`tick`) 안에서 나가므로, 알림을 받은 쪽이 그 안에서 상태를 읽어도 `running`으로 보이게 한다(3-2에서 발견: 이탈 취소가 D 화면을 다시 그릴 때 `paused`·0fps로 잘못 보였다).
 
-**감지기 재생성 (`detector-keeper.js`, 2단계 검수 반영)**
+**감지기 재생성 (`detector-keeper.js`, 2단계 검수 반영, 4-1 간격 늘림)**
 
-- 생성에 실패하면 `faceDetection.detectorRetryMs`(15초, 가안) 뒤 다시 만든다. 생성은 메인 스레드를 약 1초 막으므로 간격을 너무 짧게 두지 않는다.
-- 감지가 15번 연속 실패하면(예: 실행 중 WebGL 컨텍스트 손실) 감지기를 `close()`로 닫고 버린 뒤, 같은 간격 뒤 새로 만든다. `close()`가 실패해도 버린다.
-- **바로 다시 만드는 계기:** 감지기가 없을 때 카메라가 다시 준비되거나(한 번 준비된 적이 있는 카메라의 재연결. 처음 준비되는 것은 계기가 아니다) 페이지가 다시 보이면, 간격을 기다리지 않고 바로 만든다. 예약된 재시도는 지운다.
+- 생성에 실패하면 다시 만든다. 간격은 `faceDetection.detectorRetryMs`(15초)에서 시작해 연속 실패마다 두 배로 늘고, 최대 `detectorRetryMaxMs`(300초)다: 15·30·60·120·240·300·300…초 (가안). 생성은 메인 스레드를 약 1초 막으므로 간격을 너무 짧게 두지 않는다.
+- 연속 실패 수는 생성 실패와 버림을 함께 센다. 생성에 성공해도 0으로 돌리지 않고, 그 감지기로 감지가 한 번 성공해야(`markHealthy`) 0이 된다. 만들자마자 컨텍스트를 잃는 일이 반복될 때도 간격이 늘어나게 하기 위해서다.
+- 감지가 15번 연속 실패하거나 WebGL 컨텍스트를 잃으면, 감지기를 `close()`로 닫고 버린 뒤 재시도 간격 뒤 새로 만든다. `close()`가 실패해도 버린다.
+- **바로 다시 만드는 계기:** 감지기가 없을 때 카메라가 다시 준비되거나(한 번 준비된 적이 있는 카메라의 재연결. 처음 준비되는 것은 계기가 아니다) 페이지가 다시 보이면, 간격을 기다리지 않고 바로 만든다. 예약된 재시도는 지운다. **장애(`fault`) 상태에서는 앞당기지 않는다** (4-1). 카메라가 자주 끊겨도 생성이 몰리지 않게 하기 위해서다.
 - 생성은 한 번에 하나만 진행한다. 생성 중에 다시 요청하면 진행 중인 생성을 기다린다.
 - 재생성과 관계없이 감지기가 없는 동안 인식 상태는 **인식 안됨**이고, 카메라 미리보기는 그대로 동작한다.
-- `D` 화면: `detector : loading`(생성 중) / `error / <이유>`(재시도 대기) / `running`·`paused`.
-- 검증: 번들 차단 → 해제 후 재시도 간격 뒤 회복, 번들 차단 → 해제 + 카메라 트랙 종료 후 즉시 회복, WebGL 없음 흉내 → 감지기 폐기 → WebGL 복구 흉내 후 재생성으로 회복(로그 06 "2단계 단위 검수").
+- `D` 화면: 아래 "감지기 상태와 장애 안내".
+- 검증: 번들 차단 → 해제 후 재시도 간격 뒤 회복, 번들 차단 → 해제 + 카메라 트랙 종료 후 즉시 회복, WebGL 없음 흉내 → 감지기 폐기 → WebGL 복구 흉내 후 재생성으로 회복(로그 06 "2단계 단위 검수"). 4-1 검증은 로그 10.
+
+**감지기 상태와 장애 안내 (구현됨, 4-1)**
+
+인식 상태(`present`)와 별도로 감지기 자체의 상태를 알린다. "사람 없음"과 "감지기를 쓸 수 없음"을 구분하기 위해서다.
+
+| 상태 (`DetectorHealth`) | 뜻 |
+|---|---|
+| `starting` | 아직 실패한 적 없이 만드는 중 (앱 시작 직후) |
+| `ok` | 감지기가 있다 (감지 중이거나, 카메라 미준비·페이지 숨김으로 쉬는 중) |
+| `retrying` | 실패했고 다시 만들기를 기다리거나 만드는 중 |
+| `fault` | 장애. 스스로 풀리기 어려운 원인(`webgl-unavailable`, `model-invalid`)이면 첫 실패부터, 그 밖의 원인은 연속 실패 `detectorFaultAfterFailures`(3회, 가안)부터. 재시도는 간격대로 계속한다 |
+
+- **경계:** `createPresenceMonitor()`의 `getDetectorHealth()`와 `subscribeDetector(listener)`는 `{ health, cause, since }`만 준다. `subscribeDetector`는 등록 즉시 한 번, 그 뒤로는 상태나 원인이 바뀔 때마다 부른다. `since`는 감지기가 없게 된 시각(`performance.now()` 기준, 감지기가 있으면 `null`)이다. 좌표·점수는 여전히 `getDebugSnapshot()`(D 전용)으로만 꺼낸다.
+- **관람객 안내 (`guidance.js`):** 카메라 상태와 감지기 상태를 하나의 규칙으로 판정한다.
+  - 둘 다 정상(카메라 `ready`, 감지기 `ok`)이면 문구가 없다.
+  - 하나라도 쓸 수 없으면 "준비 중입니다. 잠시만 기다려 주세요."를 보인다.
+  - 쓸 수 없는 상태가 `cameraRecovery.staffNoticeMs`(30초) 이상 이어지거나, 스스로 풀리기 어려운 상태(카메라 `unsupported`·`permission-denied`, 감지기 `fault`)면 "준비 중입니다. 직원에게 문의해 주세요."로 바꾼다.
+  - 이어진 시간은 둘 중 하나라도 쓸 수 없게 된 때부터 잰다. 카메라가 돌아왔는데 감지기가 아직 없으면, 처음부터 다시 재지 않고 이어서 잰다. 둘 다 정상이 되면 처음으로 돌아간다.
+  - 감지기를 쓸 수 없으면 인식 상태 임시 표시("인식됨/인식 안됨")를 숨긴다. 쿨타임 문구도 안내 문구가 없을 때만 보인다.
+- **`S` 수동 촬영은 감지기 장애 중에도 된다.** 상태 기계는 카메라 준비만 본다. 회차가 진행되는 동안(카운트다운·촬영·결과)은 안내 문구를 숨기고, 대기로 돌아오면 다시 보인다. 카메라가 끊기면 카운트다운은 바로 취소되므로, 이때 숨는 것은 감지기 쪽 안내뿐이다.
+- **`D` 화면:**
+  - `detector : <루프 상태>, health <상태> / <원인> (<원인 설명>)`
+  - 정상이 아니면 두 줄을 더한다. `failure`(실패 메시지)와 `retry`(연속 실패 수, 생성 시도 수, 다음 재시도까지 남은 시간 또는 `creating now`, 쓸 수 없던 시간)다.
+  - `webgl`(버전·렌더러·소프트웨어 여부), `model`(크기, `sha256 ok`), `guidance`(안내 상태와 이어진 시간)
+  - 원인 설명의 예: `webgl-unavailable` → "하드웨어 가속 꺼짐 또는 WebGL 없음", `model-invalid` → "모델 파일 손상 (크기·SHA-256 불일치)". 관람객 화면에는 기술 용어를 보이지 않는다.
+- 인식 범위 조절(`R`) 패널의 감지기 표시는 루프 상태(`loading`·`running`·`paused`·`error`)를 그대로 쓴다.
 
 **이후 단계용 경계**
 
@@ -411,7 +468,11 @@ camera-monitor (ready·페이지 표시) ──▶ presence-monitor 감지 루�
 | `faceDetection.detectorMinConfidence` | 0.3 | 감지기 자체 기준 (낮게) |
 | `faceDetection.maxFps` | 15 | 감지 최대 빈도 |
 | `faceDetection.inputMaxSize` | 640 | 감지 입력 캔버스 긴 변 최대 px |
-| `faceDetection.detectorRetryMs` | 15000 | 감지기 생성 실패·폐기 후 다시 만들기까지의 간격 |
+| `faceDetection.modelBytes` | 229746 | 모델 사전 확인: 크기 (4-1) |
+| `faceDetection.modelSha256` | `b4578f35…0152f` | 모델 사전 확인: SHA-256 (4-1, 전체 값은 아래 "MediaPipe 로컬 라이브러리") |
+| `faceDetection.detectorRetryMs` | 15000 | 감지기 생성 실패·폐기 후 첫 재시도 간격. 연속 실패마다 두 배 (4-1) |
+| `faceDetection.detectorRetryMaxMs` | 300000 | 재시도 간격 상한 (4-1) |
+| `faceDetection.detectorFaultAfterFailures` | 3 | 이 횟수만큼 연속 실패하면 장애 (4-1) |
 | `presence.region` | `{ x: 0.1, y: 0.1, width: 0.8, height: 0.8 }` | 인식 영역 (화면 좌표, 가운데 넓은 사각형) |
 | `presence.minFaceHeight` | 0.05 | 최소 얼굴 높이 / 9:16 영역 높이 |
 | `presence.maxFaceHeight` | 0.6 | 최대 얼굴 높이 / 9:16 영역 높이 (2-3 추가) |
@@ -427,7 +488,10 @@ camera-monitor (ready·페이지 표시) ──▶ presence-monitor 감지 루�
 - `tests/presence.test.mjs`: 좌표 변환(반전, 가로 영상·9:16·세로로 긴 영상의 cover 크롭), 영역 경계·최소/최대 크기·신뢰도, 안정화(유지 시간 경계, 깜빡임, 짧은 끊김, 시간값 0)
 - `tests/presence-settings.test.mjs`: 설정 검증(아래)과 영역 이동·크기 조절 계산
 - `tests/region-drag.test.mjs`: 끌기 종료 조건(놓기, `blur`, `lostpointercapture`, 버튼 떼어짐)과 리스너 해제
-- `tests/detector-keeper.test.mjs`: 생성 실패 → 원인 제거 → 재생성, 생성 중 중복 시작 1회, 폐기 후 재생성
+- `tests/detector-keeper.test.mjs`: 생성 실패 → 원인 제거 → 재생성, 생성 중 중복 시작 1회, 폐기 후 재생성, 재시도 간격(15·30·60·120·240·300·300초), 상태 전이, 영구 원인, 버림과 `markHealthy`
+- `tests/face-detector.test.mjs`: 모델 사전 확인(404·네트워크 오류·크기·SHA-256), WebGL 확인, 사전 확인 실패 시 생성 미시작, 생성 5회 실패 뒤 타이머·로더 스크립트·GL 컨텍스트 0, GPU 실패 → CPU 성공, 컨텍스트 손실 알림, config와 실제 모델 파일 대조
+- `tests/presence-monitor.test.mjs`(4-1 추가): 감지기 상태 알림 전이, 장애 중 재시도 앞당김 금지, 컨텍스트 손실 즉시 버림 → 재생성
+- `tests/guidance.test.mjs`, `tests/log-limit.test.mjs`: 안내 규칙(카메라·감지기 조합, 30초 전환, 이어 재기), 로그 제한
 
 감지 루프와 화면은 브라우저 하네스로 확인한다(로그 05·06).
 
@@ -538,6 +602,15 @@ const detector = await FaceDetector.createFromOptions(fileset, {
 2. 버전을 바꾸면 `tools/vendor-mediapipe.mjs`의 LICENSE URL(새 태그의 커밋)과 SHA-256도 함께 고친다. 모델을 바꿀 때도 URL과 SHA-256을 같이 고친다.
 3. `npm run vendor:mediapipe` — `lib/mediapipe/tasks-vision/`를 비우고 다시 채우며, 다운로드 파일은 SHA-256이 다르면 실패한다. 이미 맞는 해시의 모델은 다시 받지 않는다. `models/`의 관리 대상이 아닌 파일은 지운다.
 4. 텔레메트리 코드 변화(아래)를 확인하고, 앱으로 로딩·외부 요청·CSP 위반을 다시 검증한 뒤 `lib/mediapipe/`, `package.json`, `package-lock.json`을 커밋한다.
+
+**MediaPipe 1.1.1 생성 실패 누적 (4-1에서 대응, 버전을 올리면 다시 확인):** 번들 코드(`createFromOptions` → 내부 `createTaskRunner`)를 읽고 브라우저에서 잰 결과다.
+
+- 생성할 때마다 wasm 로더 JS를 `<script>`로 `body`에 붙이고 지우지 않는다. 로더가 만든 전역 `ModuleFactory`를 라이브러리가 바로 지우므로, 같은 로더·wasm 인스턴스를 다음 생성에 다시 쓸 공개 방법이 없다. `FilesetResolver`는 경로만 돌려주므로, 한 번만 불러와도 줄지 않는다.
+- 사용 통계 로거(60초 `setInterval`)를 모델 설정(`setOptions`: 모델 받기·그래프 시작) **전에** 만들고, 그 뒤 실패하면 닫지 않는다. `createFromOptions`가 클래스를 고정해 부르므로, 실패한 인스턴스를 받아 `close()`할 수도 없다.
+- 수정 전 측정(실패 1회는 GPU·CPU 두 번 시도):
+  - 모델 404·손상 모델: 15초마다 60초 타이머 +2, `<script>` +2
+  - WebGL 없음: 15초마다 GPU 실패분 타이머 +1, `<script>` +2. 콘솔 경고 56건/64초
+- 대응은 위 "생성 전 사전 확인"과 "실패한 생성의 정리"다. 수정 후 같은 조건에서 증가는 0이었다(로그 10). 성공한 감지기의 통계 타이머는 `close()` 때 라이브러리가 지운다.
 
 **사용 통계 전송 (CSP로 차단, 구현됨):** `tasks-vision` 1.0.0부터 번들에 사용 통계 로거가 들어 있다(0.10.35 이하에는 없음). 태스크를 만들면 항상 켜지며 끄는 옵션이 없다. 번들 코드상 태스크 종류·실행 모드·OS 종류·라이브러리 버전·처리 횟수와 시간 통계를 모으며(이미지·감지 좌표를 넣는 코드는 보지 못했다. 실제 전송 내용을 해독해 확인하지는 않았다) 생성 후 60초마다, 그리고 `close()` 때 `fetch`로 `https://odml.pa.googleapis.com/v1/log`에 POST한다. 전송이 한 번 실패하면 그 인스턴스의 로거는 멈춘다. 현장이 오프라인이면 실패로 끝나지만, 인터넷이 연결된 PC에서는 실제로 전송된다. 그래서 `index.html`의 CSP(`connect-src 'self'`, 1절 "외부 전송 차단: CSP")로 브라우저가 보내기 전에 막는다(사용자 결정, 2026-10-15). 앱에서 외부 요청 0건을 확인했다(로그 05). 버전을 올릴 때는 다른 외부 연결이 생겼는지 다시 확인한다.
 
