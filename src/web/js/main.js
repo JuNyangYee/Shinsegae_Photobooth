@@ -1,15 +1,20 @@
 import { config } from './config.js';
 import { CameraStatus, createCameraMonitor } from './camera-monitor.js';
+import { createPresenceMonitor } from './presence-monitor.js';
 
 const stage = document.getElementById('stage');
 const video = document.getElementById('preview');
 const statusText = document.getElementById('status');
+const presenceText = document.getElementById('presence');
 const devInfo = document.getElementById('dev-info');
+const devOverlay = document.getElementById('dev-overlay');
 
 // 관람객용 문구 (사용자 확정 2026-10-15). 상태 상세는 D 키 개발용 정보에만 보인다.
 const messages = Object.freeze({
   preparing: '준비 중입니다.\n잠시만 기다려 주세요.',
   staff: '준비 중입니다.\n직원에게 문의해 주세요.',
+  present: '인식됨', // 인식 상태 임시 표시 (가안)
+  absent: '인식 안됨',
 });
 
 // 기다려도 스스로 풀리기 어려운 상태는 바로 직원 문의 문구를 보인다.
@@ -22,8 +27,18 @@ const camera = createCameraMonitor({
   recovery: config.cameraRecovery,
 });
 
+const presence = createPresenceMonitor({
+  video,
+  camera,
+  detection: config.faceDetection,
+  presence: config.presence,
+  stageAspect: config.aspectRatio.width / config.aspectRatio.height,
+  mirror: config.mirror,
+});
+
 let staffNoticeTimer = null;
 let devInfoTimer = null;
+let devOverlayFrame = null;
 
 function showStatus(message) {
   statusText.textContent = message;
@@ -45,6 +60,16 @@ function renderStatus() {
     showStatus(messages.preparing);
     staffNoticeTimer = setTimeout(renderStatus, staffAfterMs - waitedMs);
   }
+}
+
+// 카메라가 준비되지 않았으면 "준비 중" 문구만 보이고 인식 표시는 숨긴다.
+function renderPresence() {
+  const visible = config.showPresenceIndicator && camera.isReady();
+  presenceText.hidden = !visible;
+  if (!visible) return;
+  const present = presence.isPresent();
+  presenceText.textContent = present ? messages.present : messages.absent;
+  presenceText.classList.toggle('is-present', present);
 }
 
 function applyLayout() {
@@ -82,17 +107,87 @@ function renderDevInfo() {
       + ` (${Math.round(rect.width * dpr)}x${Math.round(rect.height * dpr)} device px, dpr ${dpr})`,
     `viewport   : ${window.innerWidth}x${window.innerHeight}`,
     `mirror     : ${config.mirror}`,
+    '',
+    ...presenceDevLines(),
   ];
   devInfo.textContent = lines.join('\n');
 }
 
+function presenceDevLines() {
+  const d = presence.getDebugSnapshot();
+  const { region, minFaceHeight, minScore, presentHoldMs, absentGraceMs } = config.presence;
+  const accepted = d.faces.filter((face) => face.accepted).length;
+  const progress = d.progress
+    ? `-> ${d.progress.target ? 'present' : 'absent'} ${Math.round(d.progress.elapsedMs)}/${d.progress.requiredMs}ms`
+    : 'stable';
+  const lines = [
+    `detector   : ${d.status}${d.error ? ` / ${d.error}` : ''}`,
+    `delegate   : ${d.delegate}${d.delegateFailures.length ? ` (failed: ${d.delegateFailures.join('; ')})` : ''}`,
+    `detect     : ${d.detectMs.toFixed(1)}ms (avg ${d.averageDetectMs.toFixed(1)}ms, draw ${d.drawMs.toFixed(1)}ms)`
+      + ` @ ${d.fps}fps (max ${d.maxFps}), input ${d.input}`,
+    `faces      : ${d.faces.length} detected, ${accepted} accepted`,
+    `presence   : ${d.present ? 'PRESENT' : 'absent'} (raw ${d.raw ? 'present' : 'absent'}, ${progress})`,
+    `criteria   : region x${region.x} y${region.y} w${region.width} h${region.height},`
+      + ` min face ${minFaceHeight}, min score ${minScore}, hold ${presentHoldMs}ms, grace ${absentGraceMs}ms`,
+  ];
+  if (d.detectionErrors > 0) {
+    lines.push(`errors     : ${d.detectionErrors} total, ${d.consecutiveFailures} in a row (last: ${d.lastDetectionError})`);
+  }
+  d.faces.forEach((face, index) => {
+    const rejected = [!face.inRegion && 'region', !face.bigEnough && 'size', !face.confident && 'score'].filter(Boolean);
+    lines.push(`  face ${index + 1}   : score ${face.score.toFixed(2)}, height ${face.box.height.toFixed(3)},`
+      + ` center ${face.center.x.toFixed(2)},${face.center.y.toFixed(2)} -> ${face.accepted ? 'ok' : rejected.join('+')}`);
+  });
+  return lines;
+}
+
+// 감지 박스와 인식 영역을 9:16 영역 위에 겹쳐 그린다. 인정된 얼굴은 초록, 제외된 얼굴은 빨강.
+// 판정 좌표가 이미 관람객 화면 기준(반전 후)이므로 그대로 그린다.
+function drawDevOverlay() {
+  devOverlayFrame = requestAnimationFrame(drawDevOverlay);
+  const rect = stage.getBoundingClientRect();
+  const dpr = window.devicePixelRatio;
+  const width = Math.round(rect.width * dpr);
+  const height = Math.round(rect.height * dpr);
+  if (devOverlay.width !== width || devOverlay.height !== height) {
+    devOverlay.width = width;
+    devOverlay.height = height;
+  }
+  const ctx = devOverlay.getContext('2d');
+  ctx.clearRect(0, 0, width, height);
+  const d = presence.getDebugSnapshot();
+  const line = Math.max(2, Math.round(2 * dpr));
+  ctx.lineWidth = line;
+  ctx.font = `${Math.round(14 * dpr)}px Consolas, monospace`;
+
+  ctx.setLineDash([line * 4, line * 3]);
+  ctx.strokeStyle = 'rgba(255, 220, 0, 0.9)';
+  ctx.strokeRect(d.region.x * width, d.region.y * height, d.region.width * width, d.region.height * height);
+  ctx.setLineDash([]);
+
+  for (const face of d.faces) {
+    const color = face.accepted ? 'rgb(0, 230, 90)' : 'rgb(255, 60, 60)';
+    const x = face.box.x * width;
+    const y = face.box.y * height;
+    ctx.strokeStyle = color;
+    ctx.strokeRect(x, y, face.box.width * width, face.box.height * height);
+    ctx.fillStyle = color;
+    ctx.fillRect(face.center.x * width - line * 2, face.center.y * height - line * 2, line * 4, line * 4);
+    ctx.fillText(face.score.toFixed(2), x, Math.max(y - line * 2, 14 * dpr));
+  }
+}
+
 function toggleDevInfo() {
   devInfo.hidden = !devInfo.hidden;
+  devOverlay.hidden = devInfo.hidden;
   clearInterval(devInfoTimer);
   devInfoTimer = null;
+  cancelAnimationFrame(devOverlayFrame);
+  devOverlayFrame = null;
   if (!devInfo.hidden) {
     renderDevInfo();
     devInfoTimer = setInterval(renderDevInfo, 500);
+    drawDevOverlay();
   }
 }
 
@@ -104,6 +199,9 @@ window.addEventListener('keydown', (event) => {
 applyLayout();
 camera.subscribe(() => {
   renderStatus();
+  renderPresence();
   if (!devInfo.hidden) renderDevInfo();
 });
+presence.subscribe(renderPresence);
 camera.start();
+presence.start();
