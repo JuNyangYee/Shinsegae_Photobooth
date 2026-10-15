@@ -1,4 +1,5 @@
 import { config } from './config.js';
+import { createAutoStart } from './auto-start.js';
 import { CameraStatus, createCameraMonitor } from './camera-monitor.js';
 import { createCapture } from './capture.js';
 import { createPresenceMonitor } from './presence-monitor.js';
@@ -51,7 +52,7 @@ const presence = createPresenceMonitor({
 
 const capture = createCapture({ video, stageAspect, mirror: config.mirror, ...config.capture });
 
-// 촬영 한 사이클. 시작·취소·초기화는 session.request() 한 곳으로 들어간다 (지금은 키보드만, 인식 결과 연결은 3-2).
+// 촬영 한 사이클. 시작·취소·초기화는 session.request() 한 곳으로 들어간다 (키보드와 auto-start.js).
 const session = createSession({
   timing: config.session,
   takePhoto: capture.take,
@@ -68,8 +69,11 @@ const tuning = createPresenceTuning({
   monitor: presence,
   defaults: config.presence,
   storage: getStorage(),
-  onOpenChange: updateOverlay,
+  onOpenChange: handleTuningOpenChange,
 });
+
+// 인식 상태로 자동 시작하고, 인식으로 시작한 카운트다운은 대상이 떠나면 취소한다. 조절 화면이 열려 있으면 자동 시작을 막는다.
+const autoStart = createAutoStart({ session, presence, isTuningOpen: () => tuning.isOpen() });
 
 let staffNoticeTimer = null;
 let devInfoTimer = null;
@@ -124,6 +128,12 @@ function renderPresence() {
 }
 
 // ---- 촬영 한 사이클 화면 ----
+
+// 조절 화면을 닫으면 그 시점의 인식 상태로 자동 시작을 다시 판단한다.
+function handleTuningOpenChange(open) {
+  updateOverlay();
+  if (!open) autoStart.evaluate('tuning-closed');
+}
 
 function renderSession(s) {
   countdownText.hidden = s.state !== SessionState.COUNTDOWN;
@@ -225,14 +235,20 @@ function presenceDevLines() {
   return lines;
 }
 
+function describeAuto(record) {
+  return record ? `${formatTime(record.at)} (${record.trigger})` : '-';
+}
+
 function sessionDevLines() {
   const s = session.getState();
   const left = s.endsAt === null ? '' : ` ${Math.max(0, (s.endsAt - performance.now()) / 1000).toFixed(1)}s left`;
   const detail = s.state === SessionState.COUNTDOWN ? ` ${s.countdown}` : left;
   const c = capture.getStats();
   const last = c.last;
+  const a = autoStart.getDebug();
   return [
-    `session    : ${s.state}${detail} (round ${s.round}, completed ${s.completed})`,
+    `session    : ${s.state}${detail} (round ${s.round}${s.source ? ` by ${s.source}` : ''}, completed ${s.completed})`,
+    `auto       : ${a.lastReason || '-'} | last start ${describeAuto(a.lastStart)} | last cancel ${describeAuto(a.lastCancel)}`,
     `last end   : ${s.lastEnd || '-'}${s.lastError ? ` / ${s.lastError}` : ''}`,
     `ignored    : ${s.lastIgnored || '-'}`,
     last
@@ -336,5 +352,6 @@ camera.subscribe(() => {
 presence.subscribe(renderPresence);
 session.subscribe(renderSession);
 document.addEventListener('visibilitychange', () => session.setPageVisible(!document.hidden));
+autoStart.start();
 camera.start();
 presence.start();
