@@ -43,12 +43,14 @@ export function isPointInRegion(point, region) {
 }
 
 /**
- * 감지된 얼굴마다 인정 여부를 정한다. 세 조건을 모두 만족해야 인정된다.
+ * 감지된 얼굴마다 인정 여부를 정한다. 네 조건을 모두 만족해야 인정된다 (경계 포함).
  * - 박스 중심이 인식 영역 안
  * - 박스 높이(9:16 영역 높이 대비)가 minFaceHeight 이상
+ * - 박스 높이가 maxFaceHeight 이하 (화면을 덮는 큰 오검출 박스를 거른다)
  * - 점수가 minScore 이상
  * @param {{ x: number, y: number, width: number, height: number, score: number }[]} faces 영상 좌표
- * @param {{ region: {x: number, y: number, width: number, height: number}, minFaceHeight: number, minScore: number }} criteria
+ * @param {{ region: {x: number, y: number, width: number, height: number},
+ *   minFaceHeight: number, maxFaceHeight: number, minScore: number }} criteria
  */
 export function classifyFaces(faces, mapping, criteria) {
   return faces.map((face) => {
@@ -56,8 +58,18 @@ export function classifyFaces(faces, mapping, criteria) {
     const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
     const inRegion = isPointInRegion(center, criteria.region);
     const bigEnough = box.height >= criteria.minFaceHeight;
+    const smallEnough = box.height <= criteria.maxFaceHeight;
     const confident = face.score >= criteria.minScore;
-    return { box, center, score: face.score, inRegion, bigEnough, confident, accepted: inRegion && bigEnough && confident };
+    return {
+      box,
+      center,
+      score: face.score,
+      inRegion,
+      bigEnough,
+      smallEnough,
+      confident,
+      accepted: inRegion && bigEnough && smallEnough && confident,
+    };
   });
 }
 

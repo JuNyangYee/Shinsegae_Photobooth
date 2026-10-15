@@ -73,7 +73,9 @@ describe('computeCoverMapping / videoBoxToStage', () => {
 
 describe('isPointInRegion / classifyFaces', () => {
   const identity = computeCoverMapping({ videoWidth: 1080, videoHeight: 1920, stageAspect: STAGE, mirror: false });
-  const criteria = { region: { x: 0.25, y: 0.25, width: 0.5, height: 0.5 }, minFaceHeight: 0.125, minScore: 0.5 };
+  const criteria = {
+    region: { x: 0.25, y: 0.25, width: 0.5, height: 0.5 }, minFaceHeight: 0.125, maxFaceHeight: 0.5, minScore: 0.5,
+  };
   // 중심이 (cx, cy), 높이 h, 점수 s인 얼굴 (영상 좌표 = 화면 좌표)
   const face = (cx, cy, h = 0.25, s = 0.875) => ({ x: cx - 0.0625, y: cy - h / 2, width: 0.125, height: h, score: s });
   const accepted = (f) => classifyFaces([f], identity, criteria)[0];
@@ -102,6 +104,22 @@ describe('isPointInRegion / classifyFaces', () => {
     const small = accepted(face(0.5, 0.5, 0.124));
     assert.equal(small.bigEnough, false);
     assert.equal(small.accepted, false);
+  });
+
+  it('최대 얼굴 크기: 같으면 인정, 크면 제외', () => {
+    assert.equal(accepted(face(0.5, 0.5, 0.5)).accepted, true);
+    const large = accepted(face(0.5, 0.5, 0.5078125));
+    assert.equal(large.smallEnough, false);
+    assert.equal(large.bigEnough, true);
+    assert.equal(large.accepted, false);
+  });
+
+  it('화면을 덮는 큰 박스는 점수가 높아도 제외', () => {
+    const [result] = classifyFaces([{ x: 0, y: 0.1, width: 1, height: 0.8, score: 0.99 }], identity, criteria);
+    assert.equal(result.inRegion, true);
+    assert.equal(result.confident, true);
+    assert.equal(result.smallEnough, false);
+    assert.equal(result.accepted, false);
   });
 
   it('최소 크기는 9:16 영역 높이 기준이다 (잘린 영상에서는 커진다)', () => {
