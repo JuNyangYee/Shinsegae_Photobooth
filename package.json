@@ -5,7 +5,8 @@
   "description": "Local web photobooth. npm is used only to fetch vendored libraries into lib/.",
   "scripts": {
     "test": "node --test \"tests/**/*.test.mjs\"",
-    "vendor:mediapipe": "node tools/vendor-mediapipe.mjs"
+    "vendor:mediapipe": "node tools/vendor-mediapipe.mjs",
+    "check:browser": "node tools/browser-check.mjs"
   },
   "devDependencies": {
     "@mediapipe/tasks-vision": "1.1.1"
