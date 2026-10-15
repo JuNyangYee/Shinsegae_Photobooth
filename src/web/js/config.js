@@ -27,14 +27,21 @@ export const config = Object.freeze({
     bundlePath: '/lib/mediapipe/tasks-vision/vision_bundle.mjs',
     wasmPath: '/lib/mediapipe/tasks-vision/wasm',
     modelPath: '/lib/mediapipe/models/blaze_face_short_range.tflite',
+    // 생성 전 모델 사전 확인값. tools/vendor-mediapipe.mjs의 기록과 같아야 한다 (tests/face-detector.test.mjs가 실제 파일과 비교)
+    modelBytes: 229746,
+    modelSha256: 'b4578f35940bf5a1a655214a1cce5cab13eba73c1297cd78e1a04c2380b0152f',
     delegates: Object.freeze(['GPU', 'CPU']), // 앞에서부터 시도한다
     // 감지기 자체 기준은 낮게 두고, 신뢰도는 presence.minScore로 거른다 (다시 생성하지 않고 조절하기 위해)
     detectorMinConfidence: 0.3,
     maxFps: 15, // 감지 최대 빈도 (가안)
     inputMaxSize: 640, // 감지 입력 캔버스의 긴 변 최대 크기 px (가안)
     // 감지기 생성 실패, 또는 감지가 계속 실패해 감지기를 버린 뒤 다시 만들기까지의 간격 (가안).
-    // 생성은 메인 스레드를 약 1초 막으므로 너무 짧게 두지 않는다. 카메라 재연결·페이지 복귀 때는 바로 다시 만든다.
+    // 연속 실패마다 두 배(15→30→60→120→240→300초), 감지가 한 번 성공하면 처음으로.
+    // 생성은 메인 스레드를 약 1초 막으므로 너무 짧게 두지 않는다. 카메라 재연결·페이지 복귀 때는 바로 다시 만든다(장애 상태 제외).
     detectorRetryMs: 15000,
+    detectorRetryMaxMs: 300000,
+    // 연속 실패가 이 횟수에 이르면 "장애"로 본다 (가안). WebGL 없음·모델 손상은 첫 실패부터 장애다.
+    detectorFaultAfterFailures: 3,
   }),
 
   // 인식 판정 기본값 (가안). 운영자가 R 조절 화면에서 바꾸고 저장한 값이 있으면 그 값을 쓴다.
