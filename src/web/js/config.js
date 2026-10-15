@@ -9,4 +9,8 @@ export const config = Object.freeze({
 
   // 이 문자열이 라벨에 포함된 카메라를 우선 사용한다 (대소문자 무시). 없으면 기본 카메라.
   preferredCameraLabel: 'OBS Virtual Camera',
+
+  // 카메라 해상도 권장값 (ideal, 강제 아님). 장치가 지원하는 범위에서 가장 가까운 값을 받는다.
+  // 현장 최대(4K 세로)로 두어 OBS 출력(FHD~4K 세로)을 그대로 받고, 낮은 기본값으로 떨어지는 것을 막는다.
+  idealResolution: Object.freeze({ width: 2160, height: 3840 }),
 });

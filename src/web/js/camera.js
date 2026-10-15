@@ -44,9 +44,14 @@ function findByLabel(devices, label) {
   return devices.find((device) => device.label.toLowerCase().includes(wanted)) ?? null;
 }
 
-function openStream(deviceId) {
-  // 해상도는 지정하지 않는다. 장치(OBS) 출력을 그대로 받는다.
-  const video = deviceId ? { deviceId: { exact: deviceId } } : true;
+function openStream(deviceId, idealResolution) {
+  // 해상도는 ideal로만 요청한다. exact·min은 장치가 지원하지 않으면 실패하므로 쓰지 않는다.
+  const video = {};
+  if (deviceId) video.deviceId = { exact: deviceId };
+  if (idealResolution) {
+    video.width = { ideal: idealResolution.width };
+    video.height = { ideal: idealResolution.height };
+  }
   return navigator.mediaDevices.getUserMedia({ video, audio: false });
 }
 
@@ -60,7 +65,7 @@ export function stopStream(stream) {
  * @returns {Promise<{stream: MediaStream, label: string, deviceId: string,
  *   preferredFound: boolean, settings: MediaTrackSettings}>}
  */
-export async function startCamera({ preferredLabel = '' } = {}) {
+export async function startCamera({ preferredLabel = '', idealResolution = null } = {}) {
   if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
     throw new CameraError(CameraErrorKind.UNSUPPORTED);
   }
@@ -70,8 +75,9 @@ export async function startCamera({ preferredLabel = '' } = {}) {
     let devices = await listVideoInputs();
 
     // 장치 라벨은 권한이 허용된 뒤에만 보인다. 비어 있으면 한 번 열어 권한을 받고 다시 읽는다.
+    // 아래에서 이 스트림을 그대로 쓸 수 있으므로 같은 해상도 권장값으로 연다.
     if (devices.length === 0 || devices.every((device) => !device.label)) {
-      stream = await openStream(null);
+      stream = await openStream(null, idealResolution);
       devices = await listVideoInputs();
     }
 
@@ -81,7 +87,7 @@ export async function startCamera({ preferredLabel = '' } = {}) {
     // 권한 확인용으로 연 스트림이 원하는 장치면 그대로 쓴다.
     if (!stream || (preferred && preferred.deviceId !== currentId)) {
       stopStream(stream);
-      stream = await openStream(preferred?.deviceId ?? null);
+      stream = await openStream(preferred?.deviceId ?? null, idealResolution);
     }
 
     const track = stream.getVideoTracks()[0];

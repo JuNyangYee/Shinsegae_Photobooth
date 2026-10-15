@@ -33,7 +33,10 @@ function applyLayout() {
 async function start() {
   showStatus('카메라를 준비하고 있습니다.');
   try {
-    camera = await startCamera({ preferredLabel: config.preferredCameraLabel });
+    camera = await startCamera({
+      preferredLabel: config.preferredCameraLabel,
+      idealResolution: config.idealResolution,
+    });
     video.srcObject = camera.stream;
     await video.play();
     showStatus('');
@@ -53,7 +56,8 @@ function renderDevInfo() {
     `camera     : ${camera ? camera.label || '(no label)' : '-'}`,
     `preferred  : "${config.preferredCameraLabel}" ${camera ? (camera.preferredFound ? 'found' : 'not found -> default camera') : '-'}`,
     `video      : ${video.videoWidth}x${video.videoHeight}`,
-    `track      : ${settings.width ?? '-'}x${settings.height ?? '-'} @ ${settings.frameRate ? settings.frameRate.toFixed(1) : '-'}fps`,
+    `track      : ${settings.width ?? '-'}x${settings.height ?? '-'} @ ${settings.frameRate ? settings.frameRate.toFixed(1) : '-'}fps`
+      + ` (ideal ${config.idealResolution.width}x${config.idealResolution.height})`,
     `stage 9:16 : ${Math.round(rect.width)}x${Math.round(rect.height)} css px`
       + ` (${Math.round(rect.width * dpr)}x${Math.round(rect.height * dpr)} device px, dpr ${dpr})`,
     `viewport   : ${window.innerWidth}x${window.innerHeight}`,
