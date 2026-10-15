@@ -8,9 +8,23 @@
 
 ## 현재 상태
 
-- 문서 초기화 단계. 아직 실행 가능한 코드는 없다.
+- 1단계 진행 중. 개발용 정적 서버와 9:16 좌우 반전 카메라 미리보기까지 만들었다.
 - 현재 개발 범위는 **카메라 촬영부터 결과 화면 표시까지**다. 사진 효과는 TBD, 인쇄는 이후 범위다.
 - PC 한 대에서 로컬 웹 서버(`localhost`)를 띄우고, 같은 PC의 브라우저를 전체화면으로 사용한다.
+
+## 개발용 실행
+
+저장소 루트에서 Windows PowerShell 5.1로 서버를 띄운다.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File bin\server\serve.ps1
+```
+
+- Chrome에서 `http://localhost:8765/`를 연다. 포트를 바꾸려면 `-Port 8800`처럼 붙인다.
+- `127.0.0.1`이 아닌 `localhost`로 접속한다(서버가 `localhost`에만 바인딩한다).
+- `OBS Virtual Camera`가 있으면 그 장치를, 없으면 기본 카메라를 사용한다.
+- `D` 키: 개발용 정보(카메라 라벨, 실제 영상 크기, 9:16 영역 크기) 표시 토글
+- 종료: 서버 창에서 Ctrl+C
 
 ## 문서
 

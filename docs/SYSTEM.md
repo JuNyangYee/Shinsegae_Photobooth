@@ -1,6 +1,6 @@
 # SYSTEM — 기술 구조와 제약
 
-> 아래 구조와 경로는 아직 구현되지 않은 계획이다. 실제로 만들면서 확정된 내용만 "가안" 표시를 지운다.
+> 실제로 만든 부분은 "구현됨"으로, 아직 만들지 않은 계획은 "가안"으로 표시한다. 구현 범위는 1-1(정적 서버, 9:16 반전 미리보기)까지다.
 
 ## 1. 전체 구성
 
@@ -27,10 +27,10 @@
 |---|---|
 | 실행 래퍼 | `Launch.bat`(ASCII 전용) → `powershell -NoProfile -ExecutionPolicy Bypass -File bin\launch.ps1` |
 | 설정 | `settings.example.ini` → `settings.ini` (`key=value`). 없는 키만 예시에서 채움. `settings.ini`는 Git에서 제외 |
-| 정적 서버 | PowerShell `Net.HttpListener` 기반 `localhost` 정적 서버. `.wasm`·`.mjs`·`.task`·`.tflite` MIME 지정. 참고 프로젝트의 최초 커밋 수준(약 100줄)을 기준으로 함 |
+| 정적 서버 (구현됨) | `bin/server/serve.ps1`. 아래 "정적 서버" 참고 |
 | OBS 실행 | OBS가 실행 중이 아니면 `--startvirtualcam --minimize-to-tray` 등으로 실행 |
 | 브라우저 실행 | 서버 준비 확인(`GET /` 응답 대기) 후 Chrome `--app=<url>` 전용 `--user-data-dir` 프로필로 실행. 전체화면·키오스크 플래그는 1단계 이후 확정 |
-| 프런트엔드 | 빌드 없는 바닐라 ES 모듈. `package.json` 없음 |
+| 프런트엔드 (구현됨) | 빌드 없는 바닐라 ES 모듈. `package.json` 없음 |
 | MediaPipe | CDN이 아닌 저장소 `lib/mediapipe/`에 `tasks-vision` 번들·WASM·모델을 둠 |
 | 상태 관리 | 고정된 상태 목록 + 상태 변경 알림 정도의 작은 상태 모듈 |
 | 자동 시작 | 시작 프로그램 폴더에 `Launch.bat` 바로가기 생성 (4단계) |
@@ -38,20 +38,39 @@
 
 **가져오지 않을 것:** Git 자동 업데이트, NAS·AI·결제·Firebase 연동, 워치독·자동 재시작, 야간 스케줄, 지점 인증, 다중 실행 모드 메뉴, 다중 레인 서버, 보정용 패널, 수천 줄 단일 `main.js` 구조.
 
-### 예상 폴더 구성 (가안)
+### 폴더 구성
 
 ```text
-Launch.bat
-settings.example.ini
+Launch.bat                  (가안, 4단계)
+settings.example.ini        (가안)
 bin/
-  launch.ps1
-  server/serve.ps1
-src/web/
+  launch.ps1                (가안, 4단계)
+  server/serve.ps1          개발용 정적 서버 (구현됨)
+src/web/                    (구현됨)
   index.html
-  js/   (camera, trigger, session, capture 등 책임별 모듈)
-  css/
-lib/mediapipe/   (3단계에서 추가)
+  css/app.css
+  js/main.js                화면 조립, 개발용 정보(D 키)
+  js/config.js              바꿀 수 있는 값 (반전, 화면 비율, 우선 카메라 라벨)
+  js/camera.js              카메라 장치 선택·스트림 시작
+  js/(trigger, session, capture 등 책임별 모듈은 해당 단계에서 추가)
+lib/mediapipe/              (3단계에서 추가)
 ```
+
+### 정적 서버 (구현됨)
+
+- 실행: `powershell -NoProfile -ExecutionPolicy Bypass -File bin\server\serve.ps1 [-Port 8765]`. 기본 포트 8765.
+- Windows PowerShell 5.1 `Net.HttpListener`로 `http://localhost:<Port>/`에만 바인딩한다. `+`·`*` 바인딩은 하지 않는다(관리자 권한·외부 노출 방지). 이 때문에 `127.0.0.1`로 접속하면 http.sys가 400을 돌려준다.
+- 경로 매핑: `/` → `src/web/index.html`, `/lib/*` → 저장소 `lib/`(폴더가 없으면 404), 나머지 → `src/web/`.
+- 경로 탈출 차단: URL 디코딩 후 역슬래시·`:`·제어 문자·와일드카드 문자, `.`으로 시작하거나 `.`·공백으로 끝나는 경로 조각(`..`, 숨김 파일 포함)을 400으로 거절한다. 마지막으로 실제 경로가 루트 안에 있는지 다시 확인한다(벗어나면 403). 루트를 벗어나는 일부 URL은 http.sys가 스크립트보다 먼저 403으로 막는다.
+- MIME: html, js, mjs, css, json, svg, png, jpg/jpeg, webp, woff2, wasm, tflite, task. 그 외는 `application/octet-stream`.
+- 모든 응답에 `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`. GET·HEAD만 허용(그 외 405).
+- Ctrl+C로 종료한다. 요청 대기를 짧게 끊어 기다리므로 Ctrl+C가 바로 반영되고 리스너를 닫는다.
+
+### 스크립트 인코딩 규칙
+
+- `.ps1`, `.bat`, `.cmd` 파일은 **ASCII 문자만** 쓴다. 주석도 영어로 쓴다. Windows PowerShell 5.1은 BOM 없는 UTF-8 파일을 시스템 코드 페이지로 읽어 한글이 깨지고 구문 오류가 날 수 있다.
+- 이 파일들은 `.gitattributes`에서 `eol=crlf`로 체크아웃한다.
+- 웹 파일(html·js·css)은 UTF-8이며, 서버가 `charset=utf-8`로 제공한다.
 
 ## 2. 코드 책임 구분
 
@@ -71,14 +90,24 @@ lib/mediapipe/   (3단계에서 추가)
 
 - 9:16 크롭, 카메라 회전, 색·노출 보정은 OBS에서 처리한다. OBS 출력 해상도는 현장 화면 해상도에 맞춘다(FHD 세로 1080×1920 ~ 4K 세로 2160×3840).
 - 캡처 해상도의 상한은 OBS 출력 해상도다. 실제 캡처 크기를 확인해 기록한다.
-- 브라우저에서는 장치 라벨(`OBS Virtual Camera` 포함 여부)로 장치를 고른다. 장치 라벨은 카메라 권한이 허용된 뒤에만 읽을 수 있으므로, 라벨이 비어 있으면 권한을 한 번 요청한 뒤 다시 장치 목록을 읽는다(참고 프로젝트 방식).
+- 브라우저에서는 장치 라벨(`OBS Virtual Camera` 포함 여부, 대소문자 무시)로 장치를 고르고, 없으면 기본 카메라를 쓴다. 장치 라벨은 카메라 권한이 허용된 뒤에만 읽을 수 있으므로, 라벨이 비어 있으면 권한을 한 번 요청한 뒤 다시 장치 목록을 읽는다(참고 프로젝트 방식). 권한 확인용으로 연 스트림이 고른 장치와 같으면 다시 열지 않고 그대로 쓴다. (구현됨: `js/camera.js`)
+- 해상도 제약 없이 `{ video, audio: false }`로 요청한다(OBS 출력을 그대로 받는 의도). 실제 수신 크기는 개발용 정보(`D` 키)에서 확인한다. Chrome은 제약이 없으면 장치의 기본 형식(흔히 640×480)을 고를 수 있으므로, OBS 가상카메라에서 실제로 출력 해상도가 그대로 들어오는지 실측이 필요하다(미검증).
+- 실패는 종류로 구분해 돌려준다: `unsupported`(미지원·비보안 컨텍스트), `permission-denied`(`NotAllowedError`·`SecurityError`), `not-found`(`NotFoundError`·`OverconstrainedError`), `in-use`(`NotReadableError`), `unknown`. 화면에는 간단한 문구만 표시하며 상세 안내는 1-2에서 정한다.
 - 부팅할 때 OBS와 가상카메라가 브라우저보다 먼저 준비되어야 한다. OBS가 꺼지면 웹에서는 카메라 단절로 처리한다.
 - OBS 없이 일반 웹캠을 직접 연결해도 동작해야 한다(개발·비상용). 이 경우 9:16이 아니면 웹에서 가운데 기준으로 잘라 채운다.
+
+### 화면 배치 (구현됨)
+
+- 뷰포트 비율과 무관하게 9:16 영역(`#stage`)을 가운데에 최대 크기로 두고 나머지는 검정으로 채운다. 가로 모니터에서는 좌우가, 세로 화면에서 비율이 다르면 위아래가 검정이 된다.
+- 영상은 영역을 `object-fit: cover`로 채운다. 9:16이 아닌 영상은 가운데 기준으로 잘린다.
+- 비율 값은 `js/config.js`의 `aspectRatio`에서 CSS 변수로 넘긴다.
+- 개발용 정보는 `D` 키로 토글하며 기본 숨김이다. 관람객 화면에는 노출하지 않는다.
 
 ### 좌우 반전 (확정)
 
 - 미리보기와 캡처 결과 모두 좌우 반전 상태로 만든다.
 - 반전은 **웹 한 곳에서만** 처리하고 OBS에서는 반전하지 않는다(가안). 이중 반전을 막고, OBS 설정과 무관하게 같은 결과를 얻기 위해서다.
+- 미리보기 반전은 `css/app.css`의 `.preview.is-mirrored { transform: scaleX(-1) }` 한 곳에서 하고, `config.mirror`로 켜고 끈다(구현됨).
 - 미리보기에서 보이는 영역과 캡처 영역(9:16, 잘림 위치)이 일치해야 한다.
 
 ### 권한과 보안 컨텍스트
