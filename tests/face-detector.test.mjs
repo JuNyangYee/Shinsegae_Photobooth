@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { beforeEach, describe, it } from 'node:test';
+import { setImmediate as flushImmediate } from 'node:timers/promises';
 
 import { config } from '../src/web/js/config.js';
 import {
@@ -53,35 +54,13 @@ function fakeCanvas(env) {
   return canvas;
 }
 
-// MediaPipe 흉내. failWith(delegate)가 오류를 돌려주면 그 delegate 생성은 모델 설정 단계에서 실패한다.
-function fakeBundle(env) {
-  return {
-    FilesetResolver: {
-      forVisionTasks: async (path) => ({ wasmLoaderPath: `${path}/vision_wasm_internal.js`, wasmBinaryPath: `${path}/x.wasm` }),
-    },
-    FaceDetector: {
-      async createFromOptions(fileset, options) {
-        env.createCalls.push(options);
-        env.scripts.push({ src: new URL(fileset.wasmLoaderPath, env.doc.baseURI).href, remove() { env.scripts.splice(env.scripts.indexOf(this), 1); } });
-        await Promise.resolve();
-        const statsTimer = env.scope.setInterval(() => {}, 60000); // 통계 로거 (모델 설정 전에 만든다)
-        options.canvas.getContext('webgl2', {}); // wasm 로더가 GL 컨텍스트를 만든다
-        await Promise.resolve();
-        const error = env.failWith(options.baseOptions.delegate);
-        if (error) throw error;
-        return {
-          detectForVideo: () => ({ detections: [] }),
-          close() { env.closed += 1; env.scope.clearInterval(statsTimer); },
-        };
-      },
-    },
-  };
-}
+// MediaPipe 흉내는 tests/fixtures/fake-vision-bundle.mjs (라이브러리 코드를 파일 이름으로 알아보므로 별도 파일)
+const FAKE_BUNDLE = './fixtures/fake-vision-bundle.mjs';
 
 function setupEnv({ webgl2 = true, webgl1 = true, renderer, fetchResult, failWith = () => null } = {}) {
   const env = {
     webgl2, webgl1, renderer, contexts: [], canvases: [], scripts: [], createCalls: [], fetches: 0, imports: 0, closed: 0,
-    failWith,
+    failWith, libraryTimers: [],
   };
   const active = new Map();
   let nextTimer = 1;
@@ -94,9 +73,14 @@ function setupEnv({ webgl2 = true, webgl1 = true, renderer, fetchResult, failWit
     baseURI: 'http://localhost:8765/',
     querySelectorAll: (selector) => (selector === 'script[src]' ? [...env.scripts] : []),
   };
-  const bundle = fakeBundle(env);
   env.environment = {
-    importBundle: async () => { env.imports += 1; return bundle; },
+    importBundle: async () => {
+      env.imports += 1;
+      const bundle = await import(FAKE_BUNDLE);
+      bundle.configure(env);
+      return bundle;
+    },
+    libraryMarker: 'fake-vision-bundle.mjs',
     fetch: async () => {
       env.fetches += 1;
       if (fetchResult instanceof Error) throw fetchResult;
@@ -266,5 +250,53 @@ describe('createFaceDetector: 사전 확인과 실패 정리', () => {
     fail = false;
     (await createFaceDetector(OPTIONS, environment)).close();
     assert.deepEqual(urls, ['/lib/bundle.mjs', '/lib/bundle.mjs?retry=1']);
+  });
+});
+
+describe('createFaceDetector: 정리할 자원의 소유자 구분 (4단계 검수 6)', () => {
+  const failAll = (delegate) => new Error(`${delegate}: model is not valid`);
+  const OPTS = { ...OPTIONS };
+
+  it('생성 중에 다른 코드가 만든 60초 타이머는 지우지 않고, 라이브러리가 만든 것만 지운다', async () => {
+    const env = setupEnv({ failWith: failAll });
+    const others = [];
+    env.duringCreate = () => { others.push(env.scope.setInterval(() => {}, 60000)); }; // 같은 간격, 다른 코드
+    await assert.rejects(createFaceDetector(OPTS, env.environment), codeOf(DetectorFault.CREATE));
+    assert.equal(env.libraryTimers.length, 2); // GPU·CPU
+    assert.equal(others.length, 2);
+    assert.deepEqual(env.activeTimers(), [60000, 60000]); // 남은 것은 다른 코드의 타이머 둘
+    others.forEach((id) => env.scope.clearInterval(id));
+    assert.deepEqual(env.activeTimers(), []);
+  });
+
+  it('시도 전에 이미 있던 같은 URL의 로더 요소는 지우지 않는다', async () => {
+    const env = setupEnv({ failWith: failAll });
+    const existing = { src: 'http://localhost:8765/lib/wasm/vision_wasm_internal.js', remove() { throw new Error('must not remove'); } };
+    env.scripts.push(existing);
+    await assert.rejects(createFaceDetector(OPTS, env.environment));
+    assert.deepEqual(env.scripts, [existing]);
+  });
+
+  it('시도가 겹치면: 진행 중인 시도의 로더는 지우지 않고, 성공한 감지기의 타이머를 지우지 않으며, setInterval은 마지막에 되돌린다', async () => {
+    const env = setupEnv({ failWith: (delegate) => (delegate === 'CPU' ? new Error('cpu failed') : null) });
+    const original = env.scope.setInterval;
+    const holds = new Map();
+    env.hold = (options) => new Promise((resolve) => holds.set(options.baseOptions.delegate, resolve));
+    const a = createFaceDetector({ ...OPTS, delegates: ['GPU'] }, env.environment); // 성공할 시도
+    const b = createFaceDetector({ ...OPTS, delegates: ['CPU'] }, env.environment); // 실패할 시도
+    for (let i = 0; i < 20 && holds.size < 2; i += 1) await flushImmediate();
+    assert.equal(holds.size, 2);
+    assert.equal(env.scripts.length, 2);
+    holds.get('GPU')();
+    const detector = await a;
+    assert.equal(env.scripts.length, 2); // B가 아직 진행 중: 로더 요소를 지우지 않는다
+    assert.notEqual(env.scope.setInterval, original); // 아직 감싼 상태
+    holds.get('CPU')();
+    await assert.rejects(b);
+    assert.equal(env.scripts.length, 0); // 모두 끝난 뒤 지운다
+    assert.equal(env.scope.setInterval, original);
+    // 겹친 동안 만들어진 타이머는 누구 것인지 몰라 지우지 않는다: 성공한 A의 통계 타이머가 살아 있어야 한다
+    assert.ok(env.activeTimers().length >= 1);
+    detector.close();
   });
 });

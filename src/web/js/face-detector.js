@@ -149,39 +149,74 @@ function createGlCanvas(env) {
   };
 }
 
+// 생성 시도 추적 (4단계 검수 6: 정리할 자원의 소유자를 가린다).
+// - 타이머: 진행 중인 시도가 하나뿐일 때, 라이브러리 번들이 직접 부른(호출 스택 바로 위가 번들 파일) 60초 간격만 그 시도의 것으로 기록한다.
+//   다른 코드가 같은 시간에 만든 타이머는 기록하지 않는다. 시도가 겹치면(앱은 detector-keeper가 하나씩만 만든다) 누구 것인지 몰라 기록하지 않는다.
+// - 로더 <script>: 첫 시도가 시작될 때 이미 있던 요소는 기억해 두고 건드리지 않는다. 겹친 시도가 모두 끝난 뒤에만 그 사이 생긴 요소를 지운다
+//   (아직 불러오는 중인 로더 요소를 지우면 그 시도의 불러오기가 멈춘다).
+// - 감싼 setInterval은 시도가 겹쳐도 하나만 두고, 마지막 시도가 끝나면 되돌린다.
+const tracker = { active: new Set(), scope: null, doc: null, loaderUrl: '', marker: '', original: null, wrapper: null, scriptsBefore: null };
+
+function loaderScripts(doc, loaderUrl) {
+  if (!doc?.querySelectorAll || !loaderUrl) return [];
+  return [...doc.querySelectorAll('script[src]')].filter((script) => script.src === loaderUrl);
+}
+
+function beginAttempt(env, loaderPath, marker) {
+  const attempt = { timers: [] };
+  if (tracker.active.size === 0) {
+    const { scope, doc } = env;
+    tracker.scope = scope;
+    tracker.doc = doc;
+    tracker.loaderUrl = doc?.baseURI && loaderPath ? new URL(String(loaderPath), doc.baseURI).href : '';
+    tracker.marker = marker;
+    tracker.scriptsBefore = new Set(loaderScripts(doc, tracker.loaderUrl));
+    const original = scope.setInterval;
+    const wrapper = function setInterval(handler, ms, ...rest) {
+      const id = original.call(scope, handler, ms, ...rest);
+      if (ms === STATS_INTERVAL_MS && tracker.active.size === 1) {
+        // [0] 'Error', [1] 이 함수, [2] setInterval을 부른 코드
+        const caller = String(new Error().stack ?? '').split('\n')[2] ?? '';
+        if (tracker.marker && caller.includes(tracker.marker)) [...tracker.active][0].timers.push(id);
+      }
+      return id;
+    };
+    tracker.original = original;
+    tracker.wrapper = wrapper;
+    scope.setInterval = wrapper;
+  }
+  tracker.active.add(attempt);
+  return attempt;
+}
+
+function endAttempt(attempt, failed) {
+  if (failed) attempt.timers.forEach((id) => tracker.scope.clearInterval(id));
+  tracker.active.delete(attempt);
+  if (tracker.active.size > 0) return;
+  if (tracker.scope.setInterval === tracker.wrapper) tracker.scope.setInterval = tracker.original;
+  for (const script of loaderScripts(tracker.doc, tracker.loaderUrl)) {
+    if (!tracker.scriptsBefore.has(script)) script.remove();
+  }
+  Object.assign(tracker, { scope: null, doc: null, loaderUrl: '', marker: '', original: null, wrapper: null, scriptsBefore: null });
+}
+
 // 생성 한 번(delegate 하나)을 감싼다. MediaPipe는 생성할 때마다 wasm 로더 <script>를 body에 붙이고 지우지 않는다
 // (로더가 전역 ModuleFactory를 만들고 라이브러리가 바로 지우므로 재사용할 수 없다). 실행이 끝난 로더 요소는 지워도 된다.
-// 실패하면 그 사이 만들어진 통계 타이머를 지우고 WebGL 컨텍스트를 놓는다.
-async function createOnce(FaceDetector, fileset, options, env) {
-  const { scope, doc } = env;
+// 실패하면 이 시도가 만든 통계 타이머를 지우고 WebGL 컨텍스트를 놓는다.
+async function createOnce(FaceDetector, fileset, options, env, marker) {
   const glCanvas = createGlCanvas(env);
-  const setIntervalBefore = scope.setInterval;
-  const statsTimers = [];
-  const tracking = function setInterval(handler, ms, ...rest) {
-    const id = setIntervalBefore.call(scope, handler, ms, ...rest);
-    if (ms === STATS_INTERVAL_MS) statsTimers.push(id);
-    return id;
-  };
-  scope.setInterval = tracking;
+  const attempt = beginAttempt(env, fileset.wasmLoaderPath, marker);
+  let failed = true;
   try {
     const detector = await FaceDetector.createFromOptions(fileset, { ...options, canvas: glCanvas.canvas });
+    failed = false;
     return { detector, glCanvas };
   } catch (error) {
-    statsTimers.forEach((id) => scope.clearInterval(id));
     glCanvas.release();
     throw error;
   } finally {
-    if (scope.setInterval === tracking) scope.setInterval = setIntervalBefore;
-    removeLoaderScripts(doc, fileset.wasmLoaderPath);
+    endAttempt(attempt, failed);
   }
-}
-
-function removeLoaderScripts(doc, loaderPath) {
-  if (!doc?.querySelectorAll || !loaderPath) return;
-  const loaderUrl = new URL(String(loaderPath), doc.baseURI).href;
-  doc.querySelectorAll('script[src]').forEach((script) => {
-    if (script.src === loaderUrl) script.remove();
-  });
 }
 
 /**
@@ -204,6 +239,8 @@ export async function createFaceDetector({
   }
   const { FilesetResolver, FaceDetector } = await loadBundle(bundlePath, env);
   const fileset = await FilesetResolver.forVisionTasks(wasmPath);
+  // 라이브러리 코드를 알아보는 표식: 번들 파일 이름 (호출 스택의 URL에 들어 있다. ?retry=N이 붙어도 포함된다)
+  const marker = env.libraryMarker ?? String(bundlePath).split('?')[0].split('/').pop();
   const failures = [];
   for (const delegate of delegates) {
     try {
@@ -212,7 +249,7 @@ export async function createFaceDetector({
         baseOptions: { modelAssetBuffer: model.data.slice(), delegate },
         runningMode: 'VIDEO',
         minDetectionConfidence,
-      }, env);
+      }, env, marker);
       return wrap({ detector, glCanvas, delegate, failures, webgl, model, onContextLost });
     } catch (error) {
       failures.push(`${delegate}: ${error?.message ?? error}`);
