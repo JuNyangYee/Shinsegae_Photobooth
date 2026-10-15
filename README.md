@@ -23,7 +23,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File bin\server\serve.ps1
 - Chrome에서 `http://localhost:8765/`를 연다. 포트를 바꾸려면 `-Port 8800`처럼 붙인다.
 - `127.0.0.1`이 아닌 `localhost`로 접속한다(서버가 `localhost`에만 바인딩한다).
 - `OBS Virtual Camera`가 있으면 그 장치를, 없으면 기본 카메라를 사용한다.
-- `D` 키: 개발용 정보(카메라 라벨, 실제 영상 크기, 9:16 영역 크기) 표시 토글
+- `D` 키: 개발용 정보(카메라 상태·오류 원인·재시도 횟수, 카메라 라벨, 실제 영상 크기, 9:16 영역 크기) 표시 토글
+- 카메라가 끊기거나 열리지 않으면 화면에 "준비 중입니다" 문구를 띄우고 자동으로 다시 연결한다.
 - 종료: 서버 창에서 Ctrl+C
 
 ## 문서
