@@ -1,10 +1,10 @@
 # SYSTEM — 기술 구조와 제약
 
-> 실제로 만든 부분은 "구현됨"으로, 아직 만들지 않은 계획은 "가안"으로 표시한다. 구현 범위는 1단계(정적 서버, 9:16 반전 미리보기, 카메라 상태·자동 회복), 2-1(MediaPipe 로컬 라이브러리 배치), 2-2(얼굴 감지와 인식 상태), 2-3(운영자용 인식 범위 조절), 3-1(촬영 상태 기계와 키보드 수동 시작 한 사이클), 3-2(인식 결과로 자동 시작·이탈 취소), 3-3(3단계 검수 반영), 4-1(감지기 안정성·장애 안내)까지다. 사진 효과·인쇄·현장 실행은 아직 없다.
+> 실제로 만든 부분은 "구현됨"으로, 아직 만들지 않은 계획은 "가안"으로 표시한다. 구현 범위는 1단계(정적 서버, 9:16 반전 미리보기, 카메라 상태·자동 회복), 2-1(MediaPipe 로컬 라이브러리 배치), 2-2(얼굴 감지와 인식 상태), 2-3(운영자용 인식 범위 조절), 3-1(촬영 상태 기계와 키보드 수동 시작 한 사이클), 3-2(인식 결과로 자동 시작·이탈 취소), 3-3(3단계 검수 반영), 4-1(감지기 안정성·장애 안내), 4-2(현장 실행 스크립트)까지다. 사진 효과·인쇄는 아직 없다.
 
 **목차**
 
-1. 전체 구성 — 구성도, 참고 구조, 폴더, 정적 서버, CSP, 스크립트 인코딩
+1. 전체 구성 — 구성도, 참고 구조, 폴더, 정적 서버, CSP, 스크립트 인코딩, 현장 실행 스크립트
 2. 코드 책임 구분 — 반복 오류 로그 제한
 3. 카메라와 영상 — OBS, 화면 배치, 좌우 반전, 권한, 카메라 상태와 자동 회복
 4. 촬영 상태 — 촬영 한 사이클, 실패와 취소 경계, 운영자 단축키, 자동 시작과 이탈 취소, 출력 연동 참고
@@ -35,15 +35,15 @@
 
 | 가져올 것 | 내용 |
 |---|---|
-| 실행 래퍼 | `Launch.bat`(ASCII 전용) → `powershell -NoProfile -ExecutionPolicy Bypass -File bin\launch.ps1` |
-| 설정 | `settings.example.ini` → `settings.ini` (`key=value`). 없는 키만 예시에서 채움. `settings.ini`는 Git에서 제외 |
+| 실행 래퍼 (구현됨, 4-2) | `Launch.bat`(ASCII 전용) → `powershell -NoProfile -ExecutionPolicy Bypass -File bin\launch.ps1`. 아래 "현장 실행 스크립트" |
+| 설정 (구현됨, 4-2) | `settings.example.ini` → `settings.ini` (`key=value`). 없는 키만 예시에서 채움. `settings.ini`는 Git에서 제외 |
 | 정적 서버 (구현됨) | `bin/server/serve.ps1`. 아래 "정적 서버" 참고 |
-| OBS 실행 | OBS가 실행 중이 아니면 `--startvirtualcam --minimize-to-tray` 등으로 실행 |
-| 브라우저 실행 | 서버 준비 확인(`GET /` 응답 대기) 후 Chrome `--app=<url>` 전용 `--user-data-dir` 프로필로 실행. 전체화면·키오스크 플래그는 1단계 이후 확정 |
+| OBS 실행 (구현됨, 4-2) | OBS가 실행 중이 아니면 `--startvirtualcam --minimize-to-tray` 등으로 실행 |
+| 브라우저 실행 (구현됨, 4-2) | 서버 준비 확인(`GET /` 응답 대기) 후 Chrome 전용 `--user-data-dir` 프로필, `--kiosk`로 실행 (사용자 결정 2026-10-15) |
 | 프런트엔드 (구현됨) | 빌드 없는 바닐라 ES 모듈. `package.json`은 라이브러리 받기(`vendor:mediapipe`)에만 쓰고 빌드 스크립트·번들러는 없다 |
 | MediaPipe (구현됨) | CDN이 아닌 저장소 `lib/mediapipe/`에 `tasks-vision` 번들·WASM·모델을 둠 (5절 "MediaPipe 로컬 라이브러리") |
 | 상태 관리 | 고정된 상태 목록 + 상태 변경 알림 정도의 작은 상태 모듈 |
-| 자동 시작 | 시작 프로그램 폴더에 `Launch.bat` 바로가기 생성 (4단계) |
+| 자동 시작 (구현됨, 4-2) | 시작 프로그램 폴더에 `Launch.bat` 바로가기 생성 (`Setup-Startup.bat`) |
 | 인쇄 (이후) | 브라우저 → `localhost` HTTP 인쇄 서비스로 요청, 작업 상태를 조회하는 사이드카 패턴 |
 
 **가져오지 않을 것:** Git 자동 업데이트, NAS·AI·결제·Firebase 연동, 워치독·자동 재시작, 야간 스케줄, 지점 인증, 다중 실행 모드 메뉴, 다중 레인 서버, 보정용 패널, 수천 줄 단일 `main.js` 구조.
@@ -51,11 +51,16 @@
 ### 폴더 구성
 
 ```text
-Launch.bat                  (가안, 4단계)
-settings.example.ini        (가안)
+Launch.bat                  현장 실행 (OBS → 서버 → Chrome 키오스크) → bin/launch.ps1
+Shutdown.bat                키오스크 Chrome·서버 종료 → bin/shutdown.ps1
+Setup-Startup.bat           시작 프로그램 바로가기 등록·제거(-Remove) → bin/setup-startup.ps1
+settings.example.ini        현장 설정 예시 (커밋). settings.ini는 여기서 만들어지고 Git에서 제외
 bin/
-  launch.ps1                (가안, 4단계)
-  server/serve.ps1          개발용 정적 서버 (구현됨)
+  common.ps1                실행 스크립트 공용 (로그, 설정, 프로그램 탐색, 프로세스 식별·종료)
+  launch.ps1                현장 실행
+  shutdown.ps1              종료
+  setup-startup.ps1         시작 프로그램 등록
+  server/serve.ps1          정적 서버 (구현됨)
 src/web/                    (구현됨)
   index.html
   css/app.css
@@ -133,6 +138,96 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 - 이 파일들은 `.gitattributes`에서 `eol=crlf`로 체크아웃한다.
 - 웹 파일(html·js·css)은 UTF-8이며, 서버가 `charset=utf-8`로 제공한다.
 
+### 현장 실행 스크립트 (구현됨, 4-2)
+
+`Launch.bat`이 `bin/launch.ps1`을 실행한다. 순서는 **설정 → OBS → 서버 → Chrome**이다. 한 단계라도 실패하면 거기서 멈추고, 단계 이름과 원인을 콘솔과 `logs/launch_*.log`에 남긴 뒤 종료 코드 1로 끝난다. `Launch.bat`은 이때 창을 멈추고 `logs\` 위치를 안내한다. 앞 단계에서 띄운 것은 되돌리지 않는다(다음 실행이나 `Shutdown.bat`이 정리한다).
+
+- **중복 실행:** 이름 있는 mutex `Local\ShinsegaePhotoboothLaunch`를 잡지 못하면 바로 실패한다.
+- **로그:** `logs/launch_*.log`, `logs/shutdown_*.log`는 종류별 최근 20개, 서버 출력 `logs/server_*.out.log`·`.err.log`는 최근 20회분만 남긴다. 촬영 이미지는 로그에 들어가지 않는다(서버 출력은 요청 경로와 상태 코드뿐이다).
+- **설정:** `settings.ini`가 없으면 `settings.example.ini`를 복사한다. 있으면 예시에만 있는 키를 끝에 덧붙이고 기존 값은 바꾸지 않는다. 값을 검증해(포트 범위, `true`/`false`, `x,y` 형식, 절대 경로, 프로필이 저장소 밖인지) 틀리면 `settings` 단계에서 실패한다. 시험용으로 `-SettingsPath <파일>`을 줄 수 있다(이때는 파일을 만들거나 고치지 않는다). `Launch.bat`·`Shutdown.bat`은 받은 인자를 그대로 넘긴다.
+
+**설정 키** (`settings.example.ini`)
+
+| 키 | 기본값 | 뜻 |
+|---|---|---|
+| `server_port` | `8765` | 로컬 서버 포트. 카메라 권한은 출처(`http://localhost:<port>`)별로 저장되므로 바꾸면 다시 허용해야 한다 |
+| `chrome_path` | 비움(자동) | App Paths 레지스트리(HKLM·HKCU) → Program Files → Program Files (x86) → LocalAppData 순서로 찾는다 |
+| `chrome_profile_dir` | `%LOCALAPPDATA%\ShinsegaePhotobooth\ChromeProfile` | 키오스크 전용 프로필. 카메라 권한이 여기에 저장된다. 저장소 안이면 실패한다 |
+| `kiosk` | `true` | `--kiosk`(사용자 결정 2026-10-15). `false`면 `--app=<url>` 일반 창(시험용) |
+| `window_position` | 비움 | `x,y` → `--window-position`. 키오스크 창을 띄울 모니터를 고른다 |
+| `window_size` | 비움 | `너비,높이` → `--window-size`. `kiosk=false`일 때만 |
+| `obs_path` | 비움(자동) | `HKLM\SOFTWARE\OBS Studio` 설치 경로 → Program Files → Program Files (x86) |
+| `obs_autostart` | `true` | OBS가 꺼져 있으면 시작 |
+| `obs_stop_on_shutdown` | `false` | `Shutdown.bat`이 OBS도 종료할지 |
+
+**OBS 단계**
+
+- `obs64` 프로세스가 하나라도 있으면 아무것도 하지 않는다(경로와 무관).
+- 꺼져 있고 `obs_autostart=true`면 경로를 찾아 파일 속성의 버전을 로그에 남기고, 작업 폴더를 `obs64.exe` 폴더로 해서 시작한다. 3초 뒤 프로세스가 끝나 있으면 실패로 본다. 가상카메라 장치가 늦게 준비돼도 웹의 카메라 자동 회복이 이어서 연결한다(3절).
+- 플래그는 OBS 32.2.1 `obs64.exe`의 `--help` 문구(실행 파일 안 문자열)로 지원을 확인한 것만 쓴다.
+
+| 플래그 | 이유 |
+|---|---|
+| `--startvirtualcam` | 가상카메라를 켠 채로 시작 |
+| `--minimize-to-tray` | OBS 창이 키오스크 화면을 가리지 않게 트레이로 |
+| `--disable-updater` | 업데이트 확인 대화상자가 키오스크 위에 뜨지 않게 |
+| `--disable-missing-files-check` | "누락된 파일" 대화상자가 시작을 막지 않게 |
+
+- **비정상 종료 뒤 안전 모드 대화상자:** OBS 32에는 `--disable-shutdown-check`가 없다(참고 프로젝트가 쓰던 플래그, 32.2.1 실행 파일에 문자열 없음). OBS 32는 실행 중 `%APPDATA%\obs-studio\.sentinel\run_<id>` 표식을 두고 정상 종료 때 지운다. 표식이 남아 있으면 다음 시작 때 "OBS Studio Crash Detected / 안전 모드로 실행?" 대화상자가 떠 가상카메라가 시작되지 않는다. 그래서 **OBS가 하나도 실행 중이 아닐 때만** 남은 `run_*` 표식을 지우고 시작한다. 이 처리와 플래그는 OBS 32.x에서만 확인했으므로, 다른 버전이면 경고를 로그에 남긴다.
+
+**서버 단계**
+
+- 이 저장소 `bin\server\serve.ps1`을 `-File <전체 경로>`로 실행 중인 PowerShell만 이전 서버로 보고 종료한다(명령줄 일치). 다른 경로나 상대 경로로 띄운 서버는 건드리지 않는다.
+- 그 뒤 `http://localhost:<port>/`에 무엇이든 응답하면 다른 프로그램이 포트를 쓰는 것으로 보고 실패한다.
+- `powershell.exe -File serve.ps1 -Port <port>`를 창 없이(`-WindowStyle Hidden`) 띄우고 표준 출력·오류를 `logs/server_*.log`로 보낸다. `Launch.bat` 창이 닫혀도 서버는 계속 돈다.
+- `GET /`가 200을 돌려줄 때까지 최대 15초 기다린다. 그 사이 서버가 끝나면 오류 출력 끝부분을 실패 원인에 붙인다.
+- 제약: 서버가 `Launch.bat`의 표준 출력 핸들을 물려받으므로, `Launch.bat` 출력을 파이프로 받으면 서버가 끝날 때까지 파이프가 닫히지 않는다. 콘솔에서 실행한다.
+
+**Chrome 단계**
+
+- 같은 전용 프로필로 이미 떠 있는 Chrome이 있으면 먼저 닫는다(창 닫기 요청 → 5초 뒤 남은 것만 강제 종료). 같은 프로필로 다시 시작하면 기존 인스턴스에 창만 하나 더 생기기 때문이다.
+- 하드웨어 가속: 감지기가 WebGL을 쓰므로 꺼지면 안 된다. 사용자가 Chrome 설정에서 끄면 프로필의 `Local State`에 `"hardware_acceleration_mode":{"enabled":false}`가 남는다. 실행 전에 이 값이 있으면 `true`로 바꾸고 경고를 남긴다. 기본값(키 없음)은 켜짐이다. GPU를 끄는 플래그(`--disable-gpu` 등)는 쓰지 않는다. 실행 화면 쪽 WebGL 점검은 4-1이 맡는다.
+- `--kiosk <url>`로 연다. `kiosk=false`면 `--app=<url>`과 `--window-size`를 쓴다.
+
+| 플래그 | 이유 |
+|---|---|
+| `--user-data-dir="<chrome_profile_dir>"` | 일반 Chrome과 분리. 카메라 권한 유지, 종료 대상 식별에 쓴다 |
+| `--kiosk` | 주소창·탭 없는 전체화면 (사용자 결정) |
+| `--no-first-run` | 새 프로필의 첫 실행 화면을 띄우지 않음 |
+| `--no-default-browser-check` | 기본 브라우저 설정 안내를 띄우지 않음 |
+| `--hide-crash-restore-bubble` | 강제 종료·정전 뒤 "페이지 복원" 말풍선을 띄우지 않음 (`--disable-session-crashed-bubble`은 Chrome 155에 없음) |
+| `--disable-features=Translate` | 번역 제안을 띄우지 않음 |
+| `--disable-pinch` | 터치 화면에서 핀치 확대로 화면이 틀어지지 않게 |
+| `--overscroll-history-navigation=0` | 가로 밀기 제스처로 뒤로 가기 하지 않게 |
+| `--window-position=x,y` | 설정했을 때만. 다중 모니터에서 띄울 화면 선택 |
+
+- 위 스위치 이름은 Chrome 155 `chrome.dll` 안의 문자열로 있는지 확인했다. 이 조합으로 창을 띄웠을 때 경고 막대가 생기지 않고(창 안쪽 높이가 플래그 없는 창과 같음) WebGL이 GPU로 동작하는 것을 확인했다. 각 플래그가 막는 화면(번역 제안, 복원 말풍선, 핀치·제스처)이 실제로 나오지 않는지는 상황을 재현하지 않아 확인하지 않았다.
+
+**카메라 권한: 전용 프로필에서 운영자가 처음 한 번 허용 (4-2 결정)**
+
+| 방법 | 이점 | 위험 |
+|---|---|---|
+| 전용 프로필에서 한 번 허용 (선택) | Chrome 기본 동작 그대로. 허용한 출처(`http://localhost:<port>`)·카메라에만 적용 | 첫 설치·프로필 삭제·포트 변경 때 운영자가 마우스로 "허용"을 눌러야 한다. 그 전까지 화면은 "준비 중"에 머문다 |
+| `--use-fake-ui-for-media-stream` | 묻는 창 자체가 없다 | **Chrome 155에서 "지원되지 않는 명령줄 플래그" 경고 막대가 뜬다**(창 안쪽 높이 56px 감소로 확인). 키오스크 화면 위쪽을 가린다. 시험용 스위치이고 프로필의 모든 출처·카메라·마이크 요청을 자동 수락한다 |
+| 프로필 `Preferences`에 권한 미리 기록 | 묻는 창 없음 | Chrome 내부 형식에 의존해 버전마다 달라질 수 있다(시험하지 않음) |
+| 정책(레지스트리) | 공식 방식 | HKCU 정책은 같은 사용자의 일반 Chrome에도 적용되고, HKLM은 관리자 권한이 필요하다 |
+
+- 키오스크는 `localhost` 앱만 띄우므로 자동 수락의 보안 위험 자체는 작다. 그래도 경고 막대가 관람객 화면을 가리는 것이 결정적이어서 첫 번째 방법을 골랐다.
+- 허용하기 전에도 앱은 멈추지 않는다. 묻는 창이 떠 있는 동안은 카메라 상태가 `starting`("준비 중")이고, 창을 닫거나 거절하면 `permission-denied`가 되어 3절의 회복 규칙을 따른다.
+
+**종료 (`Shutdown.bat` → `bin/shutdown.ps1`)**
+
+- Chrome: 명령줄의 `--user-data-dir`이 `chrome_profile_dir`과 같은 프로세스와 그 자식만 종료한다(창 닫기 요청 → 5초 뒤 강제). 일반 Chrome은 프로필이 달라 대상이 아니다.
+- 서버: 위 서버 단계와 같은 명령줄 일치로 찾은 것만 종료한다.
+- OBS: `obs_stop_on_shutdown=true`일 때만, 경로가 `obs_path`(또는 자동 탐색 경로)와 같은 `obs64.exe`만 종료한다. 트레이에 있으면 창이 없어 10초 뒤 강제 종료되고, 이때 남는 표식은 다음 실행이 지운다.
+- 한 항목이 실패해도 나머지를 계속하고, 하나라도 실패하면 종료 코드 1로 끝난다.
+
+**부팅 시 자동 실행 (`Setup-Startup.bat` → `bin/setup-startup.ps1`)**
+
+- 현재 사용자의 시작 프로그램 폴더(`shell:startup`)에 `Shinsegae Photobooth.lnk`(대상 `Launch.bat`, 작업 폴더 저장소 루트, 보통 창)를 만든다. `-Remove`로 지운다. 관리자 권한·작업 스케줄러는 쓰지 않는다.
+- 이름이 같아도 설명·대상이 다른 바로가기는 바꾸거나 지우지 않고 실패한다.
+- 로그인할 때 실행되므로 무인 부팅에는 Windows 자동 로그인이 따로 필요하다.
+
 ## 2. 코드 책임 구분
 
 | 영역 | 책임 |
@@ -192,7 +287,7 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 
 - `getUserMedia()`는 보안 컨텍스트가 필요하다. 같은 PC의 `http://localhost`는 허용된다.
 - 영상만 요청하고 마이크는 요청하지 않는다.
-- 현장에서는 전용 Chrome 프로필에 `localhost` 카메라 권한을 한 번 허용해 두고 유지한다(참고 프로젝트 방식).
+- 현장에서는 전용 Chrome 프로필에 `localhost` 카메라 권한을 한 번 허용해 두고 유지한다(참고 프로젝트 방식, 4-2 결정). 다른 방법과 비교한 이유는 1절 "현장 실행 스크립트".
 
 ### 카메라 상태와 자동 회복 (구현됨)
 

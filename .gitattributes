@@ -30,3 +30,6 @@ lib/mediapipe/** -text
 *.webm binary
 *.mp3 binary
 *.wav binary
+
+# Site settings file: CRLF for Notepad
+*.ini text eol=crlf
