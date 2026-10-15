@@ -47,6 +47,7 @@ export function createPresenceMonitor({
   let settings = initialSettings; // 판정 설정. setSettings()로 바꾸면 다음 감지부터 반영된다
   let started = false;
   let timer = null;
+  let ticking = false; // tick() 실행 중. 인식 알림을 받은 쪽(촬영 진행·D 화면)이 이 안에서 상태를 읽어도 running으로 보이게
   let cameraWasReady = false;
   let cameraEverReady = false; // 처음 준비되는 것은 재연결이 아니다
   let pageWasVisible = true;
@@ -70,7 +71,7 @@ export function createPresenceMonitor({
   function status() {
     if (keeper.isCreating()) return DetectorStatus.LOADING;
     if (keeper.get() === null) return keeper.getError() ? DetectorStatus.ERROR : DetectorStatus.LOADING;
-    return timer !== null ? DetectorStatus.RUNNING : DetectorStatus.PAUSED;
+    return timer !== null || ticking ? DetectorStatus.RUNNING : DetectorStatus.PAUSED;
   }
 
   function notify() {
@@ -97,7 +98,7 @@ export function createPresenceMonitor({
     if (recovered && keeper.get() === null && !keeper.isCreating()) keeper.ensure();
 
     if (canRun()) {
-      if (timer === null) timer = setTimeout(tick, 0);
+      if (timer === null && !ticking) timer = setTimeout(tick, 0); // tick 중이면 tick이 다음 감지를 예약한다
     } else {
       pause();
     }
@@ -119,6 +120,15 @@ export function createPresenceMonitor({
       pause();
       return;
     }
+    ticking = true;
+    try {
+      tickOnce();
+    } finally {
+      ticking = false;
+    }
+  }
+
+  function tickOnce() {
     const tickStart = performance.now();
     try {
       detectOnce();
