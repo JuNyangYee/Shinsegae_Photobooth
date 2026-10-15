@@ -109,7 +109,7 @@ function renderStatus() {
     showStatus('');
     return;
   }
-  const waitedMs = Date.now() - state.notReadySince;
+  const waitedMs = performance.now() - state.notReadySince;
   const staffAfterMs = config.cameraRecovery.staffNoticeMs;
   if (staffNowStatuses.has(state.status) || waitedMs >= staffAfterMs) {
     showStatus(messages.staff);
@@ -183,7 +183,7 @@ function renderDevInfo() {
   const dpr = window.devicePixelRatio;
   const settings = video.srcObject?.getVideoTracks()[0]?.getSettings() ?? {};
   const ready = state.status === CameraStatus.READY;
-  const notReadyFor = state.notReadySince ? `${((Date.now() - state.notReadySince) / 1000).toFixed(0)}s` : '-';
+  const notReadyFor = state.notReadySince !== null ? `${((performance.now() - state.notReadySince) / 1000).toFixed(0)}s` : '-';
   const lines = [
     `status     : ${state.status}${state.connecting ? ' (connecting)' : ''}`,
     `reason     : ${state.reason || '-'}${state.errorName ? ` / ${state.errorName}` : ''}`,

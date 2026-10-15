@@ -48,8 +48,8 @@ export function createCameraMonitor({ video, preferredLabel, idealResolution, re
     preferredFound: false,
     attempts: 0, // 연결 시도 누적 횟수
     failures: 0, // 마지막 정상 이후 연속 실패 횟수
-    lastAttemptAt: null, // Date.now() 값
-    notReadySince: Date.now(), // 정상이 아니게 된 시각. 정상이면 null
+    lastAttemptAt: null, // Date.now() 값 (사람이 읽는 시각, D 화면 표시용)
+    notReadySince: performance.now(), // 정상이 아니게 된 시각 (performance.now(), 경과 시간 계산용). 정상이면 null
     connecting: false,
     permission: 'unknown', // Permissions API camera 상태
   });
@@ -74,7 +74,7 @@ export function createCameraMonitor({ video, preferredLabel, idealResolution, re
     if (next.status === CameraStatus.READY) {
       next.notReadySince = null;
     } else if (state.status === CameraStatus.READY || next.notReadySince === null) {
-      next.notReadySince = Date.now();
+      next.notReadySince = performance.now();
     }
     state = Object.freeze(next);
     listeners.forEach((listener) => listener(state));

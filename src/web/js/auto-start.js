@@ -37,6 +37,7 @@ export function decideAutoRequest({ state, source, cameraReady, pageVisible, fai
  *   isTuningOpen: () => boolean, now?: () => number }} options
  * 카메라 준비·페이지 보임은 session 스냅숏 값을 쓴다 (session이 먼저 받아 두므로 두 쪽이 어긋나지 않는다).
  * 조절 화면을 닫을 때는 밖에서 evaluate('tuning-closed')를 부른다.
+ * now는 D 화면에 보일 기록 시각(사람이 읽는 시각)에만 쓴다. 판정에는 시간을 쓰지 않는다.
  */
 export function createAutoStart({ session, presence, isTuningOpen, now = () => Date.now() }) {
   let lastStart = null; // { at, trigger }
