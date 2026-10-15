@@ -385,6 +385,18 @@ describe('createSession: 강제 초기화', () => {
     assert.deepEqual(camera.released, ['photo-1', 'photo-2']); // 이미 정리된 사진은 다시 정리하지 않는다
   });
 
+  it('회차 출처를 기록하고, 무시된 시작은 출처를 바꾸지 않는다', () => {
+    const { session, state } = setup();
+    assert.equal(state().source, '');
+    session.request('start', 'presence');
+    assert.equal(state().source, 'presence');
+    session.request('start', 'key'); // 무시
+    assert.equal(state().source, 'presence');
+    session.request('reset', 'key');
+    session.request('start', 'key');
+    assert.equal(state().source, 'key');
+  });
+
   it('대기 중 초기화도 안전하다', () => {
     const { session, state } = setup();
     assert.equal(session.request('reset', 'key').accepted, true);

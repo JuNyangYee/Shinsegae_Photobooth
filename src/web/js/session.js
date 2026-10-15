@@ -28,6 +28,7 @@ export function createSession({
 
   let state = SessionState.IDLE;
   let round = 0; // 회차 식별자. 시작·강제 초기화마다 올린다. 늦게 끝난 사진 만들기 결과를 거른다
+  let source = ''; // 지금(또는 마지막) 회차를 시작한 쪽: 'key'(수동), 'presence'(인식) 등
   let timer = null; // 지금 상태의 타이머 하나만 둔다
   let countdownStartedAt = 0;
   let countdown = 0; // 화면에 보일 남은 숫자
@@ -47,7 +48,7 @@ export function createSession({
 
   function makeSnapshot() {
     return Object.freeze({
-      state, round, countdown, endsAt, photo, cameraReady, pageVisible,
+      state, round, source, countdown, endsAt, photo, cameraReady, pageVisible,
       lastEnd, lastIgnored, lastError, staleResults, completed,
     });
   }
@@ -100,23 +101,24 @@ export function createSession({
 
   // ---- 카운트다운 ----
 
-  function start(source) {
+  function start(requestedBy) {
     if (state !== SessionState.IDLE) return ignore('start', state);
     if (!cameraReady) return ignore('start', 'camera-not-ready');
     if (!pageVisible) return ignore('start', 'page-hidden');
     round += 1;
+    source = requestedBy;
     lastError = '';
     lastEnd = '';
     if (timing.countdownSeconds <= 0) {
       capture();
-      return { accepted: true, reason: source };
+      return { accepted: true, reason: requestedBy };
     }
     state = SessionState.COUNTDOWN;
     countdownStartedAt = now();
     countdown = timing.countdownSeconds;
     scheduleCountdownStep();
     notify();
-    return { accepted: true, reason: source };
+    return { accepted: true, reason: requestedBy };
   }
 
   // 숫자는 시작 시각 기준 1초마다 바꾼다 (타이머가 늦어도 누적되지 않게).
@@ -214,23 +216,23 @@ export function createSession({
 
   // 운영자 강제 초기화: 어느 상태에서든 사진과 타이머를 정리하고 바로 대기로 간다 (쿨타임 없음).
   // 회차를 올려 진행 중인 사진 만들기 결과는 도착해도 버린다.
-  function reset(source) {
+  function reset(requestedBy) {
     round += 1;
-    goIdle(`reset: ${source}`);
-    return { accepted: true, reason: source };
+    goIdle(`reset: ${requestedBy}`);
+    return { accepted: true, reason: requestedBy };
   }
 
   return {
     /**
-     * 시작·취소·강제 초기화 요청의 유일한 입구. 키보드와 (3-2의) 인식 결과가 모두 이것을 쓴다.
+     * 시작·취소·강제 초기화 요청의 유일한 입구. 키보드와 인식 결과(auto-start.js)가 모두 이것을 쓴다.
      * @param {'start' | 'cancel' | 'reset'} type
-     * @param {string} [source] 요청한 쪽 (예: 'key', 'presence'). 개발용 기록에만 쓴다
+     * @param {string} [requestedBy] 요청한 쪽 (예: 'key', 'presence'). 시작이면 회차의 출처(getState().source)로 남는다
      * @returns {{ accepted: boolean, reason: string }}
      */
-    request(type, source = 'unknown') {
-      if (type === 'start') return start(source);
-      if (type === 'cancel') return cancel(source);
-      if (type === 'reset') return reset(source);
+    request(type, requestedBy = 'unknown') {
+      if (type === 'start') return start(requestedBy);
+      if (type === 'cancel') return cancel(requestedBy);
+      if (type === 'reset') return reset(requestedBy);
       throw new Error(`unknown session request: ${type}`);
     },
     /** 카메라 준비 여부. 카운트다운 중 준비가 풀리면 취소한다. 결과·쿨타임은 계속한다. */
