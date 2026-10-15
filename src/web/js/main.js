@@ -6,7 +6,7 @@ const video = document.getElementById('preview');
 const statusText = document.getElementById('status');
 const devInfo = document.getElementById('dev-info');
 
-// 관람객용 문구 (기본 UI 수준, 가안). 상태 상세는 D 키 개발용 정보에만 보인다.
+// 관람객용 문구 (사용자 확정 2026-10-15). 상태 상세는 D 키 개발용 정보에만 보인다.
 const messages = Object.freeze({
   preparing: '준비 중입니다.\n잠시만 기다려 주세요.',
   staff: '준비 중입니다.\n직원에게 문의해 주세요.',

@@ -14,7 +14,7 @@ export const config = Object.freeze({
   // 현장 최대(4K 세로)로 두어 OBS 출력(FHD~4K 세로)을 그대로 받고, 낮은 기본값으로 떨어지는 것을 막는다.
   idealResolution: Object.freeze({ width: 2160, height: 3840 }),
 
-  // 카메라 준비·끊김·회복 시간 (가안, 단위 ms)
+  // 카메라 준비·끊김·회복 시간 (단위 ms, 사용자 확정 2026-10-15)
   cameraRecovery: Object.freeze({
     retryIntervalMs: 3000, // 실패·끊김 뒤 다시 시도하는 간격
     firstFrameTimeoutMs: 5000, // 스트림을 얻은 뒤 첫 프레임을 기다리는 시간
