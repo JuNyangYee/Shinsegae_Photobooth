@@ -1,0 +1,75 @@
+/* 화면 비율은 main.js가 config.js 값으로 덮어쓴다. */
+:root {
+  --stage-ratio-w: 9;
+  --stage-ratio-h: 16;
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+}
+
+body {
+  display: grid;
+  place-items: center;
+}
+
+/* 뷰포트 비율과 무관하게 9:16 영역을 가운데에 최대 크기로 둔다. 나머지는 검정. */
+.stage {
+  position: relative;
+  width: min(100vw, 100vh * var(--stage-ratio-w) / var(--stage-ratio-h));
+  aspect-ratio: var(--stage-ratio-w) / var(--stage-ratio-h);
+  overflow: hidden;
+  background: #000;
+  container-type: inline-size;
+}
+
+.preview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* 좌우 반전은 이 한 곳에서만 한다. */
+.preview.is-mirrored {
+  transform: scaleX(-1);
+}
+
+.status {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 0 8%;
+  color: #fff;
+  font: 500 clamp(16px, 4cqw, 48px) / 1.5 system-ui, sans-serif;
+  text-align: center;
+  word-break: keep-all;
+}
+
+.status[hidden],
+.dev-info[hidden] {
+  display: none;
+}
+
+/* 개발용 정보 (D 키). 관람객 화면에는 기본으로 숨긴다. */
+.dev-info {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 10;
+  margin: 0;
+  padding: 8px 12px;
+  color: #0f0;
+  background: rgba(0, 0, 0, 0.75);
+  font: 14px / 1.5 Consolas, monospace;
+  white-space: pre;
+  pointer-events: none;
+}
