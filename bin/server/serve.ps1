@@ -84,6 +84,20 @@ function Resolve-RequestFile([string]$rawUrl) {
     return @{ Status = 200; File = $file }
 }
 
+# The "localhost" prefix only matches the Host header; http.sys still accepts
+# connections on every local address. Serve only clients on this machine.
+function Test-LoopbackRequest($request) {
+    $endPoint = $request.RemoteEndPoint
+    if ($null -eq $endPoint) {
+        return $false
+    }
+    $address = $endPoint.Address
+    if ($address.IsIPv4MappedToIPv6) {
+        $address = $address.MapToIPv4()
+    }
+    return [Net.IPAddress]::IsLoopback($address)
+}
+
 function Send-Response($context) {
     $request = $context.Request
     $response = $context.Response
@@ -91,7 +105,10 @@ function Send-Response($context) {
     $contentType = 'text/plain; charset=utf-8'
     $body = [byte[]]@()
 
-    if ($request.HttpMethod -ne 'GET' -and $request.HttpMethod -ne 'HEAD') {
+    if (-not (Test-LoopbackRequest $request)) {
+        $status = 403
+    }
+    elseif ($request.HttpMethod -ne 'GET' -and $request.HttpMethod -ne 'HEAD') {
         $status = 405
         $response.Headers['Allow'] = 'GET, HEAD'
     }

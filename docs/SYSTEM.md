@@ -60,7 +60,8 @@ lib/mediapipe/              (3단계에서 추가)
 ### 정적 서버 (구현됨)
 
 - 실행: `powershell -NoProfile -ExecutionPolicy Bypass -File bin\server\serve.ps1 [-Port 8765]`. 기본 포트 8765.
-- Windows PowerShell 5.1 `Net.HttpListener`로 `http://localhost:<Port>/`에만 바인딩한다. `+`·`*` 바인딩은 하지 않는다(관리자 권한·외부 노출 방지). 이 때문에 `127.0.0.1`로 접속하면 http.sys가 400을 돌려준다.
+- Windows PowerShell 5.1 `Net.HttpListener`에 `http://localhost:<Port>/` 접두사만 등록한다. `+`·`*` 접두사는 쓰지 않는다(관리자 권한 불필요). 이 접두사는 `Host` 헤더 기준 라우팅일 뿐이어서 `127.0.0.1`로 접속하면 http.sys가 400을 돌려주지만, 이 PC의 다른 IP로 `Host: localhost`를 보내는 요청은 받아들인다.
+- 그래서 파일을 제공하기 전에 요청한 쪽 주소(`RemoteEndPoint.Address`)가 루프백(IPv4 `127.0.0.0/8`, IPv6 `::1`, IPv4-mapped 포함)인지 확인하고, 아니면 403으로 거절한다. 같은 PC의 브라우저만 쓸 수 있다.
 - 경로 매핑: `/` → `src/web/index.html`, `/lib/*` → 저장소 `lib/`(폴더가 없으면 404), 나머지 → `src/web/`.
 - 경로 탈출 차단: URL 디코딩 후 역슬래시·`:`·제어 문자·와일드카드 문자, `.`으로 시작하거나 `.`·공백으로 끝나는 경로 조각(`..`, 숨김 파일 포함)을 400으로 거절한다. 마지막으로 실제 경로가 루트 안에 있는지 다시 확인한다(벗어나면 403). 루트를 벗어나는 일부 URL은 http.sys가 스크립트보다 먼저 403으로 막는다.
 - MIME: html, js, mjs, css, json, svg, png, jpg/jpeg, webp, woff2, wasm, tflite, task. 그 외는 `application/octet-stream`.
