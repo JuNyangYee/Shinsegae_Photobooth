@@ -301,3 +301,33 @@ describe('createPresenceMonitor: 감지기 상태 알림 (4-1)', () => {
     assert.equal(t.seen.at(-1), 'ok');
   });
 });
+
+describe('createPresenceMonitor: 소프트웨어 WebGL 경고 (4-1 결정)', () => {
+  it('소프트웨어 렌더러 감지기는 정상(ok)으로 두고 경고를 감지기마다 한 번 로그 제한기로 보낸다', async () => {
+    const clock = fakeClock(0);
+    const warns = [];
+    const monitor = createPresenceMonitor({
+      video: { videoWidth: 1080, videoHeight: 1920 },
+      camera: { isReady: () => true, subscribe(listener) { listener({}); return () => {}; } },
+      detection: { maxFps: 15, inputMaxSize: 640, detectorRetryMs: 15000 },
+      presence: defaults,
+      stageAspect: 9 / 16,
+      mirror: true,
+      createDetector: async () => ({
+        delegate: 'GPU', failures: [], webgl: { version: 2, renderer: 'Microsoft Basic Render Driver', software: true },
+        detect: () => [], close() {},
+      }),
+      timers: clock.timers,
+      now: clock.now,
+      doc: { hidden: false, createElement: () => ({ width: 0, height: 0, getContext: () => ({ drawImage() {} }) }), addEventListener() {} },
+      log: { warn: (category, signature) => warns.push([category, signature]), clear() {} },
+    });
+    monitor.start();
+    await flush();
+    clock.advance(500);
+    assert.equal(monitor.getDetectorHealth().health, 'ok');
+    assert.equal(warns.length, 1);
+    assert.equal(warns[0][0], 'webgl');
+    assert.match(warns[0][1], /software WebGL renderer: Microsoft Basic Render Driver/);
+  });
+});

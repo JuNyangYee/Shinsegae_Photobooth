@@ -94,6 +94,7 @@ export function createPresenceMonitor({
     onChange: () => {
       sync();
       notifyHealth();
+      warnSoftwareWebGL();
     },
     timers,
     now: nowMs,
@@ -109,6 +110,16 @@ export function createPresenceMonitor({
   function makeHealth() {
     const { health, cause, unavailableSince } = keeper.getStatus();
     return Object.freeze({ health, cause, since: unavailableSince });
+  }
+
+  // 소프트웨어 WebGL(하드웨어 가속 꺼짐 등)은 감지가 되므로 장애로 보지 않는다. D 화면 표시와 콘솔 경고만 둔다(사용자 결정 2026-10-15).
+  // 다시 만들 때마다 같은 경고가 나오면 로그 제한이 요약으로 묶는다.
+  let warnedDetector = null;
+  function warnSoftwareWebGL() {
+    const detector = keeper.get();
+    if (detector === null || detector === warnedDetector || !detector.webgl?.software) return;
+    warnedDetector = detector;
+    log.warn('webgl', `software WebGL renderer: ${detector.webgl.renderer} (hardware acceleration may be off; detection still runs)`);
   }
 
   function notifyHealth() {
