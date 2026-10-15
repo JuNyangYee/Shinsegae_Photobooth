@@ -29,6 +29,44 @@ powershell -NoProfile -ExecutionPolicy Bypass -File bin\server\serve.ps1
 - 외부로 나가는 요청은 `index.html`의 CSP로 막는다. 콘솔에 MediaPipe 사용 통계 전송(`odml.pa.googleapis.com`)이 차단됐다는 오류가 한 번 찍히는 것은 정상이다.
 - 종료: 서버 창에서 Ctrl+C
 
+## 현장 실행
+
+| 파일 | 하는 일 |
+|---|---|
+| `Launch.bat` | OBS(가상카메라, 꺼져 있을 때만) → 로컬 서버(창 없이) → Chrome 키오스크 순서로 띄운다. 다시 실행하면 이 프로젝트의 서버와 키오스크 Chrome을 닫고 새로 띄운다 |
+| `Shutdown.bat` | 키오스크 Chrome(전용 프로필)과 로컬 서버만 종료한다. 일반 Chrome은 종료하지 않는다. OBS는 `obs_stop_on_shutdown=true`일 때만 종료한다 |
+| `Setup-Startup.bat` | 현재 사용자의 시작 프로그램 폴더에 `Launch.bat` 바로가기를 만든다. `Setup-Startup.bat -Remove`로 제거한다. 관리자 권한은 필요 없다 |
+
+- 실패하면 콘솔 창이 멈춰 있고, 원인은 `logs\launch_*.log`(서버 출력은 `logs\server_*.log`, 종료는 `logs\shutdown_*.log`)에 남는다. 종류별로 최근 20회분만 남긴다.
+- 키오스크 화면은 `Shutdown.bat`으로 닫는다. 키보드(`Alt+F4`)로 닫히는지는 아직 키오스크 화면에서 확인하지 않았다.
+- `Launch.bat`은 콘솔에서 실행한다. 출력을 파이프로 받으면 서버가 끝날 때까지 기다린다.
+
+### 첫 설치 (현장 PC)
+
+1. Google Chrome과 OBS Studio를 설치한다. 확인한 버전은 Chrome 155, OBS 32.2.1이다.
+2. OBS에서 웹캠 소스, 9:16 크롭·회전·보정, 출력 해상도(화면 해상도에 맞춤)를 설정하고 가상카메라를 한 번 켜 본다. 반전은 OBS에서 하지 않는다(웹에서 한다). 트레이로 시작하려면 OBS 설정의 "시스템 트레이 사용"을 켜 둔다.
+3. 저장소를 받은 뒤 `Launch.bat`을 한 번 실행한다. `settings.ini`가 없으면 `settings.example.ini`에서 만들어진다. 다른 값이 필요하면 `settings.ini`를 고치고 다시 실행한다.
+4. **카메라 권한:** 키오스크 화면에 카메라 권한을 묻는 창이 뜨면 마우스로 "허용"을 누른다. 전용 프로필에 저장되어 다음부터는 묻지 않는다. 포트(`server_port`)나 프로필 폴더를 바꾸면 다시 한 번 허용해야 한다.
+5. 부팅 시 자동 실행이 필요하면 `Setup-Startup.bat`을 실행한다. 바로가기는 Windows에 로그인할 때 실행되므로, 무인 운영이면 자동 로그인을 따로 설정한다.
+
+### `settings.ini` 키
+
+값을 비우면 자동·기본값을 쓴다. 경로에는 `%LOCALAPPDATA%` 같은 환경 변수를 쓸 수 있다. 실행할 때 빠진 키만 예시에서 덧붙이고, 있는 값은 바꾸지 않는다.
+
+| 키 | 기본값 | 뜻 |
+|---|---|---|
+| `server_port` | `8765` | 로컬 서버 포트. 카메라 권한은 포트별로 저장된다 |
+| `chrome_path` | (자동 탐색) | `chrome.exe` 경로 |
+| `chrome_profile_dir` | `%LOCALAPPDATA%\ShinsegaePhotobooth\ChromeProfile` | 키오스크 전용 Chrome 프로필. 저장소 밖이어야 한다 |
+| `kiosk` | `true` | `true`면 전체화면 키오스크, `false`면 일반 앱 창(시험용) |
+| `window_position` | (없음) | 띄울 모니터의 좌표 `x,y`. 예: 오른쪽 두 번째 모니터면 `1920,0` |
+| `window_size` | (없음) | 창 크기 `너비,높이`. `kiosk=false`일 때만 쓴다 |
+| `obs_path` | (자동 탐색) | `obs64.exe` 경로 |
+| `obs_autostart` | `true` | OBS가 꺼져 있으면 가상카메라를 켜고 트레이로 시작 |
+| `obs_stop_on_shutdown` | `false` | `Shutdown.bat`이 OBS도 종료할지 |
+
+자세한 동작과 Chrome 플래그의 이유는 [docs/SYSTEM.md](docs/SYSTEM.md) 1절 "현장 실행 스크립트"를 따른다.
+
 ## 운영자 단축키 (관람객용 아님)
 
 | 키 | 동작 |
