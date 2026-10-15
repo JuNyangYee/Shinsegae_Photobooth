@@ -2,9 +2,10 @@
 //
 //   npm run check:browser                              시나리오 확인 (가짜 카메라)
 //   npm run check:browser -- --camera real             실제 카메라(OBS 가상카메라 등)로
-//   npm run check:browser -- --soak 60 --camera real   장시간 실측 60분 (S 수동 사이클 반복, 1분마다 기록)
+//   npm run check:browser -- --soak --camera real      장시간 실측 기본 10분 (S 수동 사이클 반복, 1분마다 기록)
+//   npm run check:browser -- --soak 60 --camera real   더 길게: 분을 준다
 //
-// 옵션: --camera fake|real, --soak <분>, --interval <초> (soak의 S 간격, 기본 20), --csv <경로> (soak 원자료, 기본 logs/soak_*.csv),
+// 옵션: --camera fake|real, --soak [분] (기본 10), --interval <초> (soak의 S 간격, 기본 20), --csv <경로> (soak 원자료, 기본 logs/soak_*.csv),
 //       --chrome <chrome.exe 경로>, --keep-profile (실패 조사용으로 임시 프로필을 지우지 않음)
 //
 // 하는 일: bin/server/serve.ps1을 남는 포트로 띄우고, %TEMP% 임시 프로필의 headless Chrome을 띄워 앱을 연다.
@@ -38,7 +39,11 @@ function parseArgs(argv) {
       return argv[i];
     };
     if (arg === '--camera') options.camera = value();
-    else if (arg === '--soak') options.soak = Number(value());
+    else if (arg === '--soak') {
+      // 분을 생략하면 기본 10분
+      const next = argv[i + 1];
+      options.soak = next !== undefined && !next.startsWith('--') ? Number(value()) : DEFAULT_SOAK_MINUTES;
+    }
     else if (arg === '--interval') options.interval = Number(value());
     else if (arg === '--csv') options.csv = value();
     else if (arg === '--chrome') options.chrome = value();
@@ -46,10 +51,11 @@ function parseArgs(argv) {
     else throw new Error(`unknown option: ${arg}`);
   }
   if (!['fake', 'real'].includes(options.camera)) throw new Error('--camera must be fake or real');
-  if (!(options.soak >= 0) || !(options.interval >= 5)) throw new Error('--soak must be >= 0, --interval >= 5');
+  if (!(options.soak >= 0) || !(options.interval >= 5)) throw new Error('--soak must be a number of minutes, --interval >= 5');
   return options;
 }
 
+const DEFAULT_SOAK_MINUTES = 10;
 const options = parseArgs(process.argv.slice(2));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const t0 = Date.now();

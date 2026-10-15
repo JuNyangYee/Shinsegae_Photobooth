@@ -1,10 +1,10 @@
 # SYSTEM — 기술 구조와 제약
 
-> 실제로 만든 부분은 "구현됨"으로, 아직 만들지 않은 계획은 "가안"으로 표시한다. 구현 범위는 1단계(정적 서버, 9:16 반전 미리보기, 카메라 상태·자동 회복), 2-1(MediaPipe 로컬 라이브러리 배치), 2-2(얼굴 감지와 인식 상태), 2-3(운영자용 인식 범위 조절), 3-1(촬영 상태 기계와 키보드 수동 시작 한 사이클), 3-2(인식 결과로 자동 시작·이탈 취소), 3-3(3단계 검수 반영), 4-1(감지기 안정성·장애 안내), 4-2(현장 실행 스크립트), 4-3(조절값 파일 저장·자동 촬영 일시정지)까지다. 사진 효과·인쇄는 아직 없다.
+> 실제로 만든 부분은 "구현됨"으로, 아직 만들지 않은 계획은 "가안"으로 표시한다. 구현 범위는 1단계(정적 서버, 9:16 반전 미리보기, 카메라 상태·자동 회복), 2-1(MediaPipe 로컬 라이브러리 배치), 2-2(얼굴 감지와 인식 상태), 2-3(운영자용 인식 범위 조절), 3-1(촬영 상태 기계와 키보드 수동 시작 한 사이클), 3-2(인식 결과로 자동 시작·이탈 취소), 3-3(3단계 검수 반영), 4-1(감지기 안정성·장애 안내), 4-2(현장 실행 스크립트), 4-3(조절값 파일 저장·자동 촬영 일시정지), 4-4(브라우저 확인 도구·장시간 실측)까지다. 사진 효과·인쇄는 아직 없다.
 
 **목차**
 
-1. 전체 구성 — 구성도, 참고 구조, 폴더, 정적 서버, 조절값 파일 API, CSP, 스크립트 인코딩, 현장 실행 스크립트
+1. 전체 구성 — 구성도, 참고 구조, 폴더, 정적 서버, 조절값 파일 API, CSP, 스크립트 인코딩, 현장 실행 스크립트, 브라우저 확인 도구
 2. 코드 책임 구분 — 반복 오류 로그 제한
 3. 카메라와 영상 — OBS, 화면 배치, 좌우 반전, 권한, 카메라 상태와 자동 회복
 4. 촬영 상태 — 촬영 한 사이클, 실패와 취소 경계, 운영자 단축키, 자동 시작과 이탈 취소, 출력 연동 참고
@@ -101,6 +101,7 @@ lib/mediapipe/              MediaPipe 런타임·모델 (구현됨, 커밋 대�
   tasks-vision/LICENSE      Apache-2.0
   models/blaze_face_short_range.tflite
 tools/vendor-mediapipe.mjs  node_modules → lib/mediapipe 복사, 모델·LICENSE 다운로드·SHA-256 검증 (개발 PC 전용)
+tools/browser-check.mjs     브라우저 확인 도구·장시간 실측 (개발 PC 전용, `npm run check:browser`, 4-4)
 package.json                private, type module, @mediapipe/tasks-vision 정확 버전 고정, test·vendor:mediapipe 스크립트 (개발 PC 전용)
 package-lock.json
 .npmrc                      save-exact=true
@@ -265,6 +266,51 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 - 현재 사용자의 시작 프로그램 폴더(`shell:startup`)에 `Shinsegae Photobooth.lnk`(대상 `Launch.bat`, 작업 폴더 저장소 루트, 보통 창)를 만든다. `-Remove`로 지운다. 관리자 권한·작업 스케줄러는 쓰지 않는다.
 - 이름이 같아도 설명·대상이 다른 바로가기는 바꾸거나 지우지 않고 실패한다.
 - 로그인할 때 실행되므로 무인 부팅에는 Windows 자동 로그인이 따로 필요하다.
+
+### 브라우저 확인 도구 (구현됨, 4-4)
+
+`tools/browser-check.mjs` (`npm run check:browser`). 개발 PC에서 실제 앱을 headless Chrome으로 띄워 정해진 시나리오를 확인한다. 4-3까지 검증 때마다 저장소 밖에 만들던 임시 하네스를 저장소로 옮긴 것이다. 현장 PC에는 필요 없다(Node가 필요하다).
+
+**구조**
+
+- 의존성 없음. Node 22 이상 내장 `WebSocket`으로 Chrome DevTools Protocol(CDP)에 직접 붙는다. Windows 전용(`serve.ps1`).
+- **서버:** `bin/server/serve.ps1`을 남는 포트(운영체제가 고른 빈 포트)로 띄운다. 현장 서버(8765)와 겹치지 않는다.
+- **Chrome:**
+  - `%TEMP%\photobooth-check-*` 임시 프로필, `--headless=new`, `--remote-debugging-port=0`으로 띄운다. 실제 포트는 프로필의 `DevToolsActivePort` 파일에서 읽는다.
+  - `--user-data-dir`를 늘 주므로 사용자의 Chrome에 붙지 않는다.
+  - 카메라는 기본이 Chrome 가짜 장치(`--use-fake-device-for-media-stream`)이고, `--camera real`이면 실제 장치(OBS 가상카메라 우선)를 쓴다.
+  - 카메라 권한은 CDP `Browser.setPermission`으로 준다. `--use-fake-ui-for-media-stream`은 CDP로 거절한 권한까지 자동 수락해서 거절 시나리오를 만들 수 없어 쓰지 않는다(확인함).
+- **앱 상태 읽기:** 운영자 D 화면(개발용 정보) 글자를 줄 머리말(`status`, `detector`, `session`, `resources` 등)로 읽고, 관람객 안내는 `#status` 요소로 읽는다. **앱 코드에 확인 전용 훅을 넣지 않았다.** D 화면 줄 형식을 바꾸면 이 도구도 함께 고친다.
+- **조작:** 키는 CDP `Input.dispatchKeyEvent`(`D`, `S`), 모델 차단은 CDP `Fetch`(404 응답), 권한은 `Browser.setPermission`
+- **기록:** 외부 요청(`Network.requestWillBeSent`), CSP 위반(`Log.entryAdded`), 페이지 예외(`Runtime.exceptionThrown`), 콘솔 메시지 수
+  - MediaPipe 사용 통계 전송(`odml.pa.googleapis.com`)의 CSP 차단은 의도된 동작이라 따로 세고 실패로 보지 않는다.
+- **결과:** 통과/실패 표를 출력하고, 하나라도 실패하면 종료 코드 1이다.
+- **정리:** 성공·실패·Ctrl+C 모두 자신이 띄운 Chrome(프로세스 트리)·서버·임시 프로필만 정리한다. 사용자 Chrome·OBS·현장 서버는 건드리지 않는다. `--keep-profile`이면 조사용으로 프로필을 남긴다.
+- 사진·프레임을 저장하지 않는다.
+
+**시나리오 (한 번에 약 40초)**
+
+| 시나리오 | 확인 |
+|---|---|
+| 페이지 로드 | 카메라 `ready`, 감지기 `running, health ok`와 delegate 표시, 조절값 불러오기 끝남, 안내 없음 |
+| `S` 수동 한 사이클 | 카운트다운 → 결과 → 쿨타임 → 대기, `completed` +1, 사진 자원(Object URL·캔버스·대기 작업) 0 |
+| 조절값 API | 페이지 안 `fetch`로 `GET` → `PUT` → `GET` 같은 내용, `X-Photobooth` 없는 `PUT` 403. **실행 전 `config/presence.local.json`을 읽어 두었다가 같은 바이트로 되돌린다**(없던 파일은 지운다). 그사이 몇 초 동안은 시험 값이 들어 있으므로, 현장 서버가 같은 저장소에서 도는 PC에서는 돌리지 않는다 |
+| 권한 거절 → 허용 | 거절 상태로 열면 카메라 `permission-denied`와 "직원에게 문의해 주세요", 허용하면 권한 `change` 이벤트로 바로 다시 연결해 `ready`(개발 PC 약 0.3초), 안내 사라짐 |
+| 모델 차단 | 모델 요청 404 → 감지기 `retrying / model-unavailable`, "준비 중입니다", 인식 표시 숨김, 그 상태에서 `S` 한 사이클과 자원 0 |
+| 전체 기록 | 외부 요청 0, CSP 위반 0(통계 차단 제외), 페이지 예외 0 |
+
+- **범위 밖:** 가짜 카메라 영상에는 얼굴이 없으므로 **자동 시작·이탈 취소·인식 중 `P`는 확인하지 않는다.** 이것들은 Node 통합 테스트(`tests/auto-start.test.mjs`, `tests/presence-monitor.test.mjs`)와 사람의 실측으로 확인한다. 키오스크 화면, OBS 시작·중지, 절전 복귀, 4K도 범위 밖이다.
+
+**장시간 실측 (`--soak [분]`, 기본 10분)**
+
+- 앱을 한 번 열고, `--interval`(기본 20초)마다 대기 상태면 `S`를 누른다. 자동 회차·쿨타임 중이면 건너뛰고 센다.
+- 분을 생략하면 10분이다. 더 길게 돌릴 때만 `--soak 60`처럼 분을 준다.
+- 1분마다 다음을 기록해 CSV에 한 줄씩 쓴다. 기본 경로는 `logs/soak_*.csv`이고 Git에서 제외된다.
+  - CDP `Performance.getMetrics`: JS 힙, DOM 노드, 이벤트 리스너, 문서 수
+  - D 화면: 사진 자원, 완료 회차, 감지 빈도, 카메라·감지기·상태 기계 상태
+  - 이 도구 프로필의 `chrome.exe` 전체 메모리: `Win32_Process`의 `PrivatePageCount`·`WorkingSetSize` 합. 작업 관리자 값의 근사치
+  - 콘솔 메시지 누적 수, 페이지 예외 수
+- 끝나면 항목별 시작·중간·끝·최소·최대와 시간당 기울기(최소제곱)를 출력한다. 처음 5분을 뺀 기울기도 함께 낸다.
 
 ## 2. 코드 책임 구분
 
@@ -735,6 +781,7 @@ camera-monitor (ready·페이지 표시) ──▶ presence-monitor 감지 루�
 - MediaPipe 웹 감지 호출은 메인 스레드를 막을 수 있다. 미리보기·카운트다운이 끊기는지 측정한다.
 - 4K 영상을 그대로 감지에 넣지 않는다. 감지 빈도와 분석 해상도를 낮춰 쓰고, 그래도 부족할 때 Worker 분리를 검토한다.
 - 측정 (2-2, 개발 PC RTX 5090, headless Chrome 155): OBS 1080×1920 60fps에서 GPU delegate 감지 약 3ms, 그리기 약 3ms, 15fps. 미리보기 60fps, rAF 60을 유지했고 실행 중 50ms 넘는 긴 작업은 없었다. 시작할 때 감지기 생성(wasm 컴파일·그래프 초기화)으로 0.7~1.0초짜리 긴 작업이 한 번 생긴다. 현장 PC에서 다시 잰다.
+- 장시간 실측 (4-4, **10분**, 개발 PC, 실제 OBS 1080×1920, 20초마다 `S`): 완료 30회, 사진 `taken = released`, 카메라·감지기 정상 유지, 15fps, 예외 0. 리스너·문서 수는 평평했고, JS 힙 4.0~5.5MB, Chrome 커밋 메모리 합 663→684MB(1분 이후)였다. 10분은 누수 판단에 짧다(로그 13). 더 길게는 `npm run check:browser -- --soak 60 --camera real`.
 
 ### MediaPipe 로컬 라이브러리 (구현됨, 2-1)
 
