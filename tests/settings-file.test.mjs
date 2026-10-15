@@ -170,6 +170,29 @@ describe('createSettingsFileClient: 서버 API 요청', () => {
     assert.equal(settled, 'timeout 3000ms');
   });
 
+  it('헤더는 왔지만 본문이 멈추면 본문까지 포함해 timeoutMs에서 끝난다 (4단계 검수 3)', async () => {
+    for (const method of ['read', 'write']) {
+      // 본문 읽기가 취소 신호를 무시하는 경우까지: 신호와 관계없이 시간이 되면 끝나야 한다
+      const t = setup(async () => ({ status: method === 'read' ? 200 : 500, ok: method === 'read', text: () => new Promise(() => {}) }));
+      const pending = method === 'read' ? t.client.read() : t.client.write('{}');
+      let settled = null;
+      pending.then(() => { settled = 'ok'; }, (error) => { settled = error.message; });
+      t.clock.advance(2999);
+      await flush();
+      assert.equal(settled, null, method);
+      t.clock.advance(1);
+      await flush();
+      assert.equal(settled, 'timeout 3000ms', method);
+      assert.equal(t.calls[0].init.signal.aborted, true, `${method}: 요청과 본문 읽기를 취소한다`);
+    }
+  });
+
+  it('본문이 제때 오면 타이머를 지운다', async () => {
+    const t = setup(async () => response(200, '{"a":1}'));
+    assert.deepEqual(await t.client.read(), { found: true, text: '{"a":1}' });
+    assert.equal(t.clock.pending.size, 0);
+  });
+
   it('시간 초과는 불러오기에서 기본값으로 이어진다', async () => {
     const t = setup((init) => new Promise((resolve, reject) => {
       init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));

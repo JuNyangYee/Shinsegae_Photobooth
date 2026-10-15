@@ -25,19 +25,31 @@ export const SettingsSource = Object.freeze({
 export function createSettingsFileClient({
   url, timeoutMs, fetch = (...args) => globalThis.fetch(...args), timers = globalThis,
 }) {
+  // 제한 시간은 응답 헤더가 아니라 본문을 다 읽을 때까지다(4단계 검수: 헤더만 오고 본문이 멈추면 끝나지 않았다).
+  // 취소 신호는 fetch와 본문 읽기에 함께 걸리고, 본문 읽기가 신호를 무시해도 시간이 되면 기다림을 끝낸다.
   async function request(method, body) {
     const controller = new AbortController();
-    const timer = timers.setTimeout(() => controller.abort(), timeoutMs);
+    let timedOut = false;
+    let giveUp;
+    const stopped = new Promise((resolve, reject) => { giveUp = reject; });
+    stopped.catch(() => {}); // 시간이 되기 전에 끝나면 아무도 기다리지 않는다
+    const timer = timers.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+      giveUp(new Error('aborted'));
+    }, timeoutMs);
     try {
-      return await fetch(url, {
+      const response = await Promise.race([fetch(url, {
         method,
         cache: 'no-store',
         signal: controller.signal,
         headers: body === undefined ? {} : { 'Content-Type': 'application/json', 'X-Photobooth': '1' },
         body,
-      });
+      }), stopped]);
+      const text = await Promise.race([response.text(), stopped]);
+      return { status: response.status, ok: response.ok, text };
     } catch (error) {
-      if (controller.signal.aborted) throw new Error(`timeout ${timeoutMs}ms`);
+      if (timedOut) throw new Error(`timeout ${timeoutMs}ms`);
       throw new Error(error?.message ?? String(error));
     } finally {
       timers.clearTimeout(timer);
@@ -50,13 +62,13 @@ export function createSettingsFileClient({
       const response = await request('GET');
       if (response.status === 404) return { found: false };
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      return { found: true, text: await response.text() };
+      return { found: true, text: response.text };
     },
     /** 실패하면 예외 (HTTP 상태와 서버가 준 이유) */
     async write(text) {
       const response = await request('PUT', text);
       if (!response.ok) {
-        const reason = (await response.text().catch(() => '')).trim();
+        const reason = response.text.trim();
         throw new Error(`HTTP ${response.status}${reason ? ` (${reason})` : ''}`);
       }
     },
