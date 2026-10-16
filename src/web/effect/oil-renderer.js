@@ -5,6 +5,9 @@
 //
 // 패스: 색 보정 → 구조 텐서 → 가로·세로 흐림 → 흐름장 → 밑칠 → 붓 층 3개 → 보완 층 → 합성 → 출력 단계(그대로 통과) → 캔버스
 // 이미지·프레임을 밖으로 내보내거나 저장하지 않는다. 캔버스에 그리기만 한다.
+//
+// GPU 자원은 만드는 즉시 owned에 넣는다. 만들다 실패하면(텍스처·프레임버퍼·셰이더) 그때까지 만든 것을 지우고,
+// dispose()는 owned 전체를 지운다 (5단계 검수 2·3). 그림마다 GL 오류·컨텍스트 손실을 확인해 실패를 성공으로 넘기지 않는다 (검수 1).
 
 import { createStrokeBuilder, resolveOilDrawing } from '../core/oil-paint.js';
 import {
@@ -50,27 +53,49 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
   const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
   const rendererName = String(gl.getParameter(debugInfo ? debugInfo.UNMASKED_RENDERER_WEBGL : gl.RENDERER) ?? '');
 
-  const owned = { programs: [], textures: [], framebuffers: [], buffers: [], arrays: [] };
-  const strokes = createStrokeBuilder();
-  const vao = track(owned.arrays, gl.createVertexArray());
-  const strokeVAO = track(owned.arrays, gl.createVertexArray());
-  const strokeBuf = track(owned.buffers, gl.createBuffer());
-  gl.bindVertexArray(strokeVAO);
-  gl.bindBuffer(gl.ARRAY_BUFFER, strokeBuf);
-  gl.enableVertexAttribArray(0);
-  gl.vertexAttribPointer(0, 4, gl.FLOAT, false, 16, 0);
-  gl.vertexAttribDivisor(0, 1);
-  gl.bindVertexArray(null);
-
-  const PR = {
-    grade: compile(FS_GRADE), sst: compile(FS_SST), blur: compile(FS_BLUR), tfm: compile(FS_TFM),
-    stroke: compile(FS_STROKE, VS_STROKE), under: compile(FS_UNDER), compose: compile(FS_COMPOSE), output: compile(FS_OUTPUT),
+  // 만든 GPU 자원 (종류별 Set). 지울 때 여기서 빼고 지운다
+  const owned = { programs: new Set(), textures: new Set(), framebuffers: new Set(), buffers: new Set(), arrays: new Set() };
+  // 초기화 실패 경로(아래 catch)에서도 쓰므로 먼저 둔다
+  const deleters = {
+    programs: (o) => gl.deleteProgram(o),
+    textures: (o) => gl.deleteTexture(o),
+    framebuffers: (o) => gl.deleteFramebuffer(o),
+    buffers: (o) => gl.deleteBuffer(o),
+    arrays: (o) => gl.deleteVertexArray(o),
   };
 
-  // 소스 텍스처: 영상 프레임을 그림마다 올린다 (크기는 texImage2D가 정한다)
-  const srcTex = track(owned.textures, gl.createTexture());
-  gl.bindTexture(gl.TEXTURE_2D, srcTex);
-  setFilter(gl.LINEAR, gl.LINEAR);
+  const strokes = createStrokeBuilder();
+  let vao;
+  let strokeVAO;
+  let strokeBuf;
+  let PR;
+  let srcTex;
+  try {
+    vao = track(owned.arrays, gl.createVertexArray());
+    strokeVAO = track(owned.arrays, gl.createVertexArray());
+    strokeBuf = track(owned.buffers, gl.createBuffer());
+    gl.bindVertexArray(strokeVAO);
+    gl.bindBuffer(gl.ARRAY_BUFFER, strokeBuf);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 4, gl.FLOAT, false, 16, 0);
+    gl.vertexAttribDivisor(0, 1);
+    gl.bindVertexArray(null);
+
+    PR = {
+      grade: compile(FS_GRADE), sst: compile(FS_SST), blur: compile(FS_BLUR), tfm: compile(FS_TFM),
+      stroke: compile(FS_STROKE, VS_STROKE), under: compile(FS_UNDER), compose: compile(FS_COMPOSE), output: compile(FS_OUTPUT),
+    };
+
+    // 소스 텍스처: 영상 프레임을 그림마다 올린다 (크기는 texImage2D가 정한다)
+    srcTex = track(owned.textures, gl.createTexture());
+    gl.bindTexture(gl.TEXTURE_2D, srcTex);
+    setFilter(gl.LINEAR, gl.LINEAR);
+    checkGl('init');
+  } catch (error) {
+    // 셰이더 컴파일 실패 등: 그때까지 만든 프로그램·버퍼·VAO·텍스처를 모두 지운다 (검수 3)
+    deleteAll();
+    throw error;
+  }
 
   // 그리는 해상도마다 텍스처 묶음 (미리보기 크기와 결과 사진 크기가 다르면 두 묶음). 최근 것 2개만 둔다
   const targets = new Map();
@@ -80,9 +105,34 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
   const queries = []; // GPU 시간 측정 중인 질의 (결과가 나오면 꺼낸다)
   const stats = { draws: 0, cpuMs: 0, gpuMs: null, strokes: 0, width: 0, height: 0, pxScale: 0, timer: Boolean(timer) };
 
-  function track(list, object) {
-    list.push(object);
+  function track(set, object) {
+    set.add(object);
     return object;
+  }
+
+  function release(kind, object) {
+    if (!object || !owned[kind].delete(object)) return;
+    if (!gl.isContextLost()) deleters[kind](object);
+  }
+
+  function deleteAll() {
+    for (const kind of Object.keys(owned)) {
+      for (const object of [...owned[kind]]) release(kind, object);
+    }
+  }
+
+  // 쌓여 있는 GL 오류를 비운다 (이전 그림·다른 코드의 오류를 이번 그림 탓으로 보지 않게). 컨텍스트를 잃으면 멈춘다
+  function clearGlErrors() {
+    for (let i = 0; i < 16; i += 1) {
+      if (gl.getError() === gl.NO_ERROR || gl.isContextLost()) return;
+    }
+  }
+
+  // 컨텍스트 손실·GL 오류면 예외. 실패한 그림(빈 화소 등)을 성공으로 넘기지 않는다 (검수 1)
+  function checkGl(stage) {
+    const error = gl.getError();
+    if (gl.isContextLost()) throw new EffectError(EffectFault.CONTEXT_LOST, `context lost during ${stage}`);
+    if (error !== gl.NO_ERROR) throw new EffectError(EffectFault.RENDER_FAILED, `GL error 0x${error.toString(16)} during ${stage}`);
   }
 
   function compile(fs, vs = VS) {
@@ -97,7 +147,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
         throw new EffectError(EffectFault.SHADER_FAILED, info || 'compile failed');
       }
       gl.attachShader(p, s);
-      gl.deleteShader(s); // 프로그램에 붙은 동안은 남는다
+      gl.deleteShader(s); // 프로그램에 붙은 동안은 남고, 프로그램을 지우면 함께 지워진다
     }
     gl.linkProgram(p);
     if (!gl.getProgramParameter(p, gl.LINK_STATUS) && !gl.isContextLost()) {
@@ -119,19 +169,28 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
   }
 
   // 원본 tex(): 텍스처 + 그 텍스처에 그리는 프레임버퍼
+  // 실패하면 이 텍스처·프레임버퍼를 지우고 예외 (검수 3)
   function tex(w, h, { float = false, mip = false, nearest = false } = {}) {
-    const t = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, t);
-    const levels = mip ? Math.floor(Math.log2(Math.max(w, h))) + 1 : 1;
-    gl.texStorage2D(gl.TEXTURE_2D, levels, float ? gl.RGBA16F : gl.RGBA8, w, h);
-    const filter = nearest ? gl.NEAREST : gl.LINEAR;
-    setFilter(mip ? gl.LINEAR_MIPMAP_LINEAR : filter, filter);
-    const fb = gl.createFramebuffer();
-    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
-    checkFramebuffer();
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    return { t, fb, w, h, mip };
+    const t = track(owned.textures, gl.createTexture());
+    let fb = null;
+    try {
+      gl.bindTexture(gl.TEXTURE_2D, t);
+      const levels = mip ? Math.floor(Math.log2(Math.max(w, h))) + 1 : 1;
+      gl.texStorage2D(gl.TEXTURE_2D, levels, float ? gl.RGBA16F : gl.RGBA8, w, h);
+      const filter = nearest ? gl.NEAREST : gl.LINEAR;
+      setFilter(mip ? gl.LINEAR_MIPMAP_LINEAR : filter, filter);
+      fb = track(owned.framebuffers, gl.createFramebuffer());
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+      checkFramebuffer();
+      return { t, fb, w, h, mip };
+    } catch (error) {
+      release('framebuffers', fb);
+      release('textures', t);
+      throw error;
+    } finally {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    }
   }
 
   function checkFramebuffer() {
@@ -141,13 +200,17 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
     }
   }
 
+  const TARGET_KEYS = ['grade', 'sst', 'sst2', 'tfm', 'paint', 'hgt', 'paintC', 'composed', 'out'];
+
   function freeTargets(set) {
-    for (const key of ['grade', 'sst', 'sst2', 'tfm', 'paint', 'hgt', 'paintC', 'composed', 'out']) {
+    for (const key of TARGET_KEYS) {
       if (!set[key]) continue;
-      gl.deleteTexture(set[key].t);
-      gl.deleteFramebuffer(set[key].fb);
+      release('textures', set[key].t);
+      release('framebuffers', set[key].fb);
+      set[key] = null;
     }
-    gl.deleteFramebuffer(set.mrt);
+    release('framebuffers', set.mrt);
+    set.mrt = null;
   }
 
   function useTargets(W, H) {
@@ -168,25 +231,33 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
   }
 
   // 원본 allocate()의 oil2f 부분. 흐름장(sst·tfm)은 절반 해상도, 나머지는 그리는 해상도
+  // 일부만 만들고 실패하면 만든 것을 모두 지우고 예외 (검수 3)
   function allocate(W, H) {
     const fw = Math.round(W / 2);
     const fh = Math.round(H / 2);
-    const set = {
-      grade: tex(W, H, { mip: true }),
-      sst: tex(fw, fh, { float: true }), sst2: tex(fw, fh, { float: true }), tfm: tex(fw, fh, { float: true }),
-      paint: tex(W, H, { mip: true }), hgt: tex(W, H),
-      paintC: tex(W, H), // 보완 층이 비교할 '지금까지 칠한 결과' 사본
-      composed: tex(W, H, { nearest: true }), // 출력 단계의 입력 (합성 결과)
-    };
-    set.mrt = gl.createFramebuffer();
-    gl.bindFramebuffer(gl.FRAMEBUFFER, set.mrt);
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, set.paint.t, 0);
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, set.hgt.t, 0);
-    gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
-    checkFramebuffer();
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    set.out = null; // 결과 사진(화면 밖) 출력. 처음 쓸 때 만든다
-    return set;
+    const set = { mrt: null, out: null }; // out: 결과 사진(화면 밖) 출력. 처음 쓸 때 만든다
+    try {
+      set.grade = tex(W, H, { mip: true });
+      set.sst = tex(fw, fh, { float: true });
+      set.sst2 = tex(fw, fh, { float: true });
+      set.tfm = tex(fw, fh, { float: true });
+      set.paint = tex(W, H, { mip: true });
+      set.hgt = tex(W, H);
+      set.paintC = tex(W, H); // 보완 층이 비교할 '지금까지 칠한 결과' 사본
+      set.composed = tex(W, H, { nearest: true }); // 출력 단계의 입력 (합성 결과)
+      set.mrt = track(owned.framebuffers, gl.createFramebuffer());
+      gl.bindFramebuffer(gl.FRAMEBUFFER, set.mrt);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, set.paint.t, 0);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, set.hgt.t, 0);
+      gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
+      checkFramebuffer();
+      return set;
+    } catch (error) {
+      freeTargets(set);
+      throw error;
+    } finally {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    }
   }
 
   // 원본 pass(): 전체 화면 삼각형 하나. target이 null이면 캔버스
@@ -338,6 +409,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
     let count = 0;
     let pixels;
     try {
+      clearGlErrors();
       if (source !== null) upload(source);
       pass(PR.grade, T.grade, { uSrc: srcTex }, { uAmt: D.grade, uSrcOffset: sourceOffset, uSrcScale: sourceScale });
       pass(PR.sst, T.sst, { uTex: T.grade });
@@ -352,8 +424,10 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
         pixels = new Uint8ClampedArray(width * height * 4);
         gl.bindFramebuffer(gl.FRAMEBUFFER, T.out.fb);
         gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        checkGl('photo render'); // 화소 읽기까지 끝난 뒤. 잃었거나 오류면 빈 화소일 수 있다
       } else {
         pass(PR.output, null, { uImage: T.composed }, { uFlipY: 0 });
+        checkGl('preview render');
       }
     } finally {
       // 중간에 실패해도 다음 그림이 섞기·질의가 켜진 상태에서 시작하지 않게 한다
@@ -373,14 +447,8 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
   function dispose() {
     if (disposed) return;
     disposed = true;
-    if (!gl.isContextLost()) {
-      for (const set of targets.values()) freeTargets(set);
-      for (const q of queries) gl.deleteQuery(q);
-      for (const { p } of owned.programs) gl.deleteProgram(p);
-      for (const t of owned.textures) gl.deleteTexture(t);
-      for (const b of owned.buffers) gl.deleteBuffer(b);
-      for (const a of owned.arrays) gl.deleteVertexArray(a);
-    }
+    if (!gl.isContextLost()) for (const q of queries) gl.deleteQuery(q);
+    deleteAll(); // 대상 묶음·프로그램·버퍼·VAO·소스 텍스처 모두 (검수 2: 예전에는 프로그램을 지우지 못했다)
     queries.length = 0;
     targets.clear();
     T = null;
@@ -391,6 +459,8 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
     render,
     dispose,
     getStats: () => ({ ...stats }),
+    /** 살아 있는 GPU 자원 수 (종류별). 테스트·조사용 */
+    liveResources: () => Object.fromEntries(Object.entries(owned).map(([kind, set]) => [kind, set.size])),
     renderer: () => rendererName,
   };
 }
