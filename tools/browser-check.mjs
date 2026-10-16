@@ -12,6 +12,7 @@
 // 앱 상태는 운영자 D 화면(개발용 정보)의 글자로 읽는다. 앱 코드에 확인 전용 훅을 두지 않는다.
 // 끝나면 자신이 띄운 서버·Chrome·임시 프로필만 정리한다. 사용자의 Chrome·OBS는 건드리지 않는다.
 // 사진·프레임은 저장하지 않는다. 가짜 카메라에는 얼굴이 없으므로 자동 시작은 확인하지 않는다(docs/SYSTEM.md 1절).
+// S 사이클 시나리오는 P(자동 촬영 일시정지)를 켜고 돌린다. 실제 카메라 앞에 사람이 있어도 자동 회차가 끼어들지 않게 (5-2).
 
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -26,6 +27,8 @@ import { backupFile, createCdpSession, restoreFile } from './browser-check-lib.m
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SETTINGS_FILE = join(repo, 'config', 'presence.local.json');
 const SETTINGS_API = '/local-api/presence-settings';
+const EFFECT_SETTINGS_FILE = join(repo, 'config', 'effect.local.json');
+const EFFECT_SETTINGS_API = '/local-api/effect-settings';
 const MODEL_PATTERN = '*blaze_face_short_range.tflite*';
 // MediaPipe 사용 통계 전송은 CSP로 막는 것이 의도된 동작이다(docs/SYSTEM.md 1절). 이 주소의 CSP 메시지는 실패로 세지 않는다.
 const EXPECTED_CSP_HOST = 'odml.pa.googleapis.com';
@@ -67,16 +70,23 @@ const log = (...parts) => console.log(`[${elapsed()}]`, ...parts);
 
 // ---------- 정리 대상 (이 도구가 만든 것만) ----------
 
-const owned = { server: null, chrome: null, profile: null, cdp: null, settingsBackup: null };
+const owned = { server: null, chrome: null, profile: null, cdp: null, settingsBackup: null, effectBackup: null };
 let cleaning = null;
 
 // 조절값 파일은 시작할 때 바이트 그대로(또는 "없음") 백업하고, 모든 정리 경로에서 파일 시스템으로 직접 되돌린다
 // (4단계 검수 1: 서버 API로 되돌리면 잘못된 JSON·16KB 초과 원본이 거절돼 시험 값이 남았다).
+// 인식 조절값(presence.local.json)과 효과 조절값(effect.local.json, 5-2) 둘 다 같은 방법으로 되돌린다.
 function restoreSettings(reason) {
-  if (!owned.settingsBackup) return { ok: true, detail: 'no backup' };
-  const result = restoreFile(owned.settingsBackup);
-  if (!result.ok || result.detail !== 'unchanged') log(`settings file ${result.ok ? 'OK' : 'FAIL'} (${reason}): ${result.detail}`);
-  return result;
+  const details = [];
+  let ok = true;
+  for (const [label, backup] of [['settings', owned.settingsBackup], ['effect settings', owned.effectBackup]]) {
+    if (!backup) continue;
+    const result = restoreFile(backup);
+    if (!result.ok || result.detail !== 'unchanged') log(`${label} file ${result.ok ? 'OK' : 'FAIL'} (${reason}): ${result.detail}`);
+    ok &&= result.ok;
+    details.push(`${label}: ${result.detail}`);
+  }
+  return { ok, detail: details.join('; ') || 'no backup' };
 }
 
 function killTree(pid) {
@@ -326,7 +336,7 @@ const parseFps = (line = '') => Number(/@ (\d+(?:\.\d+)?)fps/.exec(line)?.[1] ??
 const sessionState = (line = '') => line.split(' ')[0];
 
 /** S 한 사이클: 카운트다운 → 결과 → 쿨타임 → 대기. 끝나면 D 값을 돌려준다 */
-async function manualCycle(app) {
+async function manualCycle(app, { onResult } = {}) {
   const before = parseCompleted((await app.dev()).get('session'));
   await app.key('KeyS');
   await app.waitFor('countdown', async () => sessionState((await app.dev()).get('session')) === 'countdown', 3000);
@@ -345,12 +355,88 @@ async function manualCycle(app) {
   if (!captured || shown.w !== Number(captured[1]) || shown.h !== Number(captured[2])) {
     throw new Error(`result image ${shown.w}x${shown.h}, capture ${captured?.[0] ?? '?'}`);
   }
+  const extra = onResult ? await onResult() : undefined; // 결과 사진이 보이는 동안 확인할 것
   await app.waitFor('cooldown', async () => sessionState((await app.dev()).get('session')) === 'cooldown', 13000);
   await app.waitFor('idle', async () => sessionState((await app.dev()).get('session')) === 'idle', 8000);
   const dev = await app.dev();
   return { completedDelta: parseCompleted(dev.get('session')) - before, resources: parseResources(dev.get('resources')), dev,
-    image: `${shown.w}x${shown.h} shown ${shown.boxW}x${shown.boxH}css` };
+    image: `${shown.w}x${shown.h} shown ${shown.boxW}x${shown.boxH}css`, extra };
 }
+
+/**
+ * P로 자동 촬영을 멈추고 대기 상태가 된 뒤 run을 돌리고, 끝나면 원래대로 되돌린다 (5-2).
+ * 실제 카메라 앞에 사람이 있으면 S 사이클의 쿨타임 뒤 자동 회차가 시작돼 대기 상태를 기다리다 실패했다(로그 02).
+ */
+async function withAutoPaused(app, run) {
+  const paused = async () => /^PAUSED/.test((await app.dev()).get('auto') ?? '');
+  const wasPaused = await paused();
+  if (!wasPaused) {
+    await app.key('KeyP');
+    await app.waitFor('auto paused', paused, 3000);
+  }
+  try {
+    // 일시정지 전에 시작된 자동 회차(결과·쿨타임)가 끝날 때까지
+    await app.waitFor('idle before S', async () => sessionState((await app.dev()).get('session')) === 'idle', 25000);
+    return await run();
+  } finally {
+    if (!wasPaused && !app.cdp.closed()) {
+      await app.key('KeyP');
+      await app.waitFor('auto resumed', async () => !(await paused()), 3000).catch(() => {});
+    }
+  }
+}
+
+// 효과 캔버스에 새 그림이 그려진 화면 갱신마다 화소를 복사해 둔다(최근 8장, 페이지 메모리 안에서만).
+// preserveDrawingBuffer가 false라, 앱의 requestAnimationFrame 콜백 뒤 같은 화면 갱신 안에서 읽어야 그림이 남아 있다.
+// 셔터 순간(카운트다운 숫자가 숨겨지는 순간)도 기록한다.
+const EFFECT_READER = `(() => {
+  if (window.__fxReader) return true;
+  const c = document.getElementById('effect');
+  const gl = c.getContext('webgl2');
+  const r = window.__fxReader = { drawings: [], shutterAt: null };
+  const probe = new Uint8Array(8 * 8 * 4);
+  new MutationObserver(() => {
+    const cd = document.getElementById('countdown');
+    if (cd.hidden && r.wasCounting) r.shutterAt = performance.now();
+    r.wasCounting = !cd.hidden;
+  }).observe(document.getElementById('countdown'), { attributes: true, attributeFilter: ['hidden'] });
+  const loop = () => {
+    requestAnimationFrame(loop);
+    const W = c.width, H = c.height;
+    if (c.hidden || W < 16) return;
+    gl.readPixels((W >> 1) - 4, (H >> 1) - 4, 8, 8, gl.RGBA, gl.UNSIGNED_BYTE, probe);
+    let any = 0; for (let i = 0; i < probe.length; i += 4) any += probe[i] + probe[i + 1] + probe[i + 2];
+    if (any === 0) return; // 이 화면 갱신에서는 새로 그리지 않았다
+    const buf = new Uint8Array(W * H * 4);
+    gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+    r.drawings.push({ at: performance.now(), W, H, buf });
+    if (r.drawings.length > 8) r.drawings.shift();
+  };
+  requestAnimationFrame(loop);
+  return true;
+})()`;
+
+// 결과 사진(#result)과 기록한 그림들을 10x10 블록 평균(RGB)으로 비교한다. 셔터 직전 그림 = 셔터 전에 마지막으로 그린 것
+const EFFECT_COMPARE = `(() => {
+  const r = window.__fxReader;
+  const img = document.getElementById('result');
+  const W = img.naturalWidth, H = img.naturalHeight, B = 10, gw = Math.floor(W / B), gh = Math.floor(H / B);
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const x = cv.getContext('2d', { willReadFrequently: true }); x.drawImage(img, 0, 0);
+  const res = x.getImageData(0, 0, W, H).data; cv.width = 0;
+  const grid = (get) => { const g = new Float64Array(gw * gh * 3);
+    for (let y = 0; y < gh * B; y++) for (let xx = 0; xx < gw * B; xx++) { const i = get(xx, y), k = (Math.floor(y / B) * gw + Math.floor(xx / B)) * 3;
+      g[k] += i[0]; g[k + 1] += i[1]; g[k + 2] += i[2]; }
+    for (let k = 0; k < g.length; k++) g[k] /= B * B; return g; };
+  const resGrid = grid((xx, y) => { const i = (y * W + xx) * 4; return [res[i], res[i + 1], res[i + 2]]; });
+  const diff = (a, b) => { let s = 0; for (let k = 0; k < a.length; k++) s += Math.abs(a[k] - b[k]); return s / a.length; };
+  const out = r.drawings.filter((d) => d.W === W && d.H === H).map((d) => ({
+    beforeShutter: d.at < r.shutterAt, msFromShutter: Math.round(d.at - r.shutterAt),
+    diff: +diff(resGrid, grid((xx, y) => { const i = ((d.H - 1 - y) * d.W + xx) * 4; return [d.buf[i], d.buf[i + 1], d.buf[i + 2]]; })).toFixed(3),
+  }));
+  const shutterDrawing = out.map((d) => d.beforeShutter).lastIndexOf(true);
+  return { size: W + 'x' + H, previewSize: r.drawings.length ? r.drawings.at(-1).W + 'x' + r.drawings.at(-1).H : '-', shutterAt: r.shutterAt, drawings: out, shutterIndex: shutterDrawing };
+})()`;
 
 // ---------- 시나리오 ----------
 
@@ -390,7 +476,7 @@ async function runScenarios(app, origin) {
   });
 
   await scenario('S 수동 한 사이클 (결과 사진 표시 → 쿨타임 → 대기), 사진 자원 0', async () => {
-    const { completedDelta, resources, dev, image } = await manualCycle(app);
+    const { completedDelta, resources, dev, image } = await withAutoPaused(app, () => manualCycle(app));
     expect(completedDelta === 1, `completed +${completedDelta}`);
     expect(resources && resources.urls === 0 && resources.canvases === 0 && resources.pending === 0, `resources ${dev.get('resources')}`);
     return `${dev.get('capture')?.split(',')[0]}; result image ${image}; ${dev.get('resources')}`;
@@ -425,6 +511,26 @@ async function runScenarios(app, origin) {
     return `${line.split(', fps')[0]}; ${m[2]} drawings/s at fps ${m[1]}; context lost → camera preview → restored`;
   });
 
+  await scenario('촬영 결과에 효과: 1080x1920, 셔터 순간 미리보기 그림과 같음 (수치 비교)', async () => withAutoPaused(app, async () => {
+    await app.evaluate(EFFECT_READER);
+    await sleep(500);
+    const { completedDelta, resources, dev, image, extra } = await manualCycle(app, { onResult: () => app.evaluate(EFFECT_COMPARE) });
+    expect(completedDelta === 1, `S completed +${completedDelta}`);
+    expect(resources && resources.urls === 0 && resources.canvases === 0 && resources.pending === 0, `resources ${dev.get('resources')}`);
+    const fx = dev.get('photo-fx') ?? '';
+    expect(/^applied 1080x1920 .*same drawing as preview/.test(fx), `photo-fx ${fx}`);
+    expect(image.startsWith('1080x1920'), `result image ${image}`);
+    const c = extra;
+    expect(c.size === '1080x1920' && c.shutterIndex >= 0, `compare ${JSON.stringify(c)}`);
+    const atShutter = c.drawings[c.shutterIndex];
+    const others = c.drawings.filter((_, i) => i !== c.shutterIndex).map((d) => d.diff);
+    // 결과는 JPEG(품질 0.92)라 화소가 조금 다르다. 셔터 직전 그림과는 거의 같고, 다른 그림보다 확실히 가깝다
+    expect(atShutter && atShutter.diff < 1.5, `diff to shutter drawing ${atShutter?.diff} (${JSON.stringify(c.drawings)})`);
+    expect(others.every((d) => d > atShutter.diff * 2), `other drawings not farther: ${JSON.stringify(c.drawings)}`);
+    await app.evaluate('window.__fxReader.drawings.length = 0; true');
+    return `${fx.split(' (applied')[0]}; block diff to shutter drawing ${atShutter.diff}/255, other drawings ${others.map((d) => d.toFixed(1)).join(', ')}`;
+  }));
+
   await scenario('효과 WebGL2 생성 실패 → 원본 미리보기, 카메라·감지기·S 그대로', async () => {
     // 페이지 스크립트보다 먼저 효과 캔버스의 webgl2만 null을 돌려주게 한다 (감지기의 WebGL은 그대로)
     const { identifier } = await app.cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: `(() => {
@@ -442,10 +548,74 @@ async function runScenarios(app, origin) {
       expect(/^fallback \(webgl2-unavailable/.test(effect), `effect ${effect}`);
       expect(await app.evaluate("document.getElementById('effect').hidden"), 'effect canvas visible in fallback');
       expect((await app.status()) === '', 'visitor status message shown in fallback');
-      const { completedDelta, resources } = await manualCycle(app);
+      const { completedDelta, resources, dev: after } = await withAutoPaused(app, () => manualCycle(app));
+      expect(/^RAW PHOTO /.test(after.get('photo-fx') ?? ''), `photo-fx ${after.get('photo-fx')}`);
       expect(completedDelta === 1, `S completed +${completedDelta}`);
       expect(resources && resources.urls === 0 && resources.canvases === 0 && resources.pending === 0, 'resources not released');
       return `${effect}; camera ready, detector ok, S cycle ok`;
+    } finally {
+      await app.cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier });
+    }
+  });
+
+  await scenario('효과 조절(E) → 즉시 반영 → 저장 → 새로고침 뒤 유지, 효과 조절값 API (파일은 원래대로)', async () => {
+    try {
+      await app.open();
+      await waitReady(app);
+      await app.key('KeyE');
+      await app.waitFor('effect panel open', () => app.evaluate("!document.getElementById('effect-panel').hidden"), 5000);
+      await app.evaluate(`(() => { const i = document.querySelector('#effect-panel input[data-key="fps"]'); i.value = '12'; i.dispatchEvent(new Event('input')); return true; })()`);
+      await sleep(2000);
+      const live = (await app.dev()).get('effect') ?? '';
+      expect(/fps 12 -> 1[1-3] drawings\/s/.test(live), `after slider: ${live}`);
+      await app.evaluate("document.querySelector('#effect-panel button[data-action=\"save\"]').click(); true");
+      await app.waitFor('saved message', () => app.evaluate("document.querySelector('#effect-panel [data-message]').textContent === '파일에 저장했습니다.'"), 5000);
+      await app.key('KeyE');
+      await app.open(); // 새로고침
+      await waitReady(app);
+      const kept = await app.waitFor('fps 12 after reload', async () => {
+        const value = (await app.dev()).get('effect') ?? '';
+        return /fps 12 ->/.test(value) ? value : null;
+      }, 10000);
+      const api = await app.evaluate(`(async () => {
+        const url = '${EFFECT_SETTINGS_API}';
+        const get = await fetch(url, { cache: 'no-store' });
+        const body = await get.json();
+        const noHeader = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        const other = await fetch('/local-api/Effect-Settings', { cache: 'no-store' });
+        return { get: get.status, fps: body.settings.fps, version: body.version, noHeader: noHeader.status, other: other.status };
+      })()`);
+      expect(api.get === 200 && api.fps === 12 && api.version === 1, `GET ${JSON.stringify(api)}`);
+      expect(api.noHeader === 403 && api.other === 404, `rejects ${JSON.stringify(api)}`);
+      return `slider fps 12 applied live; saved; after reload ${kept.split(', boil')[0].replace(/^running, /, '')}; API GET 200, no header 403, other case 404`;
+    } finally {
+      const restored = restoreSettings('after effect settings scenario');
+      if (!restored.ok) throw new Error(`could not restore settings files: ${restored.detail}`);
+    }
+  });
+
+  await scenario('결과 효과 렌더 실패 → 원본 사진으로 대신 (관람객 흐름 계속)', async () => {
+    // 효과 결과의 화소 읽기(1080x1920)만 실패시킨다. 미리보기·감지기(작은 크기)는 그대로
+    const { identifier } = await app.cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: `(() => {
+      const original = WebGL2RenderingContext.prototype.readPixels;
+      WebGL2RenderingContext.prototype.readPixels = function (x, y, w, h, ...rest) {
+        if (window.__photoboothFailPhotoEffect && w * h >= 1000000) throw new Error('readPixels blocked by browser-check');
+        return original.call(this, x, y, w, h, ...rest);
+      };
+    })();` });
+    try {
+      await app.open();
+      await waitReady(app);
+      await app.waitFor('effect running', async () => /^running,/.test((await app.dev()).get('effect') ?? ''), 10000);
+      await app.evaluate('window.__photoboothFailPhotoEffect = true; true');
+      const { completedDelta, resources, dev, image } = await withAutoPaused(app, () => manualCycle(app));
+      const fx = dev.get('photo-fx') ?? '';
+      expect(completedDelta === 1, `S completed +${completedDelta}`);
+      expect(/^RAW PHOTO 1080x1920 \(.*readPixels blocked/.test(fx), `photo-fx ${fx}`);
+      expect(image.startsWith('1080x1920'), `result image ${image}`);
+      expect(resources && resources.urls === 0 && resources.canvases === 0 && resources.pending === 0, `resources ${dev.get('resources')}`);
+      expect(/^running,/.test(dev.get('effect') ?? ''), `preview after failure ${dev.get('effect')}`);
+      return `${fx.split(' (applied')[0].slice(0, 90)}; result ${image}; preview still running`;
     } finally {
       await app.cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier });
     }
@@ -526,7 +696,7 @@ async function runScenarios(app, origin) {
       const presenceHidden = await app.evaluate("document.getElementById('presence').hidden");
       expect(presenceHidden, 'presence indicator visible during detector fault');
       const dev = await app.dev();
-      const { completedDelta, resources } = await manualCycle(app);
+      const { completedDelta, resources } = await withAutoPaused(app, () => manualCycle(app));
       expect(completedDelta === 1, `S completed +${completedDelta}`);
       expect(resources && resources.urls === 0 && resources.canvases === 0, 'resources not released');
       return `${dev.get('detector')}; notice "${notice}"; S cycle ok`;
@@ -680,6 +850,8 @@ async function main() {
   if (typeof WebSocket !== 'function') throw new Error('Node 22 or newer is required (built-in WebSocket)');
   owned.settingsBackup = backupFile(SETTINGS_FILE);
   log(`settings file backup: ${owned.settingsBackup.existed ? `${owned.settingsBackup.bytes.length} bytes` : 'none (will stay absent)'}`);
+  owned.effectBackup = backupFile(EFFECT_SETTINGS_FILE);
+  log(`effect settings file backup: ${owned.effectBackup.existed ? `${owned.effectBackup.bytes.length} bytes` : 'none (will stay absent)'}`);
   const port = await freePort();
   const origin = `http://localhost:${port}`;
   log(`repo ${repo}`);
