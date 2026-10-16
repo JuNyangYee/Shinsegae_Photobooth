@@ -79,6 +79,29 @@ export const config = Object.freeze({
     failureRetryMaxMs: 60000,
   }),
 
+  // 사진 효과 "유화 · 획 (세부 보존)" (사용자 결정 2026-10-16). 출처: https://nau-filter-gallery.vercel.app/ 프리셋 oil2f.
+  // 기본값은 사용자가 고른 세팅 그대로다. 범위·정규화는 config/effect-settings.js, 단위는 docs/SYSTEM.md 6절.
+  // px 값은 짧은 변 1080px 그림 기준이고, 다른 해상도에서는 비례로 맞춘다 (core/oil-paint.js).
+  effect: Object.freeze({
+    enabled: true, // false면 효과 없이 원본 미리보기
+    strength: 0.1, // 강도 (요철·광택·색 흔들림)
+    size: 1.25, // 붓 크기 배율
+    boil: 0.1, // 획 다시 그리기: 그림마다 새로 배치하는 획 비율 (0 고정 ~ 1 전부)
+    fps: 24, // 초당 그림 수 (스톱모션 느낌). 그림 사이에는 앞 그림을 그대로 보인다
+    grade: 1, // 색 보정 (따뜻한 색·약한 대비 압축) 섞는 정도
+    // 붓 층 (큰 붓 → 작은 붓): [굵기px, 간격px, 길이px, 색 밉 단계, 세부 문턱, 불투명도(유화에서 안 씀)]
+    layers: Object.freeze([
+      Object.freeze([36, 15, 84, 3.8, 0, 1]),
+      Object.freeze([18, 8, 44, 2.6, 0.02, 1]),
+      Object.freeze([8, 4, 20, 1.4, 0.06, 1]),
+    ]),
+    // 보완 층 (세부 보존): [굵기px, 칸 간격px, 길이px, 기준 이미지 밉 단계, 오차 문턱(0~1 RGB 거리)]
+    refine: Object.freeze([3.5, 3, 10, 0.6, 0.22]),
+    // 미리보기 처리 해상도 배율 (가안). 보이는 9:16 영역의 원본 해상도 대비. 현장 PC가 느리면 낮춘다.
+    // OBS 1080x1920이면 540x960으로 그려 화면에 늘려 보인다.
+    previewScale: 0.5,
+  }),
+
   // 결과 이미지 형식 (가안). 크기는 미리보기에 보이는 9:16 영역의 원본 해상도 그대로다.
   capture: Object.freeze({
     type: 'image/jpeg',
