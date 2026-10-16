@@ -14,6 +14,8 @@
 <body>
   <main id="stage" class="stage">
     <video id="preview" class="preview" autoplay muted playsinline></video>
+    <!-- 사진 효과 미리보기 (유화 · 획). 영상 위를 덮는다. 효과를 쓸 수 없으면 숨겨 원본 미리보기가 보인다. -->
+    <canvas id="effect" class="effect" hidden></canvas>
     <!-- 촬영 한 사이클 (기본 UI, 최종 디자인 아님): 결과 사진, 카운트다운 숫자, 촬영 순간 플래시 -->
     <img id="result" class="result" alt="" hidden>
     <p id="countdown" class="countdown" hidden></p>

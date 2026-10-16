@@ -9,9 +9,11 @@ import { serializePresenceSettings } from './config/presence-settings.js';
 import { createPresenceTuning } from './ui/presence-tuning.js';
 import { SessionState, createSession } from './core/session.js';
 import { createSettingsFileClient, loadInitialPresenceSettings } from './config/settings-file.js';
+import { EffectStatus, createEffectPreview } from './effect/effect-preview.js';
 
 const stage = document.getElementById('stage');
 const video = document.getElementById('preview');
+const effectCanvas = document.getElementById('effect');
 const statusText = document.getElementById('status');
 const presenceText = document.getElementById('presence');
 const devInfo = document.getElementById('dev-info');
@@ -65,6 +67,19 @@ const presence = createPresenceMonitor({
   presence: config.presence,
   stageAspect,
   mirror: config.mirror,
+});
+
+// 사진 효과 미리보기: 영상 → 유화 효과 캔버스. 효과를 쓸 수 없으면 원본 미리보기 (카메라·감지·촬영은 그대로)
+const effect = createEffectPreview({
+  canvas: effectCanvas,
+  video,
+  camera,
+  stageAspect,
+  mirror: config.mirror,
+  settings: config.effect,
+  onChange: () => {
+    if (!devInfo.hidden) renderDevInfo();
+  },
 });
 
 const capture = createCapture({
@@ -239,6 +254,8 @@ function renderDevInfo() {
     '',
     ...presenceDevLines(),
     '',
+    ...effectDevLines(),
+    '',
     ...sessionDevLines(),
   ];
   devInfo.textContent = lines.join('\n');
@@ -285,6 +302,22 @@ function presenceDevLines() {
       + ` center ${face.center.x.toFixed(2)},${face.center.y.toFixed(2)} -> ${face.accepted ? 'ok' : rejected.join('+')}`);
   });
   return lines;
+}
+
+function effectDevLines() {
+  const e = effect.getState();
+  const ms = (value) => (value === null ? '-' : `${value.toFixed(1)}ms`);
+  const losses = e.contextLosses ? `, context lost ${e.contextLosses}x` : '';
+  if (e.status === EffectStatus.DISABLED) return ['effect     : disabled (config.effect.enabled) -> camera preview'];
+  if (e.status === EffectStatus.FALLBACK || e.status === EffectStatus.CONTEXT_LOST) {
+    return [`effect     : ${e.status} (${e.fault || '-'}) -> camera preview${losses}`];
+  }
+  return [
+    `effect     : ${e.status}${e.shown ? '' : ' (hidden)'}, ${e.width}x${e.height} (preview x${e.previewScale}, px scale ${e.pxScale.toFixed(3)}),`
+      + ` fps ${e.fps} -> ${e.drawingsPerSecond} drawings/s, boil ${e.boil}, seed ${e.seed ?? '-'}${losses}`,
+    `  time     : cpu ${ms(e.cpuMs)} (avg ${ms(e.cpuAvgMs)}), gpu ${e.gpuTimer ? ms(e.gpuMs) : 'n/a'},`
+      + ` strokes ${e.strokes}, ${e.renderer || '-'}`,
+  ];
 }
 
 function describeAuto(record) {
@@ -452,3 +485,4 @@ autoStart.start();
 loadSettings();
 camera.start();
 presence.start();
+effect.start();

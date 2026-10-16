@@ -41,6 +41,15 @@ body {
   transform: scaleX(-1);
 }
 
+/* 사진 효과 미리보기. 이미 반전·크롭한 9:16 그림이라 CSS 반전을 걸지 않는다 (effect/effect-preview.js).
+   처리 해상도가 화면보다 작으면 늘려 보인다. */
+.effect {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
 .status {
   position: absolute;
   inset: 0;
@@ -56,6 +65,7 @@ body {
 }
 
 .status[hidden],
+.effect[hidden],
 .presence[hidden],
 .notice[hidden],
 .pause-badge[hidden],
