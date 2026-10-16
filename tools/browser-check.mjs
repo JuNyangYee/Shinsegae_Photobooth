@@ -594,28 +594,48 @@ async function runScenarios(app, origin) {
     }
   });
 
-  await scenario('결과 효과 렌더 실패 → 원본 사진으로 대신 (관람객 흐름 계속)', async () => {
-    // 효과 결과의 화소 읽기(1080x1920)만 실패시킨다. 미리보기·감지기(작은 크기)는 그대로
+  await scenario('결과 효과 렌더 실패 3가지(예외·INVALID_OPERATION·컨텍스트 손실) → 원본 사진으로 대신 (관람객 흐름 계속)', async () => {
+    // 효과 결과의 화소 읽기(1080x1920)만 건드린다. 미리보기·감지기(작은 크기)는 그대로 (5단계 검수 1의 실제 WebGL 재현)
+    // - throw: 예외를 던진다
+    // - invalid: 결과 FBO(RGBA8)를 RGB 형식으로 읽어 실제 INVALID_OPERATION을 낸다 (화소는 0으로 남는다)
+    // - lose: 읽기 직전에 WEBGL_lose_context로 컨텍스트를 잃게 한다 (화소는 0으로 남는다)
     const { identifier } = await app.cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: `(() => {
       const original = WebGL2RenderingContext.prototype.readPixels;
-      WebGL2RenderingContext.prototype.readPixels = function (x, y, w, h, ...rest) {
-        if (window.__photoboothFailPhotoEffect && w * h >= 1000000) throw new Error('readPixels blocked by browser-check');
-        return original.call(this, x, y, w, h, ...rest);
+      WebGL2RenderingContext.prototype.readPixels = function (x, y, w, h, format, type, ...rest) {
+        const mode = window.__photoboothFailPhotoEffect;
+        if (mode && w * h >= 1000000) {
+          window.__photoboothFailPhotoEffect = null; // 한 번만
+          if (mode === 'throw') throw new Error('readPixels blocked by browser-check');
+          if (mode === 'invalid') return original.call(this, x, y, w, h, this.RGB, type, ...rest);
+          if (mode === 'lose') { window.__photoboothLost = this.getExtension('WEBGL_lose_context'); window.__photoboothLost.loseContext(); }
+        }
+        return original.call(this, x, y, w, h, format, type, ...rest);
       };
     })();` });
+    const expected = { throw: /readPixels blocked/, invalid: /render-failed: GL error 0x502 during photo render/, lose: /context-lost: context lost during photo render/ };
+    const details = [];
     try {
       await app.open();
       await waitReady(app);
-      await app.waitFor('effect running', async () => /^running,/.test((await app.dev()).get('effect') ?? ''), 10000);
-      await app.evaluate('window.__photoboothFailPhotoEffect = true; true');
-      const { completedDelta, resources, dev, image } = await withAutoPaused(app, () => manualCycle(app));
-      const fx = dev.get('photo-fx') ?? '';
-      expect(completedDelta === 1, `S completed +${completedDelta}`);
-      expect(/^RAW PHOTO 1080x1920 \(.*readPixels blocked/.test(fx), `photo-fx ${fx}`);
-      expect(image.startsWith('1080x1920'), `result image ${image}`);
-      expect(resources && resources.urls === 0 && resources.canvases === 0 && resources.pending === 0, `resources ${dev.get('resources')}`);
-      expect(/^running,/.test(dev.get('effect') ?? ''), `preview after failure ${dev.get('effect')}`);
-      return `${fx.split(' (applied')[0].slice(0, 90)}; result ${image}; preview still running`;
+      for (const mode of ['throw', 'invalid', 'lose']) {
+        await app.waitFor('effect running', async () => /^running,/.test((await app.dev()).get('effect') ?? ''), 10000);
+        await app.evaluate(`window.__photoboothFailPhotoEffect = '${mode}'; true`);
+        const { completedDelta, resources, dev, image } = await withAutoPaused(app, () => manualCycle(app));
+        const fx = dev.get('photo-fx') ?? '';
+        expect(completedDelta === 1, `${mode}: S completed +${completedDelta}`);
+        expect(/^RAW PHOTO 1080x1920 /.test(fx) && expected[mode].test(fx), `${mode}: photo-fx ${fx}`);
+        expect(image.startsWith('1080x1920'), `${mode}: result image ${image}`);
+        expect(resources && resources.urls === 0 && resources.canvases === 0 && resources.pending === 0, `${mode}: resources ${dev.get('resources')}`);
+        if (mode === 'lose') {
+          expect(/^context-lost/.test(dev.get('effect') ?? ''), `lose: preview ${dev.get('effect')}`);
+          await app.evaluate('window.__photoboothLost.restoreContext(); true');
+          await app.waitFor('effect restored', async () => /^running,/.test((await app.dev()).get('effect') ?? ''), 8000);
+        } else {
+          expect(/^running,/.test(dev.get('effect') ?? ''), `${mode}: preview after failure ${dev.get('effect')}`);
+        }
+        details.push(`${mode} → ${/\(([^)]*)\)/.exec(fx)?.[1] ?? fx}`);
+      }
+      return `${details.join('; ')}; results 1080x1920 raw photo, preview running again`;
     } finally {
       await app.cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier });
     }
