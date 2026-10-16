@@ -97,9 +97,16 @@ export const config = Object.freeze({
     ]),
     // 보완 층 (세부 보존): [굵기px, 칸 간격px, 길이px, 기준 이미지 밉 단계, 오차 문턱(0~1 RGB 거리)]
     refine: Object.freeze([3.5, 3, 10, 0.6, 0.22]),
-    // 미리보기 처리 해상도 배율 (가안). 보이는 9:16 영역의 원본 해상도 대비. 현장 PC가 느리면 낮춘다.
-    // OBS 1080x1920이면 540x960으로 그려 화면에 늘려 보인다.
-    previewScale: 0.5,
+    // 미리보기 처리 해상도 배율. 결과 사진 크기(짧은 변 1080, 4K 입력도 1080x1920) 대비 (사용자 결정 2026-10-16).
+    // 1이면 미리보기가 결과와 같은 그림이다. 현장 PC가 느리면 먼저 fps를 낮추고, 그래도 느리면 이 값을 낮춘다.
+    previewScale: 1,
+  }),
+
+  // 효과 조절값 파일 API (서버 bin/server/serve.ps1 → config/effect.local.json, 5-2).
+  // 시작할 때 이 시간 안에 읽지 못하면 기본값으로 계속한다 (가안). 그 전까지는 기본값으로 그린다.
+  effectSettingsFile: Object.freeze({
+    url: '/local-api/effect-settings',
+    timeoutMs: 3000,
   }),
 
   // 결과 이미지 형식 (가안). 크기는 미리보기에 보이는 9:16 영역의 원본 해상도 그대로다.

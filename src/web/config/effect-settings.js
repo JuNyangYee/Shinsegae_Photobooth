@@ -5,6 +5,10 @@
 // 강도·크기·획 다시 그리기·초당 그림·색 보정의 범위는 원본 필터 갤러리
 // (https://nau-filter-gallery.vercel.app/, 프리셋 oil2f)의 슬라이더 범위와 같다.
 // 붓 층·보완 층 단위는 docs/SYSTEM.md 6절 "사진 효과(유화 · 획)".
+//
+// 저장 형식 (5-2, 서버 파일 config/effect.local.json, settings-file.js):
+//   { "version": 1, "settings": { "strength", "size", "boil", "fps", "grade", "refineThreshold", "previewScale" } }
+// 운영자가 조절하는 값(EFFECT_TUNABLE_KEYS)만 저장한다. 붓 층 모양 등은 config.effect 기본값을 쓴다.
 
 export const effectLimits = Object.freeze({
   strength: Object.freeze({ min: 0, max: 1.6, step: 0.05 }), // 강도: 요철·광택·색 흔들림
@@ -14,7 +18,7 @@ export const effectLimits = Object.freeze({
   grade: Object.freeze({ min: 0, max: 1, step: 0.05 }), // 색 보정 섞는 정도
   // 보완 층 오차 문턱 (0~1 RGB 거리). 셰이더에서 0은 "보완 층 아님"이라 0이 되지 않게 한다. 끄려면 refine을 null로
   refineThreshold: Object.freeze({ min: 0.01, max: 1, step: 0.01 }),
-  previewScale: Object.freeze({ min: 0.25, max: 1, step: 0.05 }), // 미리보기 처리 해상도 배율 (보이는 9:16 영역 원본 대비)
+  previewScale: Object.freeze({ min: 0.25, max: 1, step: 0.05 }), // 미리보기 처리 해상도 배율 (결과 크기 대비)
 });
 
 const isFiniteNumber = (value) => typeof value === 'number' && Number.isFinite(value);
@@ -77,4 +81,68 @@ export function normalizeEffectSettings(input, defaults) {
     previewScale: number('previewScale', effectLimits.previewScale),
   });
   return { settings, issues };
+}
+
+export const EFFECT_SETTINGS_VERSION = 1;
+
+/** 운영자 조절 화면(E)에서 바꾸고 파일에 저장하는 값. 원본 갤러리 UI에 있는 것 + 미리보기 처리 해상도 */
+export const EFFECT_TUNABLE_KEYS = Object.freeze(['strength', 'size', 'boil', 'fps', 'grade', 'refineThreshold', 'previewScale']);
+
+/** 정규화된 설정에서 조절값만 꺼낸다. 보완 층이 없으면 refineThreshold는 null */
+export function effectTunables(settings) {
+  return {
+    strength: settings.strength,
+    size: settings.size,
+    boil: settings.boil,
+    fps: settings.fps,
+    grade: settings.grade,
+    refineThreshold: settings.refine ? settings.refine[4] : null,
+    previewScale: settings.previewScale,
+  };
+}
+
+/**
+ * base 설정(정규화된 것)에 조절값을 덮어 정규화한다. tunables에 없는 키는 base 값을 그대로 쓴다.
+ * @returns {{ settings: object, issues: string[] }}
+ */
+export function applyEffectTunables(base, tunables, defaults) {
+  const input = { ...base };
+  for (const key of EFFECT_TUNABLE_KEYS) {
+    if (key === 'refineThreshold' || !(key in tunables)) continue;
+    input[key] = tunables[key];
+  }
+  if (base.refine && 'refineThreshold' in tunables) input.refine = [...base.refine.slice(0, 4), tunables.refineThreshold];
+  return normalizeEffectSettings(input, defaults);
+}
+
+export function serializeEffectSettings(settings) {
+  return JSON.stringify({ version: EFFECT_SETTINGS_VERSION, settings: effectTunables(settings) }, null, 2);
+}
+
+/**
+ * 저장된 문자열을 읽는다. 어떤 값이 들어 있어도 예외를 던지지 않는다. 없는 키는 기본값으로 채우고 issues에 남긴다.
+ * @returns {{ settings: object, issues: string[], source: 'stored' | 'default' }}
+ */
+export function parseStoredEffectSettings(text, defaults) {
+  const base = normalizeEffectSettings(defaults, defaults).settings;
+  const fallback = (issue) => ({ settings: base, issues: issue ? [issue] : [], source: 'default' });
+  if (text === null || text === undefined) return fallback(null);
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return fallback('stored value is not valid JSON -> defaults');
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return fallback('stored value is not an object -> defaults');
+  if (parsed.version !== EFFECT_SETTINGS_VERSION) {
+    return fallback(`stored version ${JSON.stringify(parsed.version)} != ${EFFECT_SETTINGS_VERSION} -> defaults`);
+  }
+  const stored = parsed.settings !== null && typeof parsed.settings === 'object' ? parsed.settings : {};
+  const missing = EFFECT_TUNABLE_KEYS.filter((key) => !(key in stored)).map((key) => `${key}: missing -> default`);
+  const { settings, issues } = applyEffectTunables(base, stored, defaults);
+  return { settings, issues: [...missing, ...issues], source: 'stored' };
+}
+
+export function sameEffectSettings(a, b) {
+  return JSON.stringify(effectTunables(a)) === JSON.stringify(effectTunables(b));
 }

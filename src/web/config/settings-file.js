@@ -1,7 +1,9 @@
 // 운영자 조절값 파일 (서버 config/presence.local.json, API /local-api/presence-settings).
 // 시작할 때 불러오는 순서: 파일 → (파일이 없으면) localStorage에서 옮김 → 기본값.
-// 값의 검증·정규화는 presence-settings.js가 맡는다. Node 테스트: test/config/settings-file.test.mjs
+// 값의 검증·정규화는 presence-settings.js가 맡는다.
+// 효과 조절값 (5-2, config/effect.local.json, API /local-api/effect-settings)은 파일 → 기본값. localStorage는 쓰지 않는다. Node 테스트: test/config/settings-file.test.mjs
 
+import { parseStoredEffectSettings } from './effect-settings.js';
 import {
   loadPresenceSettings,
   parseStoredPresenceSettings,
@@ -118,4 +120,26 @@ export async function loadInitialPresenceSettings({ file, storage, defaults }) {
   const removeError = removeStoredPresenceSettings(storage);
   return { settings: local.settings, issues: local.issues, source: SettingsSource.MIGRATED,
     note: removeError === null ? 'from localStorage (removed)' : `from localStorage (remove failed: ${removeError})` };
+}
+
+/**
+ * 시작할 때 효과 조절값을 정한다 (5-2). 파일 → 기본값. 예외를 던지지 않는다.
+ * 파일이 없거나(404) 읽기가 실패·시간 초과되거나 형식이 잘못됐으면 기본값 (파일은 운영자가 다시 저장할 때까지 그대로).
+ * @param {{ file: { read: Function }, defaults: object }} options defaults: config.effect
+ * @returns {Promise<{ settings: object, issues: string[], source: string, note: string }>}
+ */
+export async function loadInitialEffectSettings({ file, defaults }) {
+  const defaultsWith = (note, issues = []) => ({
+    ...parseStoredEffectSettings(null, defaults), issues, source: SettingsSource.DEFAULTS, note,
+  });
+  let stored;
+  try {
+    stored = await file.read();
+  } catch (error) {
+    return defaultsWith(`file read failed: ${error?.message ?? error}`);
+  }
+  if (!stored.found) return defaultsWith('no file');
+  const parsed = parseStoredEffectSettings(stored.text, defaults);
+  if (parsed.source !== 'stored') return defaultsWith('file is invalid', parsed.issues);
+  return { settings: parsed.settings, issues: parsed.issues, source: SettingsSource.FILE, note: '' };
 }

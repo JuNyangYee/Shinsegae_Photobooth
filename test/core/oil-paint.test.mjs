@@ -12,6 +12,7 @@ import {
   layerSeedBase,
   pxScaleFor,
   resolveOilDrawing,
+  resultSizeFor,
   seedForTick,
 } from '../../src/web/core/oil-paint.js';
 import { config } from '../../src/web/config/config.js';
@@ -197,6 +198,22 @@ describe('resolveOilDrawing (해상도 비례)', () => {
   it('보완 층이 없으면 refine null', () => {
     const D = resolveOilDrawing({ ...oil2f, refine: null }, { width: 1080, height: 1920 });
     assert.equal(D.refine, null);
+  });
+});
+
+describe('resultSizeFor (결과 사진 크기, 5-2)', () => {
+  it('짧은 변을 1080으로, 짝수로 반올림 (원본 allocate)', () => {
+    assert.deepEqual(resultSizeFor(1080, 1920), { width: 1080, height: 1920 });
+    assert.deepEqual(resultSizeFor(2160, 3840), { width: 1080, height: 1920 });
+    assert.deepEqual(resultSizeFor(540, 960), { width: 1080, height: 1920 });
+    assert.deepEqual(resultSizeFor(608, 1080), { width: 1080, height: 1918 });
+    assert.deepEqual(resultSizeFor(1215, 2160), { width: 1080, height: 1920 });
+    assert.deepEqual(resultSizeFor(1920, 1080), { width: 1920, height: 1080 });
+  });
+
+  it('결과 크기에서는 px 비례값이 1 (원본과 같은 값)', () => {
+    const { width, height } = resultSizeFor(2160, 3840);
+    assert.equal(pxScaleFor(width, height), 1);
   });
 });
 

@@ -1,5 +1,7 @@
 // 실행: npm test
 import assert from 'node:assert/strict';
+import { config } from '../../src/web/config/config.js';
+import { loadInitialEffectSettings } from '../../src/web/config/settings-file.js';
 import { describe, it } from 'node:test';
 
 import { PRESENCE_STORAGE_KEY, serializePresenceSettings } from '../../src/web/config/presence-settings.js';
@@ -202,5 +204,30 @@ describe('createSettingsFileClient: 서버 API 요청', () => {
     const result = await pending;
     assert.equal(result.source, SettingsSource.DEFAULTS);
     assert.equal(result.note, 'file read failed: timeout 3000ms');
+  });
+});
+
+describe('loadInitialEffectSettings (효과 조절값, 5-2): 파일 → 기본값', () => {
+  const file = (read) => ({ read, write: () => { throw new Error('must not write'); } });
+
+  it('파일이 있으면 그 값', async () => {
+    const text = JSON.stringify({ version: 1, settings: { strength: 0.3, size: 1, boil: 0.2, fps: 12, grade: 0.5, refineThreshold: 0.3, previewScale: 0.5 } });
+    const r = await loadInitialEffectSettings({ file: file(async () => ({ found: true, text })), defaults: config.effect });
+    assert.equal(r.source, SettingsSource.FILE);
+    assert.equal(r.settings.fps, 12);
+    assert.deepEqual(r.settings.refine, [3.5, 3, 10, 0.6, 0.3]);
+    assert.deepEqual(r.issues, []);
+  });
+
+  it('파일이 없으면 기본값 (no file), 읽기 실패·형식 오류도 기본값', async () => {
+    const none = await loadInitialEffectSettings({ file: file(async () => ({ found: false })), defaults: config.effect });
+    assert.equal(none.source, SettingsSource.DEFAULTS);
+    assert.equal(none.note, 'no file');
+    assert.equal(none.settings.fps, 24);
+    const failed = await loadInitialEffectSettings({ file: file(async () => { throw new Error('timeout 3000ms'); }), defaults: config.effect });
+    assert.equal(failed.note, 'file read failed: timeout 3000ms');
+    const invalid = await loadInitialEffectSettings({ file: file(async () => ({ found: true, text: '{' })), defaults: config.effect });
+    assert.equal(invalid.note, 'file is invalid');
+    assert.match(invalid.issues[0], /not valid JSON/);
   });
 });

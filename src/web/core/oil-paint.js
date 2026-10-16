@@ -139,6 +139,16 @@ function put(i, sd, d, o, gw, spacing, width, height) {
 // - 높이 → 법선 세기: 한 칸(텍셀) 차이로 기울기를 재므로 × s.
 // - 흐름장(구조 텐서)은 그리는 해상도의 절반에서 텍셀 단위로 재므로 따로 바꾸지 않아도 비례한다.
 
+/**
+ * 결과(촬영 사진) 크기: 원본 allocate()처럼 짧은 변을 기준(1080)으로 맞추고 짝수로 반올림한다.
+ * 보이는 영역이 4K(2160x3840)여도 1080x1920으로 줄여 효과를 입힌다 (사용자 결정 2026-10-16).
+ * 미리보기는 이 크기 × previewScale로 그린다. 1이면 미리보기와 결과가 같은 크기·같은 그림이다.
+ */
+export function resultSizeFor(width, height, referenceShortSide = REFERENCE_SHORT_SIDE) {
+  const sc = referenceShortSide / Math.min(width, height);
+  return { width: Math.round((width * sc) / 2) * 2, height: Math.round((height * sc) / 2) * 2 };
+}
+
 /** 그리는 해상도의 px 비례값 s (짧은 변 / 기준 짧은 변) */
 export function pxScaleFor(width, height, referenceShortSide = REFERENCE_SHORT_SIDE) {
   return Math.min(width, height) / referenceShortSide;
