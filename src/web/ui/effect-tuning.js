@@ -1,0 +1,186 @@
+// 운영자용 사진 효과 조절 화면 (숨김 단축키 E, 관람객용 아님, 5-2).
+// 조절하는 즉시 미리보기에 반영하고, "저장"을 눌러야 효과 조절값 파일(서버 config/effect.local.json)에 기록한다.
+// 저장·취소·기본값·닫기 규칙은 인식 범위 조절(presence-tuning.js, R)과 같다:
+// 저장하지 않고 닫으면 저장된 값으로 되돌리고(실행 중인 값 = 다시 시작했을 때의 값), 저장 중에 닫으면 저장이 끝난 뒤 닫는다.
+// Node 테스트: test/ui/effect-tuning.test.mjs
+
+import {
+  applyEffectTunables,
+  effectLimits,
+  effectTunables,
+  normalizeEffectSettings,
+  sameEffectSettings,
+} from '../config/effect-settings.js';
+import { SettingsSource } from '../config/settings-file.js';
+
+// 슬라이더 항목: [조절값 키, 범위, 표시 소수 자릿수]. 범위는 원본 갤러리 슬라이더와 같다 (effect-settings.js)
+const SLIDERS = [
+  ['strength', effectLimits.strength, 2],
+  ['size', effectLimits.size, 2],
+  ['boil', effectLimits.boil, 2],
+  ['fps', effectLimits.fps, 0],
+  ['grade', effectLimits.grade, 2],
+  ['refineThreshold', effectLimits.refineThreshold, 2],
+  ['previewScale', effectLimits.previewScale, 2],
+];
+
+/**
+ * @param {{ panel: HTMLElement, preview: { setSettings: Function, getState: Function }, defaults: object,
+ *   initial: { settings: object, issues: string[], source: string, note: string },  시작할 때 정한 값 (settings-file.js)
+ *   saveSettings: (settings: object) => Promise<void>,  파일에 쓴다. 실패하면 예외
+ *   onOpenChange?: (open: boolean) => void, timers?: { setInterval: Function, clearInterval: Function } }} options
+ *   defaults: config.effect
+ */
+export function createEffectTuning({ panel, preview, defaults, initial, saveSettings, onOpenChange, timers = globalThis }) {
+  const liveText = panel.querySelector('[data-live]');
+  const stateText = panel.querySelector('[data-state]');
+  const messageText = panel.querySelector('[data-message]');
+  const sliders = new Map(SLIDERS.map(([key, limits, digits]) => {
+    const input = panel.querySelector(`input[data-key="${key}"]`);
+    input.min = String(limits.min);
+    input.max = String(limits.max);
+    input.step = String(limits.step);
+    return [key, { input, output: panel.querySelector(`output[data-key="${key}"]`), digits }];
+  }));
+
+  const baseDefaults = normalizeEffectSettings(defaults, defaults).settings;
+  const loaded = initial;
+  if (loaded.issues.length > 0) console.warn('[effect-tuning] stored settings adjusted:', loaded.issues);
+  let saved = loaded.settings;
+  let savedSource = loaded.source;
+  let savedNote = loaded.note;
+  let saving = false;
+  let closeAfterSave = false;
+  let current = saved;
+  let open = false;
+  let liveTimer = null;
+  preview.setSettings(current);
+
+  function apply(next) {
+    current = next;
+    preview.setSettings(current);
+    render();
+  }
+
+  function showMessage(text) {
+    messageText.textContent = text;
+  }
+
+  function render() {
+    const values = effectTunables(current);
+    for (const [key, { input, output, digits }] of sliders) {
+      const value = values[key];
+      input.disabled = value === null; // 보완 층이 없으면 문턱을 조절할 수 없다
+      input.value = value === null ? input.min : String(value);
+      output.textContent = value === null ? '-' : value.toFixed(digits);
+    }
+    const dirty = !sameEffectSettings(current, saved);
+    stateText.textContent = dirty ? '저장하지 않은 변경이 있습니다 (닫으면 취소됩니다)' : '저장된 값과 같습니다';
+    stateText.classList.toggle('is-dirty', dirty);
+  }
+
+  function renderLive() {
+    const e = preview.getState();
+    const ms = e.cpuAvgMs === null ? '-' : `${e.cpuAvgMs.toFixed(1)}ms`;
+    liveText.textContent = e.status === 'running'
+      ? `미리보기 ${e.width}x${e.height} · 초당 ${e.drawingsPerSecond}장 (설정 ${e.fps}) · 그리기 ${ms}`
+      : `미리보기 효과 ${e.status}${e.fault ? ` (${e.fault})` : ''} — 원본 미리보기 중입니다. 값은 저장할 수 있습니다.`;
+  }
+
+  function openingMessage() {
+    if (savedSource === SettingsSource.SAVED || !sameEffectSettings(current, saved)) return '';
+    const parts = [];
+    if (savedSource === SettingsSource.DEFAULTS && savedNote !== 'no file') {
+      parts.push(`효과 조절값 파일을 쓰지 못해 기본값으로 시작했습니다 (${savedNote}).`);
+    }
+    if (loaded.issues.length > 0) parts.push(`시작할 때 저장값을 고쳐 불러왔습니다: ${loaded.issues.join(', ')}`);
+    return parts.join(' ');
+  }
+
+  function setOpen(next) {
+    if (open === next) return;
+    if (!next && saving) {
+      closeAfterSave = true;
+      showMessage('저장 중입니다. 저장이 끝나면 닫습니다.');
+      return;
+    }
+    open = next;
+    panel.hidden = !open;
+    timers.clearInterval(liveTimer);
+    liveTimer = null;
+    if (open) {
+      render();
+      renderLive();
+      liveTimer = timers.setInterval(renderLive, 500);
+      showMessage(openingMessage());
+    } else if (!sameEffectSettings(current, saved)) {
+      console.info('[effect-tuning] closed without saving; reverted to saved settings');
+      apply(saved);
+    }
+    onOpenChange?.(open);
+  }
+
+  for (const [key, { input }] of sliders) {
+    input.addEventListener('input', () => {
+      apply(applyEffectTunables(current, { [key]: Number(input.value) }, defaults).settings);
+      showMessage('');
+    });
+  }
+
+  panel.addEventListener('click', async (event) => {
+    const action = event.target.closest('button[data-action]')?.dataset.action;
+    if (!action) return;
+    if (action === 'save') {
+      if (saving) return;
+      saving = true;
+      const target = current;
+      const button = event.target.closest('button');
+      button.disabled = true;
+      showMessage('저장 중...');
+      try {
+        await saveSettings(target);
+        saved = target;
+        savedSource = SettingsSource.SAVED;
+        savedNote = '';
+        render();
+        showMessage(sameEffectSettings(current, saved) ? '파일에 저장했습니다.' : '파일에 저장했습니다. 저장 중에 바뀐 값은 아직 저장되지 않았습니다.');
+      } catch (error) {
+        render();
+        showMessage(`저장하지 못했습니다: ${error?.message ?? error}`);
+      } finally {
+        saving = false;
+        button.disabled = false;
+        if (closeAfterSave) {
+          closeAfterSave = false;
+          setOpen(false);
+        }
+      }
+    } else if (action === 'revert') {
+      apply(saved);
+      showMessage('저장된 값으로 되돌렸습니다.');
+    } else if (action === 'defaults') {
+      apply(baseDefaults);
+      showMessage('기본값을 적용했습니다. 유지하려면 저장하세요.');
+    } else if (action === 'dock') {
+      panel.dataset.dock = panel.dataset.dock === 'top' ? 'bottom' : 'top';
+    } else if (action === 'close') {
+      setOpen(false);
+    }
+  });
+
+  render();
+
+  return {
+    isOpen: () => open,
+    toggle: () => setOpen(!open),
+    close: () => setOpen(false),
+    /** D 화면용: 지금 효과에 쓰는 값의 출처. 예: 'file', 'saved', 'defaults (no file)', 'file + unsaved changes' */
+    describeSettingsSource() {
+      const dirty = !sameEffectSettings(current, saved);
+      const note = savedNote ? ` (${savedNote})` : '';
+      const issues = savedSource !== SettingsSource.SAVED && loaded.issues.length > 0
+        ? ` (adjusted on load: ${loaded.issues.join('; ')})` : '';
+      return `${savedSource}${note}${dirty ? ' + unsaved changes' : ''}${issues}`;
+    },
+  };
+}

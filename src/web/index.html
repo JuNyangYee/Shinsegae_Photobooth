@@ -93,5 +93,58 @@
       <button type="button" data-action="copy">복사</button>
     </details>
   </section>
+
+  <!-- 운영자용 사진 효과 조절 (E 키로 열고 닫는다. Esc로도 닫는다.) -->
+  <section id="effect-panel" class="tuning-panel" data-dock="bottom" hidden>
+    <header class="tuning-header">
+      <strong>사진 효과 조절 (유화 · 획)</strong>
+      <span>E·Esc: 닫기 (저장하지 않은 변경은 취소)</span>
+    </header>
+    <p class="tuning-note" data-live></p>
+    <label class="tuning-row">
+      <span>강도 <small>(요철·광택·결)</small></span>
+      <input type="range" data-key="strength">
+      <output data-key="strength"></output>
+    </label>
+    <label class="tuning-row">
+      <span>붓 크기 <small>(획 굵기·간격·길이 배율)</small></span>
+      <input type="range" data-key="size">
+      <output data-key="size"></output>
+    </label>
+    <label class="tuning-row">
+      <span>획 다시 그리기 <small>(그림마다 새로 칠하는 비율)</small></span>
+      <input type="range" data-key="boil">
+      <output data-key="boil"></output>
+    </label>
+    <label class="tuning-row">
+      <span>초당 그림 <small>(스톱모션 느낌)</small></span>
+      <input type="range" data-key="fps">
+      <output data-key="fps"></output>
+    </label>
+    <label class="tuning-row">
+      <span>색 보정</span>
+      <input type="range" data-key="grade">
+      <output data-key="grade"></output>
+    </label>
+    <label class="tuning-row">
+      <span>세부 보존 문턱 <small>(낮을수록 세부를 더 살림)</small></span>
+      <input type="range" data-key="refineThreshold">
+      <output data-key="refineThreshold"></output>
+    </label>
+    <label class="tuning-row">
+      <span>미리보기 처리 해상도 <small>(결과 대비. 느리면 초당 그림부터 낮춘다)</small></span>
+      <input type="range" data-key="previewScale">
+      <output data-key="previewScale"></output>
+    </label>
+    <div class="tuning-buttons">
+      <button type="button" data-action="save">저장</button>
+      <button type="button" data-action="revert">취소 (저장된 값으로)</button>
+      <button type="button" data-action="defaults">기본값으로</button>
+      <button type="button" data-action="dock">패널 위·아래</button>
+      <button type="button" data-action="close">닫기</button>
+    </div>
+    <p class="tuning-state" data-state></p>
+    <p class="tuning-message" data-message></p>
+  </section>
 </body>
 </html>

@@ -8,8 +8,11 @@ import { createPresenceMonitor } from './vision/presence-monitor.js';
 import { serializePresenceSettings } from './config/presence-settings.js';
 import { createPresenceTuning } from './ui/presence-tuning.js';
 import { SessionState, createSession } from './core/session.js';
-import { createSettingsFileClient, loadInitialPresenceSettings } from './config/settings-file.js';
+import { createSettingsFileClient, loadInitialEffectSettings, loadInitialPresenceSettings } from './config/settings-file.js';
+import { effectTunables, serializeEffectSettings } from './config/effect-settings.js';
 import { EffectStatus, createEffectPreview } from './effect/effect-preview.js';
+import { createPhotoEffect } from './effect/photo-effect.js';
+import { createEffectTuning } from './ui/effect-tuning.js';
 
 const stage = document.getElementById('stage');
 const video = document.getElementById('preview');
@@ -24,8 +27,9 @@ const flash = document.getElementById('flash');
 const noticeText = document.getElementById('notice');
 const pauseBadge = document.getElementById('pause-badge');
 
-// 운영자 단축키 (관람객용 아님): D 개발용 정보, R 인식 범위 조절, S 수동 촬영 시작, X 강제 초기화, P 자동 촬영 일시정지
-const Keys = Object.freeze({ devInfo: 'KeyD', tuning: 'KeyR', start: 'KeyS', reset: 'KeyX', pause: 'KeyP' });
+// 운영자 단축키 (관람객용 아님): D 개발용 정보, R 인식 범위 조절, E 사진 효과 조절, S 수동 촬영 시작, X 강제 초기화,
+// P 자동 촬영 일시정지
+const Keys = Object.freeze({ devInfo: 'KeyD', tuning: 'KeyR', effectTuning: 'KeyE', start: 'KeyS', reset: 'KeyX', pause: 'KeyP' });
 
 // 관람객용 문구 (사용자 확정 2026-10-15). 상태 상세는 D 키 개발용 정보에만 보인다.
 const messages = Object.freeze({
@@ -82,8 +86,13 @@ const effect = createEffectPreview({
   },
 });
 
+// 촬영 결과에도 같은 효과: 셔터 순간 화면의 그림과 같은 프레임·seed로 결과 크기(짧은 변 1080)에 다시 그린다.
+// 효과를 그리지 못하면 원본 사진으로 대신한다 (photo-effect.js)
+const photoEffect = createPhotoEffect({ preview: effect });
+
 const capture = createCapture({
   video, stageAspect, mirror: config.mirror, ...config.capture, getFrameInfo: camera.getFrameInfo,
+  effect: photoEffect.apply,
 });
 
 // 촬영 한 사이클. 시작·취소·초기화는 session.request() 한 곳으로 들어간다 (키보드와 auto-start.js).
@@ -100,6 +109,9 @@ const session = createSession({
 const settingsFile = createSettingsFileClient(config.settingsFile);
 let tuning = null; // 불러오기가 끝나면 만든다
 let settingsReady = false;
+// 효과 조절값 파일 (서버 config/effect.local.json). 불러오기 전에는 config.effect 기본값으로 그린다 (판정과 무관하므로 막지 않는다)
+const effectSettingsFile = createSettingsFileClient(config.effectSettingsFile);
+let effectTuning = null; // 불러오기가 끝나면 만든다
 // 자동 촬영 일시정지 (P). 저장하지 않는다: 새로고침·재시작하면 다시 켜진다(운영자가 해제를 잊어도 회복되게).
 let autoPaused = false;
 
@@ -107,7 +119,9 @@ let autoPaused = false;
 // 조절 화면이 열려 있거나, 일시정지 중이거나, 조절값을 아직 불러오지 않았으면 자동 시작을 막는다.
 const autoStart = createAutoStart({
   session, presence,
-  isTuningOpen: () => tuning?.isOpen() ?? false,
+  // 인식 범위(R)·효과(E) 조절 화면이 열려 있으면 막는다. 효과를 조절하는 운영자가 화면 앞에 서서 보므로,
+  // 자동 회차가 끼어들면 결과 사진이 미리보기를 가린다.
+  isTuningOpen: () => (tuning?.isOpen() ?? false) || (effectTuning?.isOpen() ?? false),
   isPaused: () => autoPaused,
   isSettingsReady: () => settingsReady,
 });
@@ -188,6 +202,11 @@ function renderPresence() {
 function handleTuningOpenChange(open) {
   updateOverlay();
   if (!open) autoStart.evaluate('tuning-closed');
+}
+
+function handleEffectTuningOpenChange(open) {
+  if (!open) autoStart.evaluate('effect-tuning-closed');
+  if (!devInfo.hidden) renderDevInfo();
 }
 
 function renderSession(s) {
@@ -308,15 +327,32 @@ function effectDevLines() {
   const e = effect.getState();
   const ms = (value) => (value === null ? '-' : `${value.toFixed(1)}ms`);
   const losses = e.contextLosses ? `, context lost ${e.contextLosses}x` : '';
-  if (e.status === EffectStatus.DISABLED) return ['effect     : disabled (config.effect.enabled) -> camera preview'];
+  const t = effectTunables(effect.getSettings());
+  const values = `  values   : strength ${t.strength} size ${t.size} boil ${t.boil} fps ${t.fps} grade ${t.grade}`
+    + ` refine ${t.refineThreshold ?? '-'} scale ${t.previewScale}`
+    + ` (${effectTuning ? effectTuning.describeSettingsSource() : 'loading'}, ${config.effectSettingsFile.url})`;
+  const p = photoEffect.getStats();
+  let photo = '-';
+  if (p.last?.status === 'applied') {
+    photo = `applied ${p.last.width}x${p.last.height} seed ${p.last.seed} tick ${p.last.tick}`
+      + ` (${p.last.sameAsPreview ? 'same drawing as preview' : 'new drawing'}), ${ms(p.last.ms)}`;
+  } else if (p.last?.status === 'raw') {
+    photo = `RAW PHOTO ${p.last.width}x${p.last.height} (${p.last.reason})`;
+  } else if (p.last) {
+    photo = p.last.status;
+  }
+  const photoLine = `photo-fx   : ${photo} (applied ${p.applied}, raw ${p.fellBack})`;
+  if (e.status === EffectStatus.DISABLED) return ['effect     : disabled (config.effect.enabled) -> camera preview', photoLine];
   if (e.status === EffectStatus.FALLBACK || e.status === EffectStatus.CONTEXT_LOST) {
-    return [`effect     : ${e.status} (${e.fault || '-'}) -> camera preview${losses}`];
+    return [`effect     : ${e.status} (${e.fault || '-'}) -> camera preview${losses}`, values, photoLine];
   }
   return [
     `effect     : ${e.status}${e.shown ? '' : ' (hidden)'}, ${e.width}x${e.height} (preview x${e.previewScale}, px scale ${e.pxScale.toFixed(3)}),`
       + ` fps ${e.fps} -> ${e.drawingsPerSecond} drawings/s, boil ${e.boil}, seed ${e.seed ?? '-'}${losses}`,
     `  time     : cpu ${ms(e.cpuMs)} (avg ${ms(e.cpuAvgMs)}), gpu ${e.gpuTimer ? ms(e.gpuMs) : 'n/a'},`
       + ` strokes ${e.strokes}, ${e.renderer || '-'}`,
+    values,
+    photoLine,
   ];
 }
 
@@ -445,6 +481,25 @@ async function loadSettings() {
   if (!devInfo.hidden) renderDevInfo();
 }
 
+// 효과 조절값: 파일 → 기본값 (settings-file.js). 끝나면 조절 화면을 만들고 그 값을 미리보기에 넣는다.
+async function loadEffectSettings() {
+  try {
+    const initial = await loadInitialEffectSettings({ file: effectSettingsFile, defaults: config.effect });
+    if (initial.note && initial.note !== 'no file') console.warn('[effect-settings]', `${initial.source}: ${initial.note}`);
+    effectTuning = createEffectTuning({
+      panel: document.getElementById('effect-panel'),
+      preview: effect,
+      defaults: config.effect,
+      initial,
+      saveSettings: (settings) => effectSettingsFile.write(serializeEffectSettings(settings)),
+      onOpenChange: handleEffectTuningOpenChange,
+    });
+  } catch (error) {
+    console.error('[effect-settings] setup failed; continuing with defaults', error);
+  }
+  if (!devInfo.hidden) renderDevInfo();
+}
+
 function toggleDevInfo() {
   devInfo.hidden = !devInfo.hidden;
   clearInterval(devInfoTimer);
@@ -458,12 +513,18 @@ function toggleDevInfo() {
 
 window.addEventListener('keydown', (event) => {
   if (event.repeat || event.ctrlKey || event.altKey || event.metaKey) return;
+  // R·E 조절 화면은 한 번에 하나만 연다 (다른 쪽이 열려 있으면 키를 무시한다)
   if (event.code === Keys.devInfo) toggleDevInfo();
-  else if (event.code === Keys.tuning) tuning?.toggle();
+  else if (event.code === Keys.tuning) {
+    if (!effectTuning?.isOpen()) tuning?.toggle();
+  } else if (event.code === Keys.effectTuning) {
+    if (!tuning?.isOpen()) effectTuning?.toggle();
+  }
   else if (event.code === Keys.start) session.request('start', 'key');
   else if (event.code === Keys.reset) session.request('reset', 'key');
   else if (event.code === Keys.pause) togglePause();
   else if (event.code === 'Escape' && tuning?.isOpen()) tuning.close();
+  else if (event.code === 'Escape' && effectTuning?.isOpen()) effectTuning.close();
 });
 
 applyLayout();
@@ -483,6 +544,7 @@ session.subscribe(renderSession);
 document.addEventListener('visibilitychange', () => session.setPageVisible(!document.hidden));
 autoStart.start();
 loadSettings();
+loadEffectSettings();
 camera.start();
 presence.start();
 effect.start();
