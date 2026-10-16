@@ -9,6 +9,7 @@ param(
 #   /        -> src/web/index.html
 #   /lib/*   -> lib/ (404 when the folder does not exist)
 #   /local-api/presence-settings  GET/PUT operator presence settings (config/presence.local.json)
+#   /local-api/effect-settings    GET/PUT operator photo effect settings (config/effect.local.json)
 #   /*       -> src/web/
 
 Set-StrictMode -Version Latest
@@ -18,10 +19,12 @@ $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $webRoot = Join-Path $projectRoot 'src\web'
 $libRoot = Join-Path $projectRoot 'lib'
 
-# Operator presence settings (task 4-3). One fixed file; clients never choose a file name or path.
-$settingsApiPath = '/local-api/presence-settings'
+# Operator settings files (task 4-3 presence, 5-2 effect). Fixed table: exact URL -> one file name.
+# Clients never choose a file name or path. Every route shares the same write checks, size limit and atomic write.
 $settingsDir = Join-Path $projectRoot 'config'
-$settingsFile = Join-Path $settingsDir 'presence.local.json'
+$settingsRoutes = New-Object 'Collections.Generic.Dictionary[string,string]' ([StringComparer]::Ordinal)
+$settingsRoutes['/local-api/presence-settings'] = 'presence.local.json'
+$settingsRoutes['/local-api/effect-settings'] = 'effect.local.json'
 $maxSettingsBytes = 16384
 $expectedHost = "localhost:$Port"
 $expectedOrigin = "http://localhost:$Port"
@@ -171,7 +174,7 @@ function Read-LimitedBody($request, [int]$limit) {
 }
 
 # Only checks that the body is a UTF-8 JSON object. The page normalizes the values
-# (presence-settings.js), so any stored content still loads safely.
+# (presence-settings.js, effect-settings.js), so any stored content still loads safely.
 function Test-JsonObject([byte[]]$bytes) {
     $strict = New-Object Text.UTF8Encoding($false, $true)
     try {
@@ -209,9 +212,9 @@ function Invoke-WithRetry([scriptblock]$action) {
 
 # Atomic write: write a temp file in the same folder, flush it to disk, then replace the target.
 # Readers always see either the old or the new complete file.
-function Write-SettingsFile([byte[]]$bytes) {
+function Write-SettingsFile([string]$settingsFile, [byte[]]$bytes) {
     [void][IO.Directory]::CreateDirectory($settingsDir)
-    $temp = Join-Path $settingsDir ('presence.local.json.{0}.tmp' -f [Guid]::NewGuid().ToString('N'))
+    $temp = Join-Path $settingsDir ('{0}.{1}.tmp' -f [IO.Path]::GetFileName($settingsFile), [Guid]::NewGuid().ToString('N'))
     try {
         $stream = New-Object IO.FileStream($temp, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
         try {
@@ -238,7 +241,7 @@ function Write-SettingsFile([byte[]]$bytes) {
     }
 }
 
-function Read-SettingsFile {
+function Read-SettingsFile([string]$settingsFile) {
     for ($attempt = 1; ; $attempt++) {
         try {
             return ,[IO.File]::ReadAllBytes($settingsFile)
@@ -251,15 +254,17 @@ function Read-SettingsFile {
 }
 
 function Invoke-SettingsApi($request) {
-    # Exact path only: no query, no other names, no encoded variants.
-    if (-not ($request.RawUrl -ceq $settingsApiPath)) {
+    # Exact path only (ordinal table lookup): no query, no other names, no case or encoded variants.
+    $fileName = $null
+    if (-not $settingsRoutes.TryGetValue($request.RawUrl, [ref]$fileName)) {
         return New-ApiResult 404 'unknown local api'
     }
+    $settingsFile = Join-Path $settingsDir $fileName
     if ($request.HttpMethod -eq 'GET') {
         if (-not [IO.File]::Exists($settingsFile)) {
             return New-ApiResult 404 'no settings file'
         }
-        $bytes = Read-SettingsFile
+        $bytes = Read-SettingsFile $settingsFile
         return @{ Status = 200; ContentType = 'application/json; charset=utf-8'; Body = $bytes; Note = '' }
     }
     if ($request.HttpMethod -ne 'PUT') {
@@ -280,7 +285,7 @@ function Invoke-SettingsApi($request) {
     if ($null -ne $problem) {
         return New-ApiResult 400 $problem
     }
-    Write-SettingsFile $bytes
+    Write-SettingsFile $settingsFile $bytes
     return New-ApiResult 204 "saved $($bytes.Length) bytes"
 }
 
