@@ -7,9 +7,9 @@ import {
   presenceLimits,
   samePresenceSettings,
   serializePresenceSettings,
-} from './presence-settings.js';
+} from '../config/presence-settings.js';
 import { createRegionDrag } from './region-drag.js';
-import { SettingsSource } from './settings-file.js';
+import { SettingsSource } from '../config/settings-file.js';
 
 // 슬라이더 항목: [설정 키, 범위, 표시 소수 자릿수, 단위]
 const SLIDERS = [

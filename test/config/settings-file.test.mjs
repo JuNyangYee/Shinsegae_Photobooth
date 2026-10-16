@@ -2,9 +2,9 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { PRESENCE_STORAGE_KEY, serializePresenceSettings } from '../src/web/js/presence-settings.js';
-import { SettingsSource, createSettingsFileClient, loadInitialPresenceSettings } from '../src/web/js/settings-file.js';
-import { fakeClock, flush } from './helpers.mjs';
+import { PRESENCE_STORAGE_KEY, serializePresenceSettings } from '../../src/web/config/presence-settings.js';
+import { SettingsSource, createSettingsFileClient, loadInitialPresenceSettings } from '../../src/web/config/settings-file.js';
+import { fakeClock, flush } from '../helpers.mjs';
 
 const defaults = Object.freeze({
   region: Object.freeze({ x: 0.1, y: 0.1, width: 0.8, height: 0.8 }),

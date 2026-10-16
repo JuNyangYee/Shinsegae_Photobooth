@@ -3,9 +3,9 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it } from 'node:test';
 
-import { createPresenceTuning } from '../src/web/js/presence-tuning.js';
-import { SettingsSource } from '../src/web/js/settings-file.js';
-import { flush } from './helpers.mjs';
+import { createPresenceTuning } from '../../src/web/ui/presence-tuning.js';
+import { SettingsSource } from '../../src/web/config/settings-file.js';
+import { flush } from '../helpers.mjs';
 
 const defaults = Object.freeze({
   region: Object.freeze({ x: 0.1, y: 0.1, width: 0.8, height: 0.8 }),

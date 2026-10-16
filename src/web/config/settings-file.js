@@ -1,6 +1,6 @@
 // 운영자 조절값 파일 (서버 config/presence.local.json, API /local-api/presence-settings).
 // 시작할 때 불러오는 순서: 파일 → (파일이 없으면) localStorage에서 옮김 → 기본값.
-// 값의 검증·정규화는 presence-settings.js가 맡는다. Node 테스트: tests/settings-file.test.mjs
+// 값의 검증·정규화는 presence-settings.js가 맡는다. Node 테스트: test/config/settings-file.test.mjs
 
 import {
   loadPresenceSettings,

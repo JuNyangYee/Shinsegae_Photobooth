@@ -1,4 +1,4 @@
-// 실행: npm test  (또는 node --test tests/)
+// 실행: npm test  (또는 node --test test/core/presence.test.mjs)
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
@@ -10,7 +10,7 @@ import {
   presenceProgress,
   stepPresence,
   videoBoxToStage,
-} from '../src/web/js/presence.js';
+} from '../../src/web/core/presence.js';
 
 const STAGE = 9 / 16;
 

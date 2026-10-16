@@ -2,8 +2,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { computeCaptureCrop, createCapture } from '../src/web/js/capture.js';
-import { fakeCanvasEnvironment as fakeEnvironment, flush } from './helpers.mjs';
+import { computeCaptureCrop, createCapture } from '../../src/web/camera/capture.js';
+import { fakeCanvasEnvironment as fakeEnvironment, flush } from '../helpers.mjs';
 
 const STAGE = 9 / 16;
 

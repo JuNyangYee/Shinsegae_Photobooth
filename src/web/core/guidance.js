@@ -1,5 +1,5 @@
 // 관람객 안내 규칙: 카메라 상태와 감지기 상태를 하나의 규칙으로 합쳐 "준비 중" / "직원 문의" 문구를 정한다.
-// 순수 함수. Node 테스트: tests/guidance.test.mjs
+// 순수 함수. Node 테스트: test/core/guidance.test.mjs
 
 export const Guidance = Object.freeze({
   NONE: 'none', // 둘 다 정상: 문구 없음

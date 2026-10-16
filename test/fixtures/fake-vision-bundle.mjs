@@ -1,4 +1,4 @@
-// tests/face-detector.test.mjs 전용 MediaPipe 흉내 (테스트 파일이 아니므로 npm test가 직접 실행하지 않는다).
+// test/vision/face-detector.test.mjs 전용 MediaPipe 흉내 (테스트 파일이 아니므로 npm test가 직접 실행하지 않는다).
 // 실제 1.1.1처럼 생성할 때마다 로더 <script>를 붙이고, 모델 설정 전에 60초 통계 타이머를 만든다.
 // 별도 파일인 이유: face-detector.js는 setInterval을 부른 코드의 파일 이름(호출 스택)으로 라이브러리 코드를 알아본다.
 

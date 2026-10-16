@@ -5,7 +5,7 @@
 
 import { DetectorHealth, createDetectorKeeper } from './detector-keeper.js';
 import { DetectorFault, createFaceDetector } from './face-detector.js';
-import { errorLog } from './log-limit.js';
+import { errorLog } from '../core/log-limit.js';
 import {
   classifyFaces,
   sameCriteria,
@@ -13,7 +13,7 @@ import {
   initialPresenceState,
   presenceProgress,
   stepPresence,
-} from './presence.js';
+} from '../core/presence.js';
 
 export const DetectorStatus = Object.freeze({
   LOADING: 'loading', // 감지기 생성 중

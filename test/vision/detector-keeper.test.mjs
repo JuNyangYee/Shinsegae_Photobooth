@@ -2,8 +2,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { DetectorHealth, createDetectorKeeper } from '../src/web/js/detector-keeper.js';
-import { fakeClock, flush } from './helpers.mjs';
+import { DetectorHealth, createDetectorKeeper } from '../../src/web/vision/detector-keeper.js';
+import { fakeClock, flush } from '../helpers.mjs';
 
 // 손으로 진행시키는 타이머
 function manualTimers() {

@@ -1,6 +1,6 @@
 // MediaPipe Face Detector 생성·감지·종료만 맡는다.
 // MediaPipe 자료형은 이 파일 밖으로 내보내지 않고, 영상 기준 정규화 박스와 점수만 돌려준다.
-// Node 테스트: tests/face-detector.test.mjs (가짜 bundle·fetch·캔버스·document)
+// Node 테스트: test/vision/face-detector.test.mjs (가짜 bundle·fetch·캔버스·document)
 
 /**
  * @typedef {{ x: number, y: number, width: number, height: number, score: number }} DetectedFace

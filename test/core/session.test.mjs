@@ -2,8 +2,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { SessionState, createSession } from '../src/web/js/session.js';
-import { fakeClock, flush, quiet, timing } from './helpers.mjs';
+import { SessionState, createSession } from '../../src/web/core/session.js';
+import { fakeClock, flush, quiet, timing } from '../helpers.mjs';
 
 // takePhoto: 호출을 기록하고, 테스트가 resolve·reject 시점을 정한다.
 function fakeCamera() {

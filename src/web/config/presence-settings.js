@@ -1,6 +1,6 @@
 // 인식 판정 설정값의 검증·정규화·저장 형식과 영역 편집 계산.
 // 브라우저 API를 직접 쓰지 않는다 (저장소는 getItem·setItem을 가진 객체로 받는다).
-// Node 테스트: tests/presence-settings.test.mjs
+// Node 테스트: test/config/presence-settings.test.mjs
 //
 // 저장 형식 (4-3부터 서버 파일 config/presence.local.json, settings-file.js. 그전에는 localStorage 키 PRESENCE_STORAGE_KEY):
 //   { "version": 1, "settings": { "region": {x, y, width, height}, "minFaceHeight", "maxFaceHeight",

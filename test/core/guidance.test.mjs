@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { Guidance, decideGuidance } from '../src/web/js/guidance.js';
+import { Guidance, decideGuidance } from '../../src/web/core/guidance.js';
 
 const ok = Object.freeze({ ok: true, staffNow: false, since: null });
 const down = (since, staffNow = false) => ({ ok: false, staffNow, since });

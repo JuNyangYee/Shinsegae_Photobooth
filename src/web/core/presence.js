@@ -1,5 +1,5 @@
 // 얼굴 감지 결과로 "인식됨 / 인식 안됨"을 판정한다.
-// 브라우저 API를 쓰지 않는 순수 함수만 둔다. Node 테스트: tests/presence.test.mjs
+// 브라우저 API를 쓰지 않는 순수 함수만 둔다. Node 테스트: test/core/presence.test.mjs
 //
 // 좌표 기준 (모두 0~1 정규화, 왼쪽 위 원점)
 // - 영상 좌표: 카메라 프레임 전체 기준, 반전 전. face-detector.js가 돌려주는 값.

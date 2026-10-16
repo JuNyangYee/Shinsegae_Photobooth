@@ -7,10 +7,10 @@ import { readFile } from 'node:fs/promises';
 import { beforeEach, describe, it } from 'node:test';
 import { setImmediate as flushImmediate } from 'node:timers/promises';
 
-import { config } from '../src/web/js/config.js';
+import { config } from '../../src/web/config/config.js';
 import {
   DetectorFault, checkModel, createFaceDetector, probeWebGL, resetFaceDetectorCacheForTest,
-} from '../src/web/js/face-detector.js';
+} from '../../src/web/vision/face-detector.js';
 
 const MODEL = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
 const MODEL_SHA = createHash('sha256').update(MODEL).digest('hex');
@@ -54,8 +54,8 @@ function fakeCanvas(env) {
   return canvas;
 }
 
-// MediaPipe 흉내는 tests/fixtures/fake-vision-bundle.mjs (라이브러리 코드를 파일 이름으로 알아보므로 별도 파일)
-const FAKE_BUNDLE = './fixtures/fake-vision-bundle.mjs';
+// MediaPipe 흉내는 test/fixtures/fake-vision-bundle.mjs (라이브러리 코드를 파일 이름으로 알아보므로 별도 파일)
+const FAKE_BUNDLE = '../fixtures/fake-vision-bundle.mjs';
 
 function setupEnv({ webgl2 = true, webgl1 = true, renderer, fetchResult, failWith = () => null } = {}) {
   const env = {
@@ -128,10 +128,10 @@ describe('checkModel: 모델 사전 확인', () => {
   });
 
   it('config의 모델 크기·SHA-256은 저장소 파일과 tools/vendor-mediapipe.mjs 기록과 같다', async () => {
-    const file = await readFile(new URL('../lib/mediapipe/models/blaze_face_short_range.tflite', import.meta.url));
+    const file = await readFile(new URL('../../lib/mediapipe/models/blaze_face_short_range.tflite', import.meta.url));
     assert.equal(file.byteLength, config.faceDetection.modelBytes);
     assert.equal(createHash('sha256').update(file).digest('hex'), config.faceDetection.modelSha256);
-    const vendor = await readFile(new URL('../tools/vendor-mediapipe.mjs', import.meta.url), 'utf8');
+    const vendor = await readFile(new URL('../../tools/vendor-mediapipe.mjs', import.meta.url), 'utf8');
     assert.ok(vendor.includes(`sha256: '${config.faceDetection.modelSha256}'`));
   });
 });

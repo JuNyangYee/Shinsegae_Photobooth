@@ -1,4 +1,4 @@
-// tools/browser-check.mjs의 부품 중 Node 테스트로 확인하는 것 (개발 PC 전용). Node 테스트: tests/browser-check-lib.test.mjs
+// tools/browser-check.mjs의 부품 중 Node 테스트로 확인하는 것 (개발 PC 전용). Node 테스트: test/tools/browser-check-lib.test.mjs
 
 import { existsSync, readFileSync, readdirSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';

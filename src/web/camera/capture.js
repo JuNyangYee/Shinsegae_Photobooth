@@ -1,8 +1,8 @@
 // 한 장 캡처: 미리보기에 보이는 9:16 영역을 원본 해상도로 잘라 좌우 반전하고, 결과 이미지(Object URL)로 만든다.
 // 이미지는 메모리에만 둔다. 파일·영구 저장소·서버에 저장하지 않는다. 다 쓴 사진은 release()로 정리한다.
-// Node 테스트: tests/capture.test.mjs
+// Node 테스트: test/camera/capture.test.mjs
 
-import { computeCoverMapping } from './presence.js';
+import { computeCoverMapping } from '../core/presence.js';
 
 /**
  * 미리보기(object-fit: cover, 가운데 기준)에 보이는 영상 영역을 영상 픽셀 좌표로 돌려준다.

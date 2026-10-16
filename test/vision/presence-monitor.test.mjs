@@ -3,11 +3,11 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { createAutoStart } from '../src/web/js/auto-start.js';
-import { createPresenceMonitor } from '../src/web/js/presence-monitor.js';
-import { sameCriteria } from '../src/web/js/presence.js';
-import { SessionState, createSession } from '../src/web/js/session.js';
-import { fakeClock, flush, timing } from './helpers.mjs';
+import { createAutoStart } from '../../src/web/core/auto-start.js';
+import { createPresenceMonitor } from '../../src/web/vision/presence-monitor.js';
+import { sameCriteria } from '../../src/web/core/presence.js';
+import { SessionState, createSession } from '../../src/web/core/session.js';
+import { fakeClock, flush, timing } from '../helpers.mjs';
 
 const defaults = Object.freeze({
   region: Object.freeze({ x: 0.1, y: 0.1, width: 0.8, height: 0.8 }),

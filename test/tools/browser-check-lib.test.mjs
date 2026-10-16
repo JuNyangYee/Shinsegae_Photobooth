@@ -6,8 +6,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 
-import { backupFile, createCdpSession, restoreFile } from '../tools/browser-check-lib.mjs';
-import { fakeClock, flush } from './helpers.mjs';
+import { backupFile, createCdpSession, restoreFile } from '../../tools/browser-check-lib.mjs';
+import { fakeClock, flush } from '../helpers.mjs';
 
 const root = mkdtempSync(join(tmpdir(), 'photobooth-lib-test-'));
 after(() => rmSync(root, { recursive: true, force: true }));

@@ -1,14 +1,14 @@
-import { config } from './config.js';
-import { createAutoStart } from './auto-start.js';
-import { CameraStatus, createCameraMonitor } from './camera-monitor.js';
-import { createCapture } from './capture.js';
-import { DetectorHealth } from './detector-keeper.js';
-import { Guidance, decideGuidance } from './guidance.js';
-import { createPresenceMonitor } from './presence-monitor.js';
-import { serializePresenceSettings } from './presence-settings.js';
-import { createPresenceTuning } from './presence-tuning.js';
-import { SessionState, createSession } from './session.js';
-import { createSettingsFileClient, loadInitialPresenceSettings } from './settings-file.js';
+import { config } from './config/config.js';
+import { createAutoStart } from './core/auto-start.js';
+import { CameraStatus, createCameraMonitor } from './camera/camera-monitor.js';
+import { createCapture } from './camera/capture.js';
+import { DetectorHealth } from './vision/detector-keeper.js';
+import { Guidance, decideGuidance } from './core/guidance.js';
+import { createPresenceMonitor } from './vision/presence-monitor.js';
+import { serializePresenceSettings } from './config/presence-settings.js';
+import { createPresenceTuning } from './ui/presence-tuning.js';
+import { SessionState, createSession } from './core/session.js';
+import { createSettingsFileClient, loadInitialPresenceSettings } from './config/settings-file.js';
 
 const stage = document.getElementById('stage');
 const video = document.getElementById('preview');

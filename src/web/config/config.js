@@ -27,7 +27,7 @@ export const config = Object.freeze({
     bundlePath: '/lib/mediapipe/tasks-vision/vision_bundle.mjs',
     wasmPath: '/lib/mediapipe/tasks-vision/wasm',
     modelPath: '/lib/mediapipe/models/blaze_face_short_range.tflite',
-    // 생성 전 모델 사전 확인값. tools/vendor-mediapipe.mjs의 기록과 같아야 한다 (tests/face-detector.test.mjs가 실제 파일과 비교)
+    // 생성 전 모델 사전 확인값. tools/vendor-mediapipe.mjs의 기록과 같아야 한다 (test/vision/face-detector.test.mjs가 실제 파일과 비교)
     modelBytes: 229746,
     modelSha256: 'b4578f35940bf5a1a655214a1cce5cab13eba73c1297cd78e1a04c2380b0152f',
     delegates: Object.freeze(['GPU', 'CPU']), // 앞에서부터 시도한다

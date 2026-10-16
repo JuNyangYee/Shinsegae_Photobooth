@@ -424,7 +424,7 @@ async function runScenarios(app, origin) {
     const license = readFileSync(join(repo, 'lib', 'mediapipe', 'tasks-vision', 'LICENSE'));
     const sha256 = createHash('sha256').update(license).digest('hex');
     const outcome = await app.evaluate(`(async () => {
-      const m = await import('/js/face-detector.js');
+      const m = await import('/vision/face-detector.js');
       const probe = window.__photoboothCheck;
       const before = { timers: probe.intervals60s(), scripts: probe.loaderScripts() };
       const errors = [];

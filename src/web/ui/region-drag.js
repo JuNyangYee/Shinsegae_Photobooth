@@ -1,12 +1,12 @@
 // 인식 영역 사각형의 마우스 끌기 (이동, 모서리·변 핸들로 크기 조절).
-// DOM은 이벤트 대상(element, win)으로만 받는다. Node 테스트: tests/region-drag.test.mjs
+// DOM은 이벤트 대상(element, win)으로만 받는다. Node 테스트: test/ui/region-drag.test.mjs
 //
 // 끌기 동안에는 win에서 이동·놓기를 받는다. 포인터가 영역 밖(패널·화면 가장자리)으로 나가도 끊기지 않게 하고,
 // 포인터 캡처가 적용되지 않는 환경(검증용 headless Chrome에서 확인)에서도 동작하게 한다.
 // 놓기 이벤트를 놓쳐도 끌기가 남지 않게, 창 포커스를 잃거나(blur) 캡처를 잃거나(lostpointercapture)
 // 이동 중 주 버튼이 이미 떼어져 있으면 끌기를 끝낸다.
 
-import { moveRegion, resizeRegion } from './presence-settings.js';
+import { moveRegion, resizeRegion } from '../config/presence-settings.js';
 
 /**
  * @param {{ element: EventTarget, win: EventTarget, getRegion: () => object,

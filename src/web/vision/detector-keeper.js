@@ -1,7 +1,7 @@
 // 감지기 생성·재생성 관리와 감지기 상태. 생성에 실패하거나, 만든 감지기가 계속 실패해 버려지면 간격을 늘려 가며 다시 만든다.
-// MediaPipe를 직접 알지 않는다 (생성 함수를 받는다). Node 테스트: tests/detector-keeper.test.mjs
+// MediaPipe를 직접 알지 않는다 (생성 함수를 받는다). Node 테스트: test/vision/detector-keeper.test.mjs
 
-import { errorLog } from './log-limit.js';
+import { errorLog } from '../core/log-limit.js';
 
 // 감지기 자체의 상태. 인식 상태(present)와 별개다. 좌표·점수는 담지 않는다.
 export const DetectorHealth = Object.freeze({

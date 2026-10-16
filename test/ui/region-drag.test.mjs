@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { createRegionDrag } from '../src/web/js/region-drag.js';
+import { createRegionDrag } from '../../src/web/ui/region-drag.js';
 
 const SIZE = 1000; // 9:16 영역을 1000x1000 px로 가정 (좌표 → 0~1)
 

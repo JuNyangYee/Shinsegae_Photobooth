@@ -10,7 +10,7 @@ import {
   startCamera,
   stopStream,
 } from './camera.js';
-import { errorLog } from './log-limit.js';
+import { errorLog } from '../core/log-limit.js';
 
 export const CameraStatus = Object.freeze({
   STARTING: 'starting', // 준비 중 (권한 대기 포함)

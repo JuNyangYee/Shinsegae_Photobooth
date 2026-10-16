@@ -1,6 +1,6 @@
 // 촬영 한 사이클 상태 기계: 대기 → 카운트다운 → 촬영·결과 준비 → 결과 표시 → 쿨타임 → 대기.
 // DOM·카메라·캔버스를 직접 알지 않는다. 사진 만들기·정리 함수와 시계·타이머를 주입받는다.
-// Node 테스트: tests/session.test.mjs
+// Node 테스트: test/core/session.test.mjs
 
 import { errorLog } from './log-limit.js';
 

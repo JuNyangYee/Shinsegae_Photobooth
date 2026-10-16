@@ -1,5 +1,5 @@
 // 반복 오류 로그 제한. 무인 운영 중 같은 오류가 계속 나도 콘솔에는 처음 한 번과 주기적인 요약만 남긴다.
-// 카메라·감지기·캡처 오류가 같은 규칙을 쓴다. Node 테스트: tests/log-limit.test.mjs
+// 카메라·감지기·캡처 오류가 같은 규칙을 쓴다. Node 테스트: test/core/log-limit.test.mjs
 
 export const LOG_SUMMARY_MS = 60000; // 같은 오류가 이어지면 이 간격마다 한 번 요약을 남긴다 (가안)
 

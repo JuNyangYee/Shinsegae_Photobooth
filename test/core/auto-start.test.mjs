@@ -2,10 +2,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { createAutoStart, decideAutoRequest } from '../src/web/js/auto-start.js';
-import { createCapture } from '../src/web/js/capture.js';
-import { SessionState, createSession } from '../src/web/js/session.js';
-import { fakeCanvasEnvironment, fakeClock, fakePresence, flush, quiet, timing } from './helpers.mjs';
+import { createAutoStart, decideAutoRequest } from '../../src/web/core/auto-start.js';
+import { createCapture } from '../../src/web/camera/capture.js';
+import { SessionState, createSession } from '../../src/web/core/session.js';
+import { fakeCanvasEnvironment, fakeClock, fakePresence, flush, quiet, timing } from '../helpers.mjs';
 
 
 function setup({ present = false, cameraReady = true, tuningOpen = false, paused = false, settingsReady = true } = {}) {

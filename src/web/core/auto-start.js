@@ -1,6 +1,6 @@
 // 인식 상태 → 촬영 상태 기계 연결. 인식으로 자동 시작하고, 인식으로 시작한 회차는 대상이 떠나면 취소한다.
 // 인식 상태는 "인식됨 / 인식 안됨"만 받는다. 좌표·점수는 여기로 들어오지 않는다.
-// Node 테스트: tests/auto-start.test.mjs
+// Node 테스트: test/core/auto-start.test.mjs
 
 import { SessionState } from './session.js';
 
