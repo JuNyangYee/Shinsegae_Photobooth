@@ -1,5 +1,6 @@
 // 사진 효과 "유화 · 획 (세부 보존)" WebGL2 렌더러. 소스(영상·이미지) 한 장 → 효과 그림 한 장.
-// 출처: 재료 필터 갤러리 https://nau-filter-gallery.vercel.app/ 프리셋 `oil2f`
+// 출처: 같은 팀 동료가 만든 재료 필터 갤러리 https://nau-filter-gallery.vercel.app/ 프리셋 `oil2f`.
+//   배포 페이지에서 이식했다(원본 소스 저장소는 받지 못함). 원본이 바뀌면 다시 분석·비교한다 (docs/SYSTEM.md 6절)
 //   (원본 tex·pass·allocate·upload·renderDrawing·paintStrokes 중 oil2f 경로를 옮겼다. 셰이더는 oil-shaders.js)
 // 기법: Hertzmann 1998 (층 칠하기·보완 층). 패스 구조는 docs/SYSTEM.md 6절 "사진 효과(유화 · 획)".
 //

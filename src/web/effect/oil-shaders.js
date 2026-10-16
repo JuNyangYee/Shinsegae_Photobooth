@@ -1,6 +1,7 @@
 // 사진 효과 "유화 · 획 (세부 보존)" GLSL (WebGL2, GLSL ES 3.00).
 //
-// 출처: 재료 필터 갤러리 https://nau-filter-gallery.vercel.app/ 프리셋 `oil2f` (2026-10-16 받은 페이지).
+// 출처: 같은 팀 동료가 만든 재료 필터 갤러리 https://nau-filter-gallery.vercel.app/ 프리셋 `oil2f` (2026-10-16 받은 배포 페이지).
+//   배포 페이지에서 이식했다(원본 소스 저장소는 받지 못함). 원본이 바뀌면 다시 분석·비교한다 (docs/SYSTEM.md 6절)
 //   원본 셰이더 VS, FS_GRADE, FS_SST, FS_BLUR, FS_TFM, VS_STROKE, FS_STROKE, FS_UNDER, FS_COMPOSE에서
 //   oil2f가 실제로 지나는 분기(uMedium == 1 유화, 비교 위치 0, 노출 깜빡임 1)만 남겼다. 페이지에 라이선스 표기는 없다.
 // 기법: Hertzmann 1998 "Painterly Rendering with Curved Brush Strokes of Multiple Sizes"(층 칠하기·오차 기준 보완 층),

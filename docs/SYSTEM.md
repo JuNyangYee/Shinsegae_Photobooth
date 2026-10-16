@@ -101,6 +101,7 @@ test/                       Node 테스트 (개발 PC 전용, `npm test`). 하�
   core-deps.test.mjs        core 의존 규칙 검사 (2절 "폴더 규칙")
   helpers.mjs               테스트 공용 흉내 (가짜 시계·타이머, 인식 상태, 캔버스·Object URL). npm test가 직접 실행하지 않는다
   fixtures/fake-vision-bundle.mjs  face-detector 테스트용 MediaPipe 흉내 (번들 파일 이름으로 라이브러리 코드를 알아보므로 별도 파일)
+  fixtures/fake-webgl2.mjs  렌더러 테스트용 가짜 WebGL2 (만든·지운 객체 수, 손실·오류·실패 주입)
   core/
     presence.test.mjs       판정 모듈
     session.test.mjs        촬영 상태 기계 (가짜 시계)
@@ -121,6 +122,7 @@ test/                       Node 테스트 (개발 PC 전용, `npm test`). 하�
   effect/
     effect-preview.test.mjs  미리보기 상태·fps·장애(생성 실패·그리기 실패·컨텍스트 손실·복구)·반전·크롭·renderStill (가짜 렌더러·캔버스·화면 갱신)
     photo-effect.test.mjs   결과 효과·실패 시 원본 사진(결과 크기)·효과 끔·취소
+    oil-renderer.test.mjs   렌더러 GPU 자원 정리·GL 오류·컨텍스트 손실 판정 (5단계 검수, 가짜 WebGL2)
   ui/
     presence-tuning.test.mjs  조절 화면 저장 중 닫기 (최소한의 가짜 DOM)
     region-drag.test.mjs    영역 끌기 종료 조건 (EventTarget으로 흉내)
@@ -344,7 +346,7 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 | 촬영 결과에 효과 (5-2) | 효과 캔버스에 새 그림이 그려질 때마다 화소를 복사해 두고(최근 8장, 페이지 메모리), 카운트다운이 끝나는 순간을 기록한 뒤 `S`. 결과가 1080×1920이고 D `photo-fx`가 `applied … same drawing as preview`. 결과 사진과 각 그림을 10×10 블록 평균으로 비교해, 셔터 직전 그림과의 차이가 1.5/255 미만이고 다른 그림과의 차이가 그 두 배보다 크다 |
 | 효과 WebGL2 생성 실패 (5-1) | 페이지 스크립트보다 먼저 효과 캔버스의 `getContext('webgl2')`만 `null`을 돌려주게 하고 연다 → `fallback (webgl2-unavailable…)`, 캔버스 숨김, 안내 문구 없음, 카메라·감지기 정상, `S` 한 사이클과 자원 0, 결과는 원본 사진(`RAW PHOTO`) |
 | 효과 조절 `E` (5-2) | `E`로 열어 초당 그림 슬라이더를 12로 → 바로 약 12장/초, 저장 → 새로고침 뒤 `fps 12`, `GET /local-api/effect-settings` 200(`fps` 12), 헤더 없는 `PUT` 403, 대소문자 다른 경로 404. 끝나면 두 조절값 파일을 파일 시스템으로 되돌린다 |
-| 결과 효과 렌더 실패 (5-2) | 페이지 스크립트보다 먼저 `readPixels`를 감싸, 플래그를 켜면 100만 화소 이상 읽기만 실패시킨다 → `S` 한 사이클이 끝까지 돌고 결과는 원본 사진 1080×1920(D `photo-fx`가 `RAW PHOTO`), 자원 0, 미리보기 효과는 계속 `running` |
+| 결과 효과 렌더 실패 3가지 (5-2, 검수 1) | 페이지 스크립트보다 먼저 `readPixels`를 감싸, 100만 화소 이상 읽기만 한 번 건드린다: 예외, 실제 `INVALID_OPERATION`(RGB 형식으로 읽기), 읽기 직전 실제 컨텍스트 손실(`WEBGL_lose_context`). 셋 다 `S` 한 사이클이 끝까지 돌고 결과는 원본 사진 1080×1920(D `photo-fx`가 `RAW PHOTO`와 원인), 자원 0. 미리보기는 계속 `running`(손실은 되살린 뒤 `running`) |
 | 전체 기록 | 외부 요청 0, CSP 위반 0(통계 차단 제외), 페이지 예외 0 |
 
 - **범위 밖:** 가짜 카메라 영상에는 얼굴이 없으므로 **자동 시작·이탈 취소·인식 중 `P`는 확인하지 않는다.** 이것들은 Node 통합 테스트(`test/core/auto-start.test.mjs`, `test/vision/presence-monitor.test.mjs`)와 사람의 실측으로 확인한다. 키오스크 화면, OBS 시작·중지, 절전 복귀, 4K도 범위 밖이다.
@@ -940,8 +942,10 @@ const detector = await FaceDetector.createFromOptions(fileset, {
 
 **출처와 라이선스**
 
-- 원본: 필터 갤러리 `https://nau-filter-gallery.vercel.app/`(사용자 지정)의 프리셋 `oil2f`. 페이지 HTML 한 파일(92,403바이트, SHA-256 `c0020911aea7bdcb…0d739a77`, 2026-10-16 받음)에 셰이더와 JS가 모두 들어 있다. 원본 HTML은 저장소에 넣지 않았다.
-- **라이선스 표기 없음.** 페이지 본문에 라이선스·저작권 문구가 없고, 사이트의 `LICENSE`·`LICENSE.md`·`license.txt`는 404다. 페이지 안의 MIT 언급은 다른 프리셋(수채 v4의 MNPR) 출처라 `oil2f`와 관계없다. 사용 권한은 사용자 확인이 필요하다(로그 02 "질문").
+- 원본: **같은 팀 동료가 만든 필터 갤러리** `https://nau-filter-gallery.vercel.app/`(사용자 지정)의 프리셋 `oil2f`. 페이지 HTML 한 파일(92,403바이트, SHA-256 `c0020911aea7bdcb…0d739a77`, 2026-10-16 받음)에 셰이더와 JS가 모두 들어 있다. 원본 HTML은 저장소에 넣지 않았다.
+- **원본 소스 저장소는 받지 못했고, 배포된 페이지에서 이식했다.** 기준 해상도(짧은 변 1080)에서 원본 페이지와 화소가 같음을 확인했다(아래 "원본과의 차이", 로그 02).
+- **원본이 바뀌면** 배포 페이지를 다시 받아 분석하고 같은 방법(합성 시험 이미지, 같은 매개변수·seed, 화소 비교)으로 비교한다. 원본 저장소를 받으면 그쪽을 기준으로 한다.
+- **라이선스 표기 없음.** 페이지 본문에 라이선스·저작권 문구가 없고, 사이트의 `LICENSE`·`LICENSE.md`·`license.txt`는 404다. 페이지 안의 MIT 언급은 다른 프리셋(수채 v4의 MNPR) 출처라 `oil2f`와 관계없다. 사용 권한은 오케스트레이터가 사용자에게 확인 중이다(로그 03).
 - 원본이 밝힌 기법 출처: Hertzmann 1998, "Painterly Rendering with Curved Brush Strokes of Multiple Sizes"(SIGGRAPH 98). 큰 붓에서 작은 붓으로 층을 칠하고, 칠한 결과가 원본과 많이 다른 곳에만 가는 붓을 더한다.
 - 원본에 표기는 없지만 셰이더의 `hash12`는 Dave Hoskins "Hash without Sine"(MIT)과 같은 식이다.
 - 이식한 파일 머리말에 출처 URL·프리셋 이름·기법 출처를 적었다: `core/oil-paint.js`, `config/effect-settings.js`, `effect/oil-shaders.js`, `effect/oil-renderer.js`.
@@ -1036,10 +1040,11 @@ const detector = await FaceDetector.createFromOptions(fileset, {
 | 상황 | 처리 |
 |---|---|
 | WebGL2 컨텍스트를 만들지 못함(`webgl2-unavailable`), `EXT_color_buffer_float` 없음(흐름장이 음수를 담지 못함), 셰이더·프레임버퍼 실패 | 캔버스를 숨기고 원본 미리보기(`fallback`). 새로고침 전까지 다시 시도하지 않는다. 콘솔 경고 한 번(`errorLog`의 `effect` 분류) |
-| 그리기 중 예외 | 렌더러를 버리고 `fallback` |
+| 그리기 중 예외, **그림을 마친 뒤 GL 오류**(`getError`)·컨텍스트 손실 (5단계 검수 1) | 렌더러를 버리고 `fallback`(손실이면 `context-lost`를 기다린다). 그림마다 시작 전에 쌓인 오류를 비우고, 그림이 끝나면 `isContextLost()`·`getError()`를 확인한다. 이 확인이 GPU 명령을 한 번 동기화해 그림당 CPU 약 0.8~1ms가 더 든다(실제 OBS 1배: 6.5~6.7ms → 7.4~7.6ms, 로그 03) |
 | 컨텍스트 손실(`webglcontextlost`) | `preventDefault()`로 되살릴 수 있게 하고 원본 미리보기(`context-lost`). `webglcontextrestored`가 오면 렌더러를 새로 만들어 다시 효과 |
 
 - 어느 경우든 카메라·감지·촬영은 이 모듈과 관계없이 계속 돈다(브라우저 확인 시나리오, 실제 OBS 확인).
+- **GPU 자원 (5단계 검수 2·3):** 렌더러는 프로그램·텍스처·프레임버퍼·버퍼·VAO를 만드는 즉시 한 목록(`owned`)에 넣는다. 텍스처 하나(`tex`)·대상 묶음(`allocate`)·초기화(셰이더 컴파일 등)가 만들다 실패하면 그때까지 만든 것을 지우고, `dispose()`는 목록 전체를 지운다. 버린 렌더러(장애)도 `dispose()`한다. 살아 있는 자원 수는 `liveResources()`로 볼 수 있다(테스트용).
 - 관람객 안내 문구는 바꾸지 않는다. 효과 장애는 관람객이 할 일이 없고, 원본 미리보기로 촬영은 계속되므로 D 화면에만 보인다.
 - **D 화면 `effect` 줄:** 상태, 그리는 해상도(배율, px 비례 s), `fps` → 실제 초당 그림 수, `boil`, 마지막 seed, 컨텍스트 손실 횟수. 아래 `time` 줄은 그리기 CPU 시간(마지막·평균), GPU 시간(`EXT_disjoint_timer_query_webgl2`가 있을 때), 획 수, 렌더러 이름. 장애면 `fallback (원인) -> camera preview`.
 
@@ -1076,7 +1081,7 @@ const detector = await FaceDetector.createFromOptions(fileset, {
   - 보이는 그림이 없거나(카메라 준비 직후) 영상 크기가 바뀌었으면 지금 프레임으로 새로 그린다(D `new drawing`).
 - 화면 밖 대상 `out`에 그리고 `readPixels`로 읽어 새 2D 캔버스에 넣는다. 그 뒤는 기존 캡처 순서(인코딩·Object URL·정리)다. 새 프레임 확인(500ms), 회차 취소 시 즉시 정리, 늦게 도착한 결과 폐기, 자원 해제 규칙은 그대로다(4절, 위 "캡처와 결과 이미지").
 - **효과를 그리지 못하면 원본 사진으로 대신한다.** 원본 사진도 결과 크기(짧은 변 1080)로 줄인다. 관람객 흐름은 끊지 않고 콘솔 경고(`errorLog`의 `effect-capture` 분류, 반복은 요약)와 D 화면 `photo-fx` 줄(`RAW PHOTO … (원인)`)로 남긴다.
-  - 원인 예: 미리보기 효과가 장애·컨텍스트 손실 중(`not-running`), 화소 읽기 실패, 2D 캔버스 실패.
+  - 원인 예: 미리보기 효과가 장애·컨텍스트 손실 중(`not-running`), 화소 읽기 실패, 화소를 읽은 뒤 GL 오류(`render-failed: GL error …`)·컨텍스트 손실(`context-lost: …`) — 이때 읽은 화소는 비어 있을 수 있어 효과 사진으로 쓰지 않는다(5단계 검수 1), 2D 캔버스 실패.
   - 촬영 실패로 처리하지 않은 이유: 관람객은 이미 3·2·1을 거쳐 찍혔고 다시 찍을 방법이 없다(비접촉). 원본 사진이라도 받는 편이 낫고, 효과 장애는 미리보기에서 이미 원본으로 보이고 있던 경우가 대부분이다.
 - `config.effect.enabled`가 false면 결과도 효과 없이 예전처럼 원본 해상도 그대로다.
 - **D 화면 `photo-fx` 줄:** 마지막 결과의 상태(`applied 1080x1920 seed … tick … (same drawing as preview), 시간` 또는 `RAW PHOTO …`), 누적 효과·원본 수.

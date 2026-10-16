@@ -1,7 +1,7 @@
 // 사진 효과 "유화 · 획 (세부 보존)"의 순수 계산: 획 목록, 해상도 비례 규칙, 그림 번호(tick)·seed.
 // DOM·WebGL을 쓰지 않는다. Node 테스트: test/core/oil-paint.test.mjs
 //
-// 출처: 재료 필터 갤러리 https://nau-filter-gallery.vercel.app/ 프리셋 `oil2f`
+// 출처: 같은 팀 동료가 만든 재료 필터 갤러리 https://nau-filter-gallery.vercel.app/ 프리셋 `oil2f`. 배포 페이지에서 이식했다(원본 소스 저장소는 받지 못함). 원본이 바뀌면 다시 분석·비교한다 (docs/SYSTEM.md 6절)
 //   (원본 ihash·makeStrokes·paintStrokes의 매개변수 계산·currentTick을 옮겼다. 2026-10-16 받은 페이지 기준)
 // 기법: Hertzmann 1998, "Painterly Rendering with Curved Brush Strokes of Multiple Sizes" (SIGGRAPH 98)의
 //   큰 붓 → 작은 붓 층 칠하기와, 칠한 결과가 원본과 많이 다른 곳에만 가는 붓을 더하는 보완 층. 원본 주석에 출처 표기.
