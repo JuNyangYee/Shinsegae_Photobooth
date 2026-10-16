@@ -1,6 +1,6 @@
 # SYSTEM — 기술 구조와 제약
 
-> 실제로 만든 부분은 "구현됨"으로, 아직 만들지 않은 계획은 "가안"으로 표시한다. 구현 범위는 1단계(정적 서버, 9:16 반전 미리보기, 카메라 상태·자동 회복), 2-1(MediaPipe 로컬 라이브러리 배치), 2-2(얼굴 감지와 인식 상태), 2-3(운영자용 인식 범위 조절), 3-1(촬영 상태 기계와 키보드 수동 시작 한 사이클), 3-2(인식 결과로 자동 시작·이탈 취소), 3-3(3단계 검수 반영), 4-1(감지기 안정성·장애 안내), 4-2(현장 실행 스크립트), 4-3(조절값 파일 저장·자동 촬영 일시정지), 4-4(브라우저 확인 도구·장시간 실측), 4-5(4단계 검수 반영)까지다. 사진 효과·인쇄는 아직 없다.
+> 실제로 만든 부분은 "구현됨"으로, 아직 만들지 않은 계획은 "가안"으로 표시한다. 구현 범위는 1단계(정적 서버, 9:16 반전 미리보기, 카메라 상태·자동 회복), 2-1(MediaPipe 로컬 라이브러리 배치), 2-2(얼굴 감지와 인식 상태), 2-3(운영자용 인식 범위 조절), 3-1(촬영 상태 기계와 키보드 수동 시작 한 사이클), 3-2(인식 결과로 자동 시작·이탈 취소), 3-3(3단계 검수 반영), 4-1(감지기 안정성·장애 안내), 4-2(현장 실행 스크립트), 4-3(조절값 파일 저장·자동 촬영 일시정지), 4-4(브라우저 확인 도구·장시간 실측), 4-5(4단계 검수 반영), 5-1(사진 효과 "유화 · 획" 이식과 실시간 미리보기)까지다. 촬영 결과에 효과 적용·조절 화면(5-2)과 인쇄는 아직 없다.
 
 **목차**
 
@@ -9,7 +9,7 @@
 3. 카메라와 영상 — OBS, 화면 배치, 좌우 반전, 권한, 카메라 상태와 자동 회복
 4. 촬영 상태 — 촬영 한 사이클, 실패와 취소 경계, 운영자 단축키, 자동 시작과 이탈 취소, 출력 연동 참고
 5. 촬영 시작 인식 — 얼굴 감지와 인식 상태, 감지기 상태와 장애 안내, 인식 범위 조절, 다인원, 성능, MediaPipe 로컬 라이브러리
-6. 사진 처리 — 캡처와 결과 이미지
+6. 사진 처리 — 캡처와 결과 이미지, 사진 효과(유화 · 획)
 7. 참고 자료
 
 ## 1. 전체 구성
@@ -19,8 +19,9 @@
                                               │ getUserMedia()
 로컬 정적 서버 (localhost) ──▶ 같은 PC 브라우저 (세로 9:16 전체화면)
                                  카메라 → 미리보기(<video>, 반전) → 촬영 진행 → Canvas 캡처(반전) → 결과 화면
-                                                 ▲                                 │
-                                      감지 결과 또는 개발용 키      사진 효과 연결 지점 (TBD)
+                                   │             ▲                                 │
+                                   │  감지 결과 또는 개발용 키      사진 효과 연결 지점 (5-2)
+                                   └→ 효과 미리보기(WebGL2 유화 캔버스, <video> 위를 덮음. 실패하면 원본 미리보기)
                                                                                     │
                                                               (이후 범위) 로컬 인쇄 서비스
 ```
@@ -64,18 +65,20 @@ bin/
   server/serve.ps1          정적 서버, 조절값 파일 API (구현됨)
 src/web/                    (구현됨) 폴더 규칙은 2절 "폴더 규칙"
   index.html                진입점 (`/`)
-  main.js                   화면 조립, 인식 상태 임시 표시, 촬영 사이클 화면·단축키, 개발용 정보·감지 박스 겹쳐 그리기(D 키)
+  main.js                   화면 조립, 인식 상태 임시 표시, 촬영 사이클 화면·단축키, 개발용 정보·감지 박스 겹쳐 그리기(D 키), 효과 미리보기 연결
   style.css                 페이지 스타일
   config/
-    config.js               바꿀 수 있는 값 (반전, 화면 비율, 카메라, 회복 시간, 감지기, 인식 판정, 촬영 시간, 결과 이미지 형식)
+    config.js               바꿀 수 있는 값 (반전, 화면 비율, 카메라, 회복 시간, 감지기, 인식 판정, 촬영 시간, 사진 효과, 결과 이미지 형식)
     presence-settings.js    판정 설정 검증·정규화·저장 형식, 영역 이동·크기 조절 계산 (순수 함수)
     settings-file.js        조절값 파일 API 클라이언트, 시작할 때 불러오기 순서(파일 → localStorage 옮기기 → 기본값)
+    effect-settings.js      사진 효과 설정 범위·정규화 (순수 함수, 5-1)
   core/
     session.js              촬영 한 사이클 상태 기계 (상태 전이·타이머·회차, 시작·취소·초기화 입구)
     auto-start.js           인식 상태 → 상태 기계 연결 (자동 시작 레벨 판정 순수 함수, 이탈 취소)
     presence.js             인식 판정 순수 함수 (좌표 변환, 인정 조건, 시간 안정화)
     guidance.js             관람객 안내 규칙: 카메라·감지기 상태 → "준비 중"/"직원 문의" (순수 함수)
     log-limit.js            반복 오류 로그 제한 (처음 한 번과 주기적인 요약)
+    oil-paint.js            유화 효과 순수 계산: 획 목록(ihash·boil·seed), 해상도 비례 규칙, 그림 번호(tick)·seed (5-1)
   camera/
     camera.js               카메라 장치 선택·스트림 시작·종료
     camera-monitor.js       카메라 상태 감시(첫 프레임·끊김)·자동 회복·상태 구독
@@ -84,6 +87,10 @@ src/web/                    (구현됨) 폴더 규칙은 2절 "폴더 규칙"
     face-detector.js        MediaPipe Face Detector 사전 확인(WebGL·모델 SHA-256)·생성(GPU→CPU)·실패 정리·감지·종료
     detector-keeper.js      감지기 생성·재시도(간격 늘림·상한)·폐기 후 재생성 (한 번에 하나만), 감지기 상태(DetectorHealth)
     presence-monitor.js     감지 루프, 인식 상태 구독 (isPresent·subscribe), 판정 설정 교체 (setSettings)
+  effect/                   (5-1) 사진 효과 "유화 · 획" (6절)
+    oil-shaders.js          GLSL ES 3.00 셰이더 (원본 oil2f 경로 + 출력 단계)
+    oil-renderer.js         WebGL2 렌더러: 텍스처·패스·획 그리기, 소스 한 장 → 효과 그림, GPU 시간
+    effect-preview.js       실시간 미리보기: 카메라 영상 → 효과 캔버스, 반전·크롭, fps, 장애 시 원본 미리보기, D 화면 상태
   ui/
     presence-tuning.js      운영자용 인식 범위 조절 화면 (R 키), 저장은 조절값 파일로
     region-drag.js          인식 영역 마우스 끌기 (이동·크기 조절, 끌기 종료 조건)
@@ -97,6 +104,7 @@ test/                       Node 테스트 (개발 PC 전용, `npm test`). 하�
     auto-start.test.mjs     자동 시작·이탈 취소 (실제 상태 기계 + 가짜 시계·인식 상태)
     guidance.test.mjs       안내 규칙
     log-limit.test.mjs      로그 제한
+    oil-paint.test.mjs      획 목록 결정성·boil 비율·캐시 합치기 = 전부 새로 만들기·원본 ihash 값, 해상도 비례, tick·seed
   camera/
     capture.test.mjs        캡처 영역 계산·자원 정리 (캔버스·Object URL 흉내)
   vision/
@@ -106,6 +114,9 @@ test/                       Node 테스트 (개발 PC 전용, `npm test`). 하�
   config/
     presence-settings.test.mjs  설정 검증·영역 편집 계산
     settings-file.test.mjs  조절값 불러오기 순서·마이그레이션·시간 초과(본문 멈춤 포함), API 클라이언트
+    effect-settings.test.mjs  효과 설정 범위·정규화
+  effect/
+    effect-preview.test.mjs  미리보기 상태·fps·장애(생성 실패·그리기 실패·컨텍스트 손실·복구)·반전·크롭 (가짜 렌더러·캔버스·화면 갱신)
   ui/
     presence-tuning.test.mjs  조절 화면 저장 중 닫기 (최소한의 가짜 DOM)
     region-drag.test.mjs    영역 끌기 종료 조건 (EventTarget으로 흉내)
@@ -308,7 +319,7 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 - **계측 스크립트:** 생성 실패 정리 시나리오를 위해, 도구가 페이지 스크립트보다 먼저 `setInterval`·`clearInterval`을 감싸 살아 있는 타이머를 센다(`Page.addScriptToEvaluateOnNewDocument`). 앱 코드는 바꾸지 않는다.
 - 사진·프레임을 저장하지 않는다.
 
-**시나리오 (한 번에 약 40초)**
+**시나리오 (한 번에 약 60초, 5-1부터)**
 
 | 시나리오 | 확인 |
 |---|---|
@@ -318,9 +329,12 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 | 감지기 생성 실패 정리 | 페이지에서 `createFaceDetector`를 모델 대신 LICENSE 파일(크기·SHA-256은 맞춤)로 3번 불러 실제 MediaPipe 그래프 시작에서 실패시킨다. 60초 타이머·로더 스크립트 수가 늘지 않고, 앱의 감지기는 `ok` 그대로 (4단계 검수 6의 실제 브라우저 확인) |
 | 권한 거절 → 허용 | 거절 상태로 열면 카메라 `permission-denied`와 "직원에게 문의해 주세요", 허용하면 권한 `change` 이벤트로 바로 다시 연결해 `ready`(개발 PC 약 0.3초), 안내 사라짐 |
 | 모델 차단 | 모델 요청 404 → 감지기 `retrying / model-unavailable`, "준비 중입니다", 인식 표시 숨김, 그 상태에서 `S` 한 사이클과 자원 0 |
+| 사진 효과 미리보기 (5-1) | D `effect`가 `running`, 효과 캔버스가 보이고 `<video>`와 같은 자리·크기, CSS 반전 없음. 초당 그림 수 = `fps`(±1). `WEBGL_lose_context`로 컨텍스트를 잃게 하면 `context-lost`·캔버스 숨김·카메라 `ready`·영상 재생 중, 되살리면 다시 `running` |
+| 효과 WebGL2 생성 실패 (5-1) | 페이지 스크립트보다 먼저 효과 캔버스의 `getContext('webgl2')`만 `null`을 돌려주게 하고 연다 → `fallback (webgl2-unavailable…)`, 캔버스 숨김, 안내 문구 없음, 카메라·감지기 정상, `S` 한 사이클과 자원 0 |
 | 전체 기록 | 외부 요청 0, CSP 위반 0(통계 차단 제외), 페이지 예외 0 |
 
 - **범위 밖:** 가짜 카메라 영상에는 얼굴이 없으므로 **자동 시작·이탈 취소·인식 중 `P`는 확인하지 않는다.** 이것들은 Node 통합 테스트(`test/core/auto-start.test.mjs`, `test/vision/presence-monitor.test.mjs`)와 사람의 실측으로 확인한다. 키오스크 화면, OBS 시작·중지, 절전 복귀, 4K도 범위 밖이다.
+- **실제 카메라 앞에 사람이 있으면(`--camera real`):** `S` 한 사이클이 쿨타임 뒤 자동 회차로 이어져 대기 상태를 기다리다 시간 초과로 실패한다(`S` 사이클이 들어 있는 시나리오 2개). 5-1 이전(`689f261`)에도 같다(로그 02). 화면 앞을 비우고 돌린다.
 
 **장시간 실측 (`--soak [분]`, 기본 10분)**
 
@@ -346,6 +360,7 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 | 촬영 진행 (구현됨) | `session.js`: 상태 전환, 카운트다운·결과·쿨타임 타이머, 회차 식별자, 취소·강제 초기화, 결과 종료 시계 시작 지점. DOM·카메라를 모르고 시계·타이머·사진 함수를 주입받는다 |
 | 이미지 (구현됨) | `capture.js`: 보이는 9:16 영역을 원본 해상도로 잘라 반전 캡처, 사진 효과 자리(지금은 그대로 통과), JPEG 인코딩, Object URL 생성·정리, 남은 자원 수 |
 | 결과 화면 (구현됨) | `main.js`: 카운트다운 숫자, 플래시, 결과 사진, 쿨타임 문구. 결과가 끝나면 `<img>`의 `src`를 먼저 지운 뒤 상태 기계가 Object URL을 정리한다 |
+| 사진 효과 (미리보기 구현됨, 5-1) | `oil-paint.js`(core): 획 목록·해상도 비례·tick. `oil-renderer.js`: WebGL2 패스. `effect-preview.js`: 카메라 영상 → 효과 캔버스, 장애 시 원본 미리보기. 카메라·감지·촬영 상태는 모르고 `camera.isReady()`와 `<video>`만 받는다 (6절) |
 
 - 감지 모델의 세부 출력(좌표, 신뢰도 등)이 촬영 진행 코드나 화면 전체로 퍼지지 않게 한다. 좌표·점수는 `presence-monitor.js`의 `getDebugSnapshot()`(D 개발용 화면 전용)으로만 꺼낸다.
 - 사진 효과는 "캡처 이미지 → 결과 화면" 사이에 끼울 수 있는 경계만 둔다. 범용 플러그인 구조는 만들지 않는다.
@@ -362,11 +377,12 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 | `camera/` | 카메라 스트림, 카메라 상태 감시, 캔버스 캡처 | `camera`, `core`, `config` |
 | `vision/` | MediaPipe 감지기 생성·재생성, 감지 루프 | `vision`, `core`, `config` |
 | `ui/` | 운영자용 DOM 화면 | `ui`, `core`, `config` |
+| `effect/` | 사진 효과 WebGL 렌더(셰이더·프로그램·텍스처)와 실시간 미리보기 (5-1) | `effect`, `core`, `config` |
 
 - **`core` 규칙(검사함):** `core`의 파일과 거기서 전이적으로 닿는 파일은 `core/`·`config/` 안에 있어야 하고, 브라우저 전역(`document`, `window`, `navigator`, `location`, `localStorage`, `fetch`, `WebSocket`, 캔버스·이미지·미디어 생성자, `requestAnimationFrame` 등)을 쓰지 않는다. 동적 `import()`도 문자열 경로만 허용한다. 타이머·`performance`·`Date`·`console`·`URL`은 Node에도 있어 허용한다. 전역 객체 `globalThis`·`window`·`self`는 대괄호·구조분해·괄호·별칭 등 어느 형태로든 쓰면 위반이다. 예외는 하나뿐이다: 매개변수 기본값 `timers = globalThis`(`core/session.js`의 타이머 주입)는 그 이름을 `setTimeout`·`clearTimeout`·`setInterval`·`clearInterval` 호출로만 쓸 때 허용한다. `test/core-deps.test.mjs`가 검사한다.
   - 검사기는 경계를 지키는 안전장치이고 완전한 JS 파서가 아니다. 파일 안에서 선언된 이름(매개변수, `let`·`const`·`var`, 함수·클래스 이름, 구조분해, `catch`, import)은 전역으로 보지 않는데, 범위를 추적하지 않아 한 파일에 지역 `location`과 전역 `location`이 함께 있으면 전역 쪽을 놓친다. `/`는 직전 토큰으로 정규식·나눗셈을 가르고, 애매하면 나눗셈으로 본다(코드를 건너뛰지 않는 쪽).
 - `config/settings-file.js`는 기본 `fetch`가 `globalThis.fetch`라 순수하지 않다. 그래서 `config`는 폴더 전체가 순수하지 않고, `core`에서 부르면 위의 검사가 실패한다.
-- 지금 실제 의존: `ui` → `config`, `camera`·`vision` → `core`, `config`와 `core`는 바깥 폴더를 부르지 않는다. 같은 폴더 안 의존도 있다(`camera-monitor` → `camera`, `presence-monitor` → `detector-keeper`·`face-detector`, `presence-tuning` → `region-drag`, `settings-file` → `presence-settings`, `auto-start` → `session` → `log-limit`). `camera`·`vision`·`ui`끼리는 서로 부르지 않고 `main.js`가 잇는다.
+- 지금 실제 의존: `ui` → `config`, `camera`·`vision` → `core`, `effect` → `core`·`config`, `config`와 `core`는 바깥 폴더를 부르지 않는다. 같은 폴더 안 의존도 있다(`camera-monitor` → `camera`, `presence-monitor` → `detector-keeper`·`face-detector`, `presence-tuning` → `region-drag`, `settings-file` → `presence-settings`, `auto-start` → `session` → `log-limit`, `effect-preview` → `oil-renderer` → `oil-shaders`). `camera`·`vision`·`ui`·`effect`끼리는 서로 부르지 않고 `main.js`가 잇는다(효과 미리보기는 `camera`의 `isReady`와 `<video>`를 주입받는다).
 - 표의 "불러와도 되는 것" 중 자동으로 검사하는 것은 `core` 행뿐이다. 다른 행은 규칙으로 지킨다.
 - 저장소 루트의 `config/`(운영자 조절값 파일 `presence.local.json`, Git 제외)와 `src/web/config/`(설정 코드)는 다른 폴더다.
 - 테스트는 `test/` 아래 소스와 같은 이름의 폴더에, 주 대상 모듈 위치를 따라 둔다. 테스트 폴더는 소스 위치를 비추므로 1개짜리라도 둔다(`test/camera/`, `test/tools/`).
@@ -402,6 +418,7 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 - 영상은 영역을 `object-fit: cover`로 채운다. 9:16이 아닌 영상은 가운데 기준으로 잘린다.
 - 비율 값은 `config/config.js`의 `aspectRatio`에서 CSS 변수로 넘긴다.
 - 개발용 정보는 `D` 키로 토글하며 기본 숨김이다. 관람객 화면에는 노출하지 않는다.
+- **사진 효과 미리보기 (5-1):** 효과 캔버스(`#effect`)가 `<video>` 바로 위에서 9:16 영역 전체를 덮는다. 보이는 영역은 `<video>`의 cover 크롭과 같다. 효과를 쓸 수 없으면 캔버스를 숨겨 `<video>`가 그대로 보인다(6절 "사진 효과(유화 · 획)").
 
 ### 좌우 반전 (확정)
 
@@ -409,6 +426,7 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 - 반전은 **웹 한 곳에서만** 처리하고 OBS에서는 반전하지 않는다(가안). 이중 반전을 막고, OBS 설정과 무관하게 같은 결과를 얻기 위해서다.
 - 미리보기 반전은 `style.css`의 `.preview.is-mirrored { transform: scaleX(-1) }` 한 곳에서 하고, `config.mirror`로 켜고 끈다(구현됨).
 - 미리보기에서 보이는 영역과 캡처 영역(9:16, 잘림 위치)이 일치해야 한다. 캡처 반전은 `camera/capture.js`에서 `config.mirror`를 따라 한다(구현됨, 6절).
+- 효과 미리보기(5-1)는 효과 입력을 읽을 때 `config.mirror`로 반전하고, 효과 캔버스에는 CSS 반전을 걸지 않는다. 효과는 반전된 그림에 칠한다(6절). 실제 OBS 영상에서 효과 그림과 반전 영상의 밝기 상관은 0.984, 반전하지 않은 영상과는 0.205였다(로그 02).
 
 ### 권한과 보안 컨텍스트
 
@@ -830,6 +848,7 @@ camera-monitor (ready·페이지 표시) ──▶ presence-monitor 감지 루�
 - MediaPipe 웹 감지 호출은 메인 스레드를 막을 수 있다. 미리보기·카운트다운이 끊기는지 측정한다.
 - 4K 영상을 그대로 감지에 넣지 않는다. 감지 빈도와 분석 해상도를 낮춰 쓰고, 그래도 부족할 때 Worker 분리를 검토한다.
 - 측정 (2-2, 개발 PC RTX 5090, headless Chrome 155): OBS 1080×1920 60fps에서 GPU delegate 감지 약 3ms, 그리기 약 3ms, 15fps. 미리보기 60fps, rAF 60을 유지했고 실행 중 50ms 넘는 긴 작업은 없었다. 시작할 때 감지기 생성(wasm 컴파일·그래프 초기화)으로 0.7~1.0초짜리 긴 작업이 한 번 생긴다. 현장 PC에서 다시 잰다.
+- 사진 효과 미리보기를 켠 상태 (5-1, 실제 OBS 1080×1920, 효과 540×960·24fps): 감지 15fps·3.8ms, rAF 60fps(25ms 넘는 간격 0), 긴 작업 0. 메인 스레드 사용률은 효과 끔 12.4% → 30% 안팎. 상세는 6절 "사진 효과(유화 · 획)"의 성능.
 - 장시간 실측 (4-4, **10분**, 개발 PC, 실제 OBS 1080×1920, 20초마다 `S`): 완료 30회, 사진 `taken = released`, 카메라·감지기 정상 유지, 15fps, 예외 0. 리스너·문서 수는 평평했고, JS 힙 4.0~5.5MB, Chrome 커밋 메모리 합 663→684MB(1분 이후)였다. 10분은 누수 판단에 짧다(로그 13). 더 길게는 `npm run check:browser -- --soak 60 --camera real`.
 
 ### MediaPipe 로컬 라이브러리 (구현됨, 2-1)
@@ -884,7 +903,7 @@ const detector = await FaceDetector.createFromOptions(fileset, {
 
 0. **확인 (3-3):** 이전 회차의 효과·인코딩이 끝나지 않았으면 `capture busy`, 마지막 새 카메라 프레임이 `config.capture.maxFrameAgeMs`(500ms, 가안)보다 오래됐으면 `stale frame`으로 캔버스를 만들기 전에 실패한다. 500ms는 30fps 프레임 간격(약 33ms)보다 충분히 길고, 끊김 판정(3초)보다 짧다.
 1. **프레임 잡기 (동기):** 미리보기와 같은 `object-fit: cover` 계산(`presence.js`의 `computeCoverMapping`)으로 영상에서 보이는 9:16 영역을 픽셀 단위로 구한다(`computeCaptureCrop`). 그 크기 그대로의 캔버스에 좌우 반전(`translate` + `scale(-1, 1)`, 미리보기의 `scaleX(-1)`과 같음)으로 그린다. 축소·확대하지 않으므로 OBS 1080×1920이면 1080×1920, 2160×3840이면 2160×3840이다. 가로 영상이면 가운데를 잘라 높이를 유지한다(예: 1920×1080 → 608×1080). 캔버스를 만든 직후부터 크기 지정·`getContext`(null 포함)·`drawImage` 중 어디서 실패해도 그 캔버스를 비우고 실패한다(3-3).
-2. **사진 효과 (TBD):** `applyPhotoEffect(canvas, { signal })` 한 함수 경계만 둔다. 지금은 그대로 돌려준다. 새 캔버스를 돌려줘도 캡처 쪽이 둘 다 정리한다. `signal`은 회차별 취소 신호다(4절 "실패와 취소 경계").
+2. **사진 효과 (5-2에서 연결):** `applyPhotoEffect(canvas, { signal })` 한 함수 경계만 둔다. 지금은 그대로 돌려준다(효과는 미리보기에만 적용됨, 아래 "사진 효과(유화 · 획)"). 새 캔버스를 돌려줘도 캡처 쪽이 둘 다 정리한다. `signal`은 회차별 취소 신호다(4절 "실패와 취소 경계").
 3. **인코딩:** `canvas.toBlob()`으로 `config.capture`(가안: `image/jpeg`, 품질 0.92). 인쇄 연동 때 넘길 형태를 미리 둔 것이다. 1080×1920 실측은 약 130~150KB, 16~31ms.
 4. **정리:** 성공·실패·취소 모두 캔버스 크기를 0으로 만들어 픽셀 버퍼를 바로 놓는다. `toBlob`은 호출할 때 픽셀을 복사하므로 인코딩 중에 비워도 된다. 결과는 `URL.createObjectURL(blob)`로만 들고, `release(photo)`가 `revokeObjectURL`한다(여러 번 불려도 한 번만).
 
@@ -894,8 +913,142 @@ const detector = await FaceDetector.createFromOptions(fileset, {
 - 파일·브라우저 영구 저장소·서버·Git에 자동 저장하지 않는다. 로그에 실제 사진이나 얼굴 데이터를 넣지 않는다.
 - 인쇄가 범위에 들어오면 인쇄 서비스로 넘기는 방식과 임시 파일 정리 정책을 그때 정한다.
 
+### 사진 효과(유화 · 획) (미리보기 구현됨, 5-1)
+
+사용자 결정(2026-10-16): 사진 효과는 **"유화 · 획 (세부 보존)"** 필터다. 최종 출력에 쓸 이미지를 WebGL로 실시간으로 보여 주고, 촬영 결과도 같은 필터를 적용한다(촬영 결과 적용은 5-2). 이후 감열지 출력에 맞춰 흑백 단계를 덧씌운다(이후 범위).
+
+**출처와 라이선스**
+
+- 원본: 필터 갤러리 `https://nau-filter-gallery.vercel.app/`(사용자 지정)의 프리셋 `oil2f`. 페이지 HTML 한 파일(92,403바이트, SHA-256 `c0020911aea7bdcb…0d739a77`, 2026-10-16 받음)에 셰이더와 JS가 모두 들어 있다. 원본 HTML은 저장소에 넣지 않았다.
+- **라이선스 표기 없음.** 페이지 본문에 라이선스·저작권 문구가 없고, 사이트의 `LICENSE`·`LICENSE.md`·`license.txt`는 404다. 페이지 안의 MIT 언급은 다른 프리셋(수채 v4의 MNPR) 출처라 `oil2f`와 관계없다. 사용 권한은 사용자 확인이 필요하다(로그 02 "질문").
+- 원본이 밝힌 기법 출처: Hertzmann 1998, "Painterly Rendering with Curved Brush Strokes of Multiple Sizes"(SIGGRAPH 98). 큰 붓에서 작은 붓으로 층을 칠하고, 칠한 결과가 원본과 많이 다른 곳에만 가는 붓을 더한다.
+- 원본에 표기는 없지만 셰이더의 `hash12`는 Dave Hoskins "Hash without Sine"(MIT)과 같은 식이다.
+- 이식한 파일 머리말에 출처 URL·프리셋 이름·기법 출처를 적었다: `core/oil-paint.js`, `config/effect-settings.js`, `effect/oil-shaders.js`, `effect/oil-renderer.js`.
+
+**이식 범위:** `oil2f`가 실제로 지나는 경로만 옮겼다. `PRESETS.oil2f` → `renderDrawing` → `needFlow` 흐름장 → `paintStrokes`(`sbr: 1` 유화 분기), `makeStrokes`, `ihash`, `currentTick`이다.
+
+- 가져오지 않은 것: 다른 프리셋(쿠와하라 `akf`, 수채, 드로잉, 로토스코핑), 비교 위치(`split`), 노출 깜빡임(`flick`, 값 1), 스틸·MP4 내보내기, `localStorage` 기억.
+- 원본 셰이더 중 유화에서 쓰지 않는 분기(`uMedium` 2~5)와 함수(`fbm`, `boilOff` 등)는 뺐다.
+
+**패스 순서** (그리는 해상도 W×H, 흐름장은 절반 해상도 `round(W/2)`×`round(H/2)`)
+
+| # | 패스 (셰이더) | 입력 | 출력 텍스처 | 하는 일 |
+|---|---|---|---|---|
+| 0 | 소스 올리기 | 카메라 `<video>` 프레임 | `src` (영상 원본 크기, RGBA8, LINEAR, 밉 없음) | `UNPACK_FLIP_Y`로 위아래를 뒤집어 올린다(원본과 같음) |
+| 1 | 색 보정 `FS_GRADE` | `src` | `grade` (W×H, RGBA8, 밉) | 보이는 9:16 영역을 좌우 반전해 읽는다(이식에서 더함). 따뜻한 쪽으로 조금(R×1.035, B×0.94), 밝은 곳 압축 `g(1+k)/(1+kg)`(k 0.08), 갈색 3%. `grade`(0~1)만큼 원본과 섞는다 |
+| 2 | 구조 텐서 `FS_SST` | `grade` | `sst` (W/2×H/2, RGBA16F) | Sobel 기울기 → (gx², gy², gx·gy) |
+| 3·4 | 가우스 흐림 `FS_BLUR` ×2 | `sst` → `sst2` → `sst` | `sst` | 가로·세로 σ 2.5 텍셀(절반 해상도 기준), 반경 ceil(2σ) |
+| 5 | 흐름장 `FS_TFM` | `sst` | `tfm` (W/2×H/2, RGBA16F) | 작은 고유값 방향(형태를 따라가는 방향)과 이방성 A. 평평한 곳은 60도 방향으로 기운다. 출력 (cos, sin, 각도, A·세기) |
+| 6 | 밑칠 `FS_UNDER` | `grade` 밉 4.5 | `paint`(W×H, RGBA8, 밉) + `hgt`(W×H) — 두 출력(MRT) | 아주 흐린 색으로 칠하고 높이 0.5 |
+| 7 | 붓 층 3개 `VS_STROKE`·`FS_STROKE` | `grade`, `tfm`, 획 목록 | `paint`·`hgt`에 알파 섞기(`SRC_ALPHA, ONE_MINUS_SRC_ALPHA`) | 획 하나 = 인스턴스 하나(삼각형 띠 14점). 아래 "획 생성 규칙" |
+| 8 | 보완 층 | `paint`를 `paintC`로 복사(blit), `grade`, `tfm` | `paint`·`hgt`에 섞기 | 칸의 3×3 표본 평균 오차(밉 0.6의 `grade`와 `paintC`의 RGB 거리)가 문턱 0.22 이상인 칸에만, 오차가 가장 큰 표본 위치에 가는 붓. 끝나면 `paint` 밉을 만든다 |
+| 9 | 합성 `FS_COMPOSE` | `paint`, `hgt` | `composed` (W×H, RGBA8, NEAREST) | 높이의 한 텍셀 차이로 법선 → 왼쪽 위 빛 `c(0.84+0.26·diff)` + 광택(지수 22, 0.1×강도), 캔버스 결(주기 4.6px, 진폭 0.02×강도), 가장자리 어둡게(최대 12%) |
+| 10 | 출력 단계 `FS_OUTPUT` | `composed` | 화면 캔버스 | **지금은 그대로 통과.** 감열지용 흑백·디더링 패스를 여기에 둔다(이식에서 더함. 원본은 9에서 바로 화면) |
+
+**획 생성 규칙** (`core/oil-paint.js`의 `createStrokeBuilder`, 원본 `makeStrokes` 그대로)
+
+- 층마다 간격 `spacing` px의 격자를 깔고 **칸마다 획 하나**를 둔다(`gw = ceil(W/spacing)`, `gh = ceil(H/spacing)`). 기본값의 획 수는 붓 층 5,974 / 20,736 / 82,944개, 보완 층 147,456개, 합계 257,110개다. 보완 층은 그중 문턱을 넘는 칸만 실제로 그린다.
+- 획 i의 값
+  - 중심: `x = (i % gw + ihash(i, sd, 2)) · spacing / W`, `y = (floor(i / gw) + ihash(i, sd, 3)) · spacing / H` (칸 안에서 흔든다)
+  - 난수: `z = ihash(i, sd, 4)`, `w = ihash(i, sd, 5)`
+  - 그리는 순서: 열쇠 `fround(ihash(i, sd, 6))`의 오름차순(같으면 번호 순)
+- seed: 층 기준 `base = 1000 + 층 번호 × 97`(보완 층 번호 = 붓 층 수 3).
+  - **`ihash(i, base, 1) < boil`인 획만** 그림마다 `sd = base + (seed + 1) × 7919`를 쓴다. 나머지는 `sd = base`로 고정이다.
+  - 그래서 같은 seed·매개변수면 같은 목록이고, boil 비율의 획만 그림마다 위치·난수·순서가 바뀐다.
+- 고정 획은 한 번만 만들어 정렬해 두고(캐시 16개), 바뀌는 획만 새로 만들어 정렬해 합친다. 결과는 전부 새로 만들어 정렬한 것과 같다(Node 테스트).
+- 정점 셰이더
+  - 길이 `L = 길이 × (0.75 + 0.5z)`, 굵기 `W = 굵기 × (0.8 + 0.4w)`
+  - 중심에서 흐름장을 따라 앞뒤로 6마디씩 휜다(새 방향을 앞 방향과 0.7로 섞음). 양 끝은 굵기 0.55배까지 가늘어진다.
+  - 색은 `grade`의 밉 단계 `lod`에서 읽고, `jitter = 0.05 × 강도`만큼 밝기·색을 흔든다.
+  - 세부 문턱이 0보다 큰 층은 `|lum(lod) − lum(lod + 2.5)|`가 문턱보다 작은 곳(평평한 곳)의 획을 버린다. 작은 붓은 세밀한 곳에만 간다.
+- 조각 셰이더(유화): 길이 방향 붓털 홈(`vnoise`, 주기 2.2px), 가장자리 0.72~1에서 흐려짐, 끝 30%에서 물감이 갈라짐, 색 0.92~1.08배, 높이 `0.3 + 0.6·붓털·가장자리`.
+
+**매개변수** (`config.effect`, 범위는 `config/effect-settings.js`. px는 아래 "해상도 비례 규칙"의 기준 해상도 px)
+
+| 값 | 기본값 (oil2f) | 범위 | 뜻 |
+|---|---|---|---|
+| `strength` 강도 | 0.1 | 0~1.6 | 요철(법선 세기)·광택·캔버스 결·획 색 흔들림 |
+| `size` 붓 크기 | 1.25 | 0.6~1.8 | 모든 층·보완 층의 굵기·간격·길이에 곱한다 |
+| `boil` 획 다시 그리기 | 0.1 | 0~1 | 그림마다 새로 배치하는 획의 비율 (0 고정 ~ 1 전부) |
+| `fps` 초당 그림 | 24 | 2~30 (정수) | 1초에 새로 그리는 그림 수. 사이에는 앞 그림을 그대로 보인다(스톱모션 느낌) |
+| `grade` 색 보정 | 1 | 0~1 | 색 보정 이미지를 원본과 섞는 정도 |
+| `layers` 붓 층 | `[36,15,84,3.8,0,1]`, `[18,8,44,2.6,0.02,1]`, `[8,4,20,1.4,0.06,1]` | 모양 검사 | `[굵기px, 간격px, 길이px, 색 밉 단계, 세부 문턱, 불투명도]`. 불투명도는 유화에서 쓰지 않는다(원본도 같음) |
+| `refine` 보완 층 | `[3.5, 3, 10, 0.6, 0.22]` | 문턱 0.01~1, `null`이면 없음 | `[굵기px, 칸 간격px, 길이px, 기준 이미지 밉 단계, 오차 문턱(0~1 RGB 거리)]`. 문턱 0은 셰이더에서 "보완 층 아님"이라 쓰지 않는다 |
+| `previewScale` | 0.5 (가안) | 0.25~1 | 미리보기 처리 해상도. 보이는 9:16 영역의 원본 해상도 대비 |
+| `enabled` | true | | false면 효과 없이 원본 미리보기 |
+
+- 원본의 "처리 해상도(q ½·¾·1)"는 쿠와하라(`akf`) 텍스처에만 쓰여 `oil2f`에는 영향이 없다. 그래서 가져오지 않았고, `previewScale`은 이 프로젝트에서 새로 둔 값이다.
+- **코드에서 값을 바꾸는 입구:** `createEffectPreview(...).setSettings({ fps: 12 })`처럼 일부만 넘긴다. 정규화해서 다음 화면 갱신 때 새로 그리고, 범위로 맞춘 항목 설명을 돌려준다. 조절 화면과 파일 저장은 5-2 범위다.
+
+**해상도 비례 규칙** (`resolveOilDrawing`)
+
+원본은 소스와 관계없이 **짧은 변을 1080px**로 맞춰 그린다. 그래서 px 매개변수는 "짧은 변 1080px 그림의 px"다. 그리는 해상도의 `s = 짧은 변 / 1080`으로 아래처럼 맞춘다. OBS 1080×1920을 그대로 그리면 s = 1(원본과 같은 값), 미리보기 0.5배면 0.5, 4K 세로(2160×3840)면 2다.
+
+| 대상 | 규칙 | 이유 |
+|---|---|---|
+| 획 굵기·간격·길이, 보완 층 칸 | × s | 간격도 같이 줄어 칸 수(획 수)가 해상도와 관계없이 같고, 정규화 좌표의 획 목록이 같다(배율이 2의 거듭제곱이면 비트 단위로 같음, Node 테스트) |
+| 색을 읽는 밉 단계(층·보완 층·밑칠 4.5) | + log2(s) | 같은 크기의 영역을 평균한다. 0 아래는 0으로 잘린다(s 0.5에서 보완 층 0.6 → −0.4 → 0) |
+| 붓털 무늬 주기 | 기준값 그대로 | 획 안 좌표 기준이라 해상도와 관계없이 같은 무늬 |
+| 높이 → 법선 세기 | × s (`relief = 강도 × s`) | 한 텍셀 차이로 기울기를 재므로, 해상도가 낮으면 기울기가 커진다 |
+| 캔버스 결 주기 4.6px | × s | |
+| 흐름장(구조 텐서·흐림 σ) | 그대로 | 절반 해상도 텍셀 단위라 이미 비례한다 |
+
+**시간에 따라 변하는 요소**
+
+- 그림 번호 `tick = floor(t초 × fps + 1e-6)`, `seed = tick % 997`(원본 `currentTick`·`frame`). 원본은 영상의 `currentTime`을 쓰지만 카메라에는 재생 시각이 없어 `performance.now()`를 쓴다(원본의 정지 이미지 경로와 같음).
+- `tick`이 바뀔 때만(또는 설정·크기가 바뀌면) 새로 그린다. 그 순간의 최신 카메라 프레임을 쓴다. 사이의 화면 갱신(60Hz)에서는 앞 그림이 그대로 보인다.
+- seed는 획 목록에만 쓰인다. `oil2f` 경로의 셰이더에는 그림마다 바뀌는 값이 없다(원본 셰이더의 `uSeed`·`uBoil`은 다른 프리셋용).
+- `boil`은 화면을 휘게 하지 않고 획만 다시 배치한다. 정지 이미지에서 이웃한 그림 사이에 바뀌는 화소는 boil 0 → 0%, 0.1 → 29.8%, 0.5 → 81.5%, 1 → 99.7%다(원본·이식본 같음, 로그 02).
+
+**실시간 미리보기** (`effect/effect-preview.js`)
+
+- `<video>`는 그대로 두고(감지·캡처·카메라 상태 감시가 계속 쓴다) 그 위에 효과 캔버스 `#effect`를 덮는다. 캔버스는 `<video>` 바로 뒤에 있어 결과 사진·카운트다운·D 겹쳐 그리기·조절 화면이 그 위에 온다.
+- **반전·크롭:** 미리보기와 같은 `computeCoverMapping`(cover, 가운데 기준)으로 보이는 영역을 정하고, 색 보정 패스가 그 영역을 `config.mirror`에 따라 좌우 반전해 읽는다.
+  - 효과는 반전된 그림에 칠한다. 획 방향이 좌우 대칭이 아니므로, 결과 사진과 같은 그림이 되게 하기 위해서다.
+  - 효과 캔버스에는 CSS 반전을 걸지 않는다. 반전은 여전히 웹에서만, 경로마다 한 번씩 한다(미리보기 `<video>`는 CSS, 효과는 입력 uv, 캡처는 `capture.js`).
+- 그리는 해상도 = 보이는 영역의 원본 px × `previewScale`(OBS 1080×1920 → 540×960, 가짜 카메라 2160×2160 → 608×1080). CSS로 9:16 영역에 늘려 보인다.
+- 카메라가 준비되지 않았거나 끊기면 그리지 않고 캔버스를 숨긴다(멈춘 앞 그림이 남지 않게). 다시 준비되면 첫 그림을 그린 뒤 보인다.
+- 결과 표시 중에도 계속 그린다(결과 사진이 위를 덮는다).
+
+**장애 처리**
+
+| 상황 | 처리 |
+|---|---|
+| WebGL2 컨텍스트를 만들지 못함(`webgl2-unavailable`), `EXT_color_buffer_float` 없음(흐름장이 음수를 담지 못함), 셰이더·프레임버퍼 실패 | 캔버스를 숨기고 원본 미리보기(`fallback`). 새로고침 전까지 다시 시도하지 않는다. 콘솔 경고 한 번(`errorLog`의 `effect` 분류) |
+| 그리기 중 예외 | 렌더러를 버리고 `fallback` |
+| 컨텍스트 손실(`webglcontextlost`) | `preventDefault()`로 되살릴 수 있게 하고 원본 미리보기(`context-lost`). `webglcontextrestored`가 오면 렌더러를 새로 만들어 다시 효과 |
+
+- 어느 경우든 카메라·감지·촬영은 이 모듈과 관계없이 계속 돈다(브라우저 확인 시나리오, 실제 OBS 확인).
+- 관람객 안내 문구는 바꾸지 않는다. 효과 장애는 관람객이 할 일이 없고, 원본 미리보기로 촬영은 계속되므로 D 화면에만 보인다.
+- **D 화면 `effect` 줄:** 상태, 그리는 해상도(배율, px 비례 s), `fps` → 실제 초당 그림 수, `boil`, 마지막 seed, 컨텍스트 손실 횟수. 아래 `time` 줄은 그리기 CPU 시간(마지막·평균), GPU 시간(`EXT_disjoint_timer_query_webgl2`가 있을 때), 획 수, 렌더러 이름. 장애면 `fallback (원인) -> camera preview`.
+
+**성능** (개발 PC RTX 5090, headless Chrome 155, 실제 OBS 1080×1920 60fps, 각 10~15초, 로그 02)
+
+| | 효과 끔 | 미리보기 0.5배 (540×960) | 미리보기 1배 (1080×1920) |
+|---|---|---|---|
+| 그리기 CPU (평균) | — | 6.9~7.2ms | 6.3ms |
+| 그리기 GPU (타이머 질의 평균, 최대) | — | 0.8ms, 2.9ms | 1.2ms, 3.3ms |
+| 초당 그림 | — | 24 | 24 |
+| 감지 | 15fps, 3.2ms | 15fps, 3.8ms | 15fps, 3.3ms |
+| rAF | 60fps, 25ms 넘는 간격 0 | 60fps, 0 | 60fps, 0 |
+| 긴 작업(50ms 이상) | 0 | 0 | 0 |
+| 메인 스레드 사용률 | 12.4% | 29.4~30.6% | 27.3% |
+
+- 그리기 시간은 해상도보다 **획 목록 만들기(CPU)**가 대부분이다. 그림마다 바뀌는 획 약 2만 6천 개를 만들어 정렬하고, 25만 개를 합쳐 GPU로 약 4MB를 올린다. 해상도를 낮춰도 획 수가 같아 CPU 시간은 줄지 않는다. 현장 PC가 느리면 `previewScale`보다 `fps`를 낮추는 쪽이 효과가 크다(fps 8: 메인 스레드 16.4%).
+- 0.5배와 1배의 GPU 차이가 작아 개발 PC에서는 1배도 여유가 있다. 현장 PC에서 다시 잰다.
+
+**원본과의 차이** (합성 시험 이미지, 로그 02)
+
+- 기준 해상도(1080×1920, s = 1)에서 같은 입력·매개변수·seed면 **원본과 화소가 완전히 같다.** 매개변수·seed 8가지, boil 0·0.1·0.5·1, 좌우 반전 모두 최대 차이 0이다.
+- 다른 해상도는 구성(획 위치·색·방향)이 같고 화소는 다르다.
+  - 540×960을 원본 1080의 2×2 평균과 비교: 평균 차이 10.1/255, PSNR 22.3dB. 비례 규칙 없이 px를 그대로 쓰면 18.4/255, 18.7dB.
+  - 4K(s = 2)를 2×2 평균으로 줄여 원본과 비교: 9.3/255, 22.9dB.
+  - 이유: 낮은 해상도에서는 흐름장을 더 거친 이미지로 재고, 보완 층의 오차 판정이 더 흐린 칠과 비교하며, 가는 획·붓털이 화소보다 작아진다. 눈으로는 같은 그림이 더 부드럽게 보인다.
+
 ## 7. 참고 자료
 
+- 사진 효과 원본: 필터 갤러리 [nau-filter-gallery.vercel.app](https://nau-filter-gallery.vercel.app/) 프리셋 `oil2f` (6절)
+- A. Hertzmann, "Painterly Rendering with Curved Brush Strokes of Multiple Sizes", SIGGRAPH 98 (원본이 밝힌 기법 출처)
 - MDN, [MediaDevices.getUserMedia()](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia)
 - MDN, [Secure contexts](https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Secure_Contexts)
 - MDN, [Taking still photos with getUserMedia()](https://developer.mozilla.org/en-US/docs/Web/API/Media_Capture_and_Streams_API/Taking_still_photos)
