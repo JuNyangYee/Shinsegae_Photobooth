@@ -96,7 +96,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File bin\server\serve.ps1
 
 ## 테스트 (개발 PC 전용)
 
-인식 판정·설정, 조절값 불러오기, 감지기 재생성·상태, 안내 규칙, 로그 제한, 영역 끌기, 촬영 상태 기계, 자동 시작·일시정지, 캡처 영역 계산의 Node 테스트다(`tests/`). Node 22 이상(`node --test`의 glob 인자 때문, 개발 PC는 Node 24.19.0으로 확인), 의존성 설치는 필요 없다.
+인식 판정·설정, 조절값 불러오기, 감지기 재생성·상태, 안내 규칙, 로그 제한, 영역 끌기, 촬영 상태 기계, 자동 시작·일시정지, 캡처 영역 계산, `src/web/core/` 의존 규칙의 Node 테스트다(`test/`, 하위 폴더는 `src/web/`과 같은 이름). Node 22 이상(`node --test`의 glob 인자 때문, 개발 PC는 Node 24.19.0으로 확인), 의존성 설치는 필요 없다.
 
 ```powershell
 npm test
@@ -136,5 +136,5 @@ npm run vendor:mediapipe
 |---|---|
 | [AGENTS.md](AGENTS.md) | AI 작업 지침 |
 | [docs/PROJECT.md](docs/PROJECT.md) | 체험 기획, 범위, 확정·가안·TBD, 단계별 계획 |
-| [docs/SYSTEM.md](docs/SYSTEM.md) | 기술 구조, 촬영 상태, 감지 연결, 기술 제약 |
+| [docs/SYSTEM.md](docs/SYSTEM.md) | 기술 구조(폴더 구성은 1절, 폴더 규칙은 2절), 촬영 상태, 감지 연결, 기술 제약 |
 | [docs/logs/](docs/logs/) | 작업 로그 |

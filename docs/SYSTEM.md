@@ -5,7 +5,7 @@
 **목차**
 
 1. 전체 구성 — 구성도, 참고 구조, 폴더, 정적 서버, 조절값 파일 API, CSP, 스크립트 인코딩, 현장 실행 스크립트, 브라우저 확인 도구
-2. 코드 책임 구분 — 반복 오류 로그 제한
+2. 코드 책임 구분 — 폴더 규칙, 반복 오류 로그 제한
 3. 카메라와 영상 — OBS, 화면 배치, 좌우 반전, 권한, 카메라 상태와 자동 회복
 4. 촬영 상태 — 촬영 한 사이클, 실패와 취소 경계, 운영자 단축키, 자동 시작과 이탈 취소, 출력 연동 참고
 5. 촬영 시작 인식 — 얼굴 감지와 인식 상태, 감지기 상태와 장애 안내, 인식 범위 조절, 다인원, 성능, MediaPipe 로컬 라이브러리
@@ -55,49 +55,62 @@ Launch.bat                  현장 실행 (OBS → 서버 → Chrome 키오스�
 Shutdown.bat                키오스크 Chrome·서버 종료 → bin/shutdown.ps1
 Setup-Startup.bat           시작 프로그램 바로가기 등록·제거(-Remove) → bin/setup-startup.ps1
 settings.example.ini        현장 설정 예시 (커밋). settings.ini는 여기서 만들어지고 Git에서 제외
-config/presence.local.json  운영자 조절값 파일 (4-3). 서버 API만 쓴다. Git에서 제외. 현장 PC를 옮길 때 복사
+config/presence.local.json  운영자 조절값 파일 (4-3). 서버 API만 쓴다. Git에서 제외. 현장 PC를 옮길 때 복사 (src/web/config/와 다른 폴더)
 bin/
   common.ps1                실행 스크립트 공용 (로그, 설정, 프로그램 탐색, 프로세스 식별·종료)
   launch.ps1                현장 실행
   shutdown.ps1              종료
   setup-startup.ps1         시작 프로그램 등록
   server/serve.ps1          정적 서버, 조절값 파일 API (구현됨)
-src/web/                    (구현됨)
-  index.html
-  css/app.css
-  js/main.js                화면 조립, 인식 상태 임시 표시, 촬영 사이클 화면·단축키, 개발용 정보·감지 박스 겹쳐 그리기(D 키)
-  js/config.js              바꿀 수 있는 값 (반전, 화면 비율, 카메라, 회복 시간, 감지기, 인식 판정, 촬영 시간, 결과 이미지 형식)
-  js/camera.js              카메라 장치 선택·스트림 시작·종료
-  js/camera-monitor.js      카메라 상태 감시(첫 프레임·끊김)·자동 회복·상태 구독
-  js/face-detector.js       MediaPipe Face Detector 사전 확인(WebGL·모델 SHA-256)·생성(GPU→CPU)·실패 정리·감지·종료
-  js/presence.js            인식 판정 순수 함수 (좌표 변환, 인정 조건, 시간 안정화)
-  js/presence-monitor.js    감지 루프, 인식 상태 구독 (isPresent·subscribe), 판정 설정 교체 (setSettings)
-  js/presence-settings.js   판정 설정 검증·정규화·저장 형식, 영역 이동·크기 조절 계산 (순수 함수)
-  js/presence-tuning.js     운영자용 인식 범위 조절 화면 (R 키), 저장은 조절값 파일로
-  js/settings-file.js       조절값 파일 API 클라이언트, 시작할 때 불러오기 순서(파일 → localStorage 옮기기 → 기본값)
-  js/region-drag.js         인식 영역 마우스 끌기 (이동·크기 조절, 끌기 종료 조건)
-  js/detector-keeper.js     감지기 생성·재시도(간격 늘림·상한)·폐기 후 재생성 (한 번에 하나만), 감지기 상태(DetectorHealth)
-  js/guidance.js            관람객 안내 규칙: 카메라·감지기 상태 → "준비 중"/"직원 문의" (순수 함수)
-  js/log-limit.js           반복 오류 로그 제한 (처음 한 번과 주기적인 요약)
-  js/session.js             촬영 한 사이클 상태 기계 (상태 전이·타이머·회차, 시작·취소·초기화 입구)
-  js/auto-start.js          인식 상태 → 상태 기계 연결 (자동 시작 레벨 판정 순수 함수, 이탈 취소)
-  js/capture.js             9:16 보이는 영역 캡처(원본 해상도, 반전), 사진 효과 자리, 결과 이미지(Object URL) 정리
-tests/presence.test.mjs     판정 모듈 Node 테스트 (개발 PC 전용, `npm test`)
-tests/session.test.mjs      촬영 상태 기계 Node 테스트 (가짜 시계)
-tests/auto-start.test.mjs   자동 시작·이탈 취소 Node 테스트 (실제 상태 기계 + 가짜 시계·인식 상태)
-tests/capture.test.mjs      캡처 영역 계산·자원 정리 Node 테스트 (캔버스·Object URL 흉내)
-tests/presence-settings.test.mjs  설정 검증·영역 편집 계산 Node 테스트
-tests/region-drag.test.mjs  영역 끌기 종료 조건 Node 테스트 (EventTarget으로 흉내)
-tests/presence-monitor.test.mjs  감지 루프 Node 테스트 (실제 presence-monitor + 가짜 감지기·document·카메라 프레임)
-tests/helpers.mjs           테스트 공용 흉내 (가짜 시계·타이머, 인식 상태, 캔버스·Object URL). npm test가 직접 실행하지 않는다
-tests/detector-keeper.test.mjs    감지기 재생성·재시도 간격·상태 전이 Node 테스트
-tests/face-detector.test.mjs      사전 확인·생성 실패 정리 Node 테스트 (가짜 bundle·fetch·캔버스·document), 모델 SHA-256 기록 대조
-tests/guidance.test.mjs           안내 규칙 Node 테스트
-tests/log-limit.test.mjs          로그 제한 Node 테스트
-tests/settings-file.test.mjs      조절값 불러오기 순서·마이그레이션·시간 초과(본문 멈춤 포함), API 클라이언트 Node 테스트
-tests/presence-tuning.test.mjs    조절 화면 저장 중 닫기 Node 테스트 (최소한의 가짜 DOM)
-tests/browser-check-lib.test.mjs  확인 도구의 조절값 파일 백업·복원, CDP 제한 시간·끊김 Node 테스트
-tests/fixtures/fake-vision-bundle.mjs  face-detector 테스트용 MediaPipe 흉내 (번들 파일 이름으로 라이브러리 코드를 알아보므로 별도 파일)
+src/web/                    (구현됨) 폴더 규칙은 2절 "폴더 규칙"
+  index.html                진입점 (`/`)
+  main.js                   화면 조립, 인식 상태 임시 표시, 촬영 사이클 화면·단축키, 개발용 정보·감지 박스 겹쳐 그리기(D 키)
+  style.css                 페이지 스타일
+  config/
+    config.js               바꿀 수 있는 값 (반전, 화면 비율, 카메라, 회복 시간, 감지기, 인식 판정, 촬영 시간, 결과 이미지 형식)
+    presence-settings.js    판정 설정 검증·정규화·저장 형식, 영역 이동·크기 조절 계산 (순수 함수)
+    settings-file.js        조절값 파일 API 클라이언트, 시작할 때 불러오기 순서(파일 → localStorage 옮기기 → 기본값)
+  core/
+    session.js              촬영 한 사이클 상태 기계 (상태 전이·타이머·회차, 시작·취소·초기화 입구)
+    auto-start.js           인식 상태 → 상태 기계 연결 (자동 시작 레벨 판정 순수 함수, 이탈 취소)
+    presence.js             인식 판정 순수 함수 (좌표 변환, 인정 조건, 시간 안정화)
+    guidance.js             관람객 안내 규칙: 카메라·감지기 상태 → "준비 중"/"직원 문의" (순수 함수)
+    log-limit.js            반복 오류 로그 제한 (처음 한 번과 주기적인 요약)
+  camera/
+    camera.js               카메라 장치 선택·스트림 시작·종료
+    camera-monitor.js       카메라 상태 감시(첫 프레임·끊김)·자동 회복·상태 구독
+    capture.js              9:16 보이는 영역 캡처(원본 해상도, 반전), 사진 효과 자리, 결과 이미지(Object URL) 정리
+  vision/
+    face-detector.js        MediaPipe Face Detector 사전 확인(WebGL·모델 SHA-256)·생성(GPU→CPU)·실패 정리·감지·종료
+    detector-keeper.js      감지기 생성·재시도(간격 늘림·상한)·폐기 후 재생성 (한 번에 하나만), 감지기 상태(DetectorHealth)
+    presence-monitor.js     감지 루프, 인식 상태 구독 (isPresent·subscribe), 판정 설정 교체 (setSettings)
+  ui/
+    presence-tuning.js      운영자용 인식 범위 조절 화면 (R 키), 저장은 조절값 파일로
+    region-drag.js          인식 영역 마우스 끌기 (이동·크기 조절, 끌기 종료 조건)
+test/                       Node 테스트 (개발 PC 전용, `npm test`). 하위 폴더는 src/web과 같은 이름, 주 대상 모듈 위치를 따른다
+  core-deps.test.mjs        core 의존 규칙 검사 (2절 "폴더 규칙")
+  helpers.mjs               테스트 공용 흉내 (가짜 시계·타이머, 인식 상태, 캔버스·Object URL). npm test가 직접 실행하지 않는다
+  fixtures/fake-vision-bundle.mjs  face-detector 테스트용 MediaPipe 흉내 (번들 파일 이름으로 라이브러리 코드를 알아보므로 별도 파일)
+  core/
+    presence.test.mjs       판정 모듈
+    session.test.mjs        촬영 상태 기계 (가짜 시계)
+    auto-start.test.mjs     자동 시작·이탈 취소 (실제 상태 기계 + 가짜 시계·인식 상태)
+    guidance.test.mjs       안내 규칙
+    log-limit.test.mjs      로그 제한
+  camera/
+    capture.test.mjs        캡처 영역 계산·자원 정리 (캔버스·Object URL 흉내)
+  vision/
+    face-detector.test.mjs  사전 확인·생성 실패 정리 (가짜 bundle·fetch·캔버스·document), 모델 SHA-256 기록 대조
+    detector-keeper.test.mjs  감지기 재생성·재시도 간격·상태 전이
+    presence-monitor.test.mjs  감지 루프 (실제 presence-monitor + 가짜 감지기·document·카메라 프레임)
+  config/
+    presence-settings.test.mjs  설정 검증·영역 편집 계산
+    settings-file.test.mjs  조절값 불러오기 순서·마이그레이션·시간 초과(본문 멈춤 포함), API 클라이언트
+  ui/
+    presence-tuning.test.mjs  조절 화면 저장 중 닫기 (최소한의 가짜 DOM)
+    region-drag.test.mjs    영역 끌기 종료 조건 (EventTarget으로 흉내)
+  tools/
+    browser-check-lib.test.mjs  확인 도구의 조절값 파일 백업·복원, CDP 제한 시간·끊김
 lib/mediapipe/              MediaPipe 런타임·모델 (구현됨, 커밋 대상. 직접 고치지 않고 스크립트로 갱신)
   tasks-vision/vision_bundle.mjs
   tasks-vision/wasm/        vision_wasm_internal.{js,wasm}, vision_wasm_nosimd_internal.{js,wasm}
@@ -307,7 +320,7 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 | 모델 차단 | 모델 요청 404 → 감지기 `retrying / model-unavailable`, "준비 중입니다", 인식 표시 숨김, 그 상태에서 `S` 한 사이클과 자원 0 |
 | 전체 기록 | 외부 요청 0, CSP 위반 0(통계 차단 제외), 페이지 예외 0 |
 
-- **범위 밖:** 가짜 카메라 영상에는 얼굴이 없으므로 **자동 시작·이탈 취소·인식 중 `P`는 확인하지 않는다.** 이것들은 Node 통합 테스트(`tests/auto-start.test.mjs`, `tests/presence-monitor.test.mjs`)와 사람의 실측으로 확인한다. 키오스크 화면, OBS 시작·중지, 절전 복귀, 4K도 범위 밖이다.
+- **범위 밖:** 가짜 카메라 영상에는 얼굴이 없으므로 **자동 시작·이탈 취소·인식 중 `P`는 확인하지 않는다.** 이것들은 Node 통합 테스트(`test/core/auto-start.test.mjs`, `test/vision/presence-monitor.test.mjs`)와 사람의 실측으로 확인한다. 키오스크 화면, OBS 시작·중지, 절전 복귀, 4K도 범위 밖이다.
 
 **장시간 실측 (`--soak [분]`, 기본 10분)**
 
@@ -337,9 +350,28 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 - 감지 모델의 세부 출력(좌표, 신뢰도 등)이 촬영 진행 코드나 화면 전체로 퍼지지 않게 한다. 좌표·점수는 `presence-monitor.js`의 `getDebugSnapshot()`(D 개발용 화면 전용)으로만 꺼낸다.
 - 사진 효과는 "캡처 이미지 → 결과 화면" 사이에 끼울 수 있는 경계만 둔다. 범용 플러그인 구조는 만들지 않는다.
 
+### 폴더 규칙 (2026-10-16)
+
+`src/web/`의 모듈은 책임과 의존 방향으로 하위 폴더에 둔다. 깊이는 1단계이고, 파일이 1개뿐인 소스 폴더는 만들지 않는다. 순수한 모듈이라도 책임이 분명히 다른 폴더에 속하면 그 폴더에 둔다(예: `vision/detector-keeper.js`). 분류 이유는 `docs/logs/2026-10-16-01-folder-structure.md`.
+
+| 폴더 | 담는 것 | 불러와도 되는 것 |
+|---|---|---|
+| (최상위) | `index.html`, `main.js`(화면 조립), `style.css` | 모든 폴더 |
+| `config/` | 설정값, 운영자 조절값의 검증·정규화·저장 형식, 조절값 파일 불러오기·저장 | `config` |
+| `core/` | DOM·카메라·캔버스·MediaPipe·네트워크에 의존하지 않는 계산·상태 | `core`, `config`의 순수한 파일 |
+| `camera/` | 카메라 스트림, 카메라 상태 감시, 캔버스 캡처 | `core`, `config` |
+| `vision/` | MediaPipe 감지기 생성·재생성, 감지 루프 | `core`, `config` |
+| `ui/` | 운영자용 DOM 화면 | `core`, `config` |
+
+- **`core` 규칙(검사함):** `core`의 파일과 거기서 전이적으로 닿는 파일은 `core/`·`config/` 안에 있어야 하고, 브라우저 전역(`document`, `window`, `navigator`, `location`, `localStorage`, `fetch`, `WebSocket`, 캔버스·이미지·미디어 생성자, `requestAnimationFrame` 등)을 쓰지 않는다. 동적 `import()`도 문자열 경로만 허용한다. 타이머·`performance`·`Date`·`console`·`globalThis`는 Node에도 있어 허용한다(시계·타이머를 주입받는 기본값). `test/core-deps.test.mjs`가 검사한다.
+- `config/settings-file.js`는 기본 `fetch`가 `globalThis.fetch`라 순수하지 않다. 그래서 `config`는 폴더 전체가 순수하지 않고, `core`에서 부르면 위의 검사가 실패한다.
+- 지금 실제 의존: `ui` → `config`, `camera`·`vision` → `core`, `config`와 `core`는 바깥 폴더를 부르지 않는다. `camera`·`vision`·`ui`끼리는 서로 부르지 않고 `main.js`가 잇는다.
+- 저장소 루트의 `config/`(운영자 조절값 파일 `presence.local.json`, Git 제외)와 `src/web/config/`(설정 코드)는 다른 폴더다.
+- 테스트는 `test/` 아래 소스와 같은 이름의 폴더에, 주 대상 모듈 위치를 따라 둔다. 테스트 폴더는 소스 위치를 비추므로 1개짜리라도 둔다(`test/camera/`, `test/tools/`).
+
 ### 반복 오류 로그 제한 (구현됨, 4-1)
 
-무인 키오스크에서는 같은 오류(카메라 재시도, 감지기 재시도, 촬영 실패)가 하루 종일 반복될 수 있다. 콘솔이 같은 줄로 가득 차지 않도록 `js/log-limit.js`의 `errorLog` 하나로 모은다.
+무인 키오스크에서는 같은 오류(카메라 재시도, 감지기 재시도, 촬영 실패)가 하루 종일 반복될 수 있다. 콘솔이 같은 줄로 가득 차지 않도록 `core/log-limit.js`의 `errorLog` 하나로 모은다.
 
 - 분류(`camera`, `detector`, `detection`, `capture` 등)마다 마지막 오류를 기억한다. 숫자만 다른 오류(경과 ms 등)는 같은 오류로 센다.
 - 처음 나거나 오류가 바뀌면 바로 남긴다. 같은 오류가 이어지면 세기만 한다. 마지막으로 남긴 뒤 60초(`LOG_SUMMARY_MS`, 가안)가 지나면 `[camera] 같은 오류 20회 더 (마지막 10:01:00): ...` 한 줄을 남긴다.
@@ -353,7 +385,7 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 
 - 9:16 크롭, 카메라 회전, 색·노출 보정은 OBS에서 처리한다. OBS 출력 해상도는 현장 화면 해상도에 맞춘다(FHD 세로 1080×1920 ~ 4K 세로 2160×3840).
 - 캡처 해상도의 상한은 OBS 출력 해상도다. 실제 캡처 크기를 확인해 기록한다.
-- 브라우저에서는 장치 라벨(`OBS Virtual Camera` 포함 여부, 대소문자 무시)로 장치를 고르고, 없으면 기본 카메라를 쓴다. 장치 라벨은 카메라 권한이 허용된 뒤에만 읽을 수 있으므로, 라벨이 비어 있으면 권한을 한 번 요청한 뒤 다시 장치 목록을 읽는다(참고 프로젝트 방식). 권한 확인용으로 연 스트림이 고른 장치와 같으면 다시 열지 않고 그대로 쓴다. (구현됨: `js/camera.js`)
+- 브라우저에서는 장치 라벨(`OBS Virtual Camera` 포함 여부, 대소문자 무시)로 장치를 고르고, 없으면 기본 카메라를 쓴다. 장치 라벨은 카메라 권한이 허용된 뒤에만 읽을 수 있으므로, 라벨이 비어 있으면 권한을 한 번 요청한 뒤 다시 장치 목록을 읽는다(참고 프로젝트 방식). 권한 확인용으로 연 스트림이 고른 장치와 같으면 다시 열지 않고 그대로 쓴다. (구현됨: `camera/camera.js`)
 - 해상도는 **권장값(`ideal`)으로만** 요청한다: `config.idealResolution` = 2160×3840(4K 세로, 현장 최대). `exact`·`min`은 장치가 지원하지 않으면 실패하므로 쓰지 않는다. 권한 확인용으로 처음 여는 스트림에도 같은 권장값을 적용해, 그 스트림을 그대로 쓰는 경우에도 해상도 요청이 빠지지 않게 한다. (구현됨)
   - 이유: 제약이 없으면 Chrome이 장치의 낮은 기본 형식(흔히 640×480)을 고를 수 있다. Chrome은 장치가 지원하는 범위에서 권장값에 가장 가까운 값을 고르고 원본보다 키우지 않으므로, OBS 출력이 1080×1920이면 1080×1920을 받는 것을 기대한다.
   - Chrome은 권장값에 맞추려고 원본을 잘라 줄일 수 있다. 가짜 카메라(원본 가로 영상)는 2160×2160으로 들어왔다. 실제 OBS 9:16 가상카메라에서는 사용자가 장치 선택·해상도·반전·배치가 정상임을 확인했다(2026-10-15).
@@ -366,15 +398,15 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 
 - 뷰포트 비율과 무관하게 9:16 영역(`#stage`)을 가운데에 최대 크기로 두고 나머지는 검정으로 채운다. 가로 모니터에서는 좌우가, 세로 화면에서 비율이 다르면 위아래가 검정이 된다.
 - 영상은 영역을 `object-fit: cover`로 채운다. 9:16이 아닌 영상은 가운데 기준으로 잘린다.
-- 비율 값은 `js/config.js`의 `aspectRatio`에서 CSS 변수로 넘긴다.
+- 비율 값은 `config/config.js`의 `aspectRatio`에서 CSS 변수로 넘긴다.
 - 개발용 정보는 `D` 키로 토글하며 기본 숨김이다. 관람객 화면에는 노출하지 않는다.
 
 ### 좌우 반전 (확정)
 
 - 미리보기와 캡처 결과 모두 좌우 반전 상태로 만든다.
 - 반전은 **웹 한 곳에서만** 처리하고 OBS에서는 반전하지 않는다(가안). 이중 반전을 막고, OBS 설정과 무관하게 같은 결과를 얻기 위해서다.
-- 미리보기 반전은 `css/app.css`의 `.preview.is-mirrored { transform: scaleX(-1) }` 한 곳에서 하고, `config.mirror`로 켜고 끈다(구현됨).
-- 미리보기에서 보이는 영역과 캡처 영역(9:16, 잘림 위치)이 일치해야 한다. 캡처 반전은 `js/capture.js`에서 `config.mirror`를 따라 한다(구현됨, 6절).
+- 미리보기 반전은 `style.css`의 `.preview.is-mirrored { transform: scaleX(-1) }` 한 곳에서 하고, `config.mirror`로 켜고 끈다(구현됨).
+- 미리보기에서 보이는 영역과 캡처 영역(9:16, 잘림 위치)이 일치해야 한다. 캡처 반전은 `camera/capture.js`에서 `config.mirror`를 따라 한다(구현됨, 6절).
 
 ### 권한과 보안 컨텍스트
 
@@ -384,7 +416,7 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 
 ### 카메라 상태와 자동 회복 (구현됨)
 
-현장은 무인·비접촉 키오스크이므로 화면에 버튼을 두지 않고 스스로 회복한다. `js/camera-monitor.js`가 상태 감시와 재시도를 맡고, `js/camera.js`는 장치 선택과 스트림 열기·닫기만 맡는다.
+현장은 무인·비접촉 키오스크이므로 화면에 버튼을 두지 않고 스스로 회복한다. `camera/camera-monitor.js`가 상태 감시와 재시도를 맡고, `camera/camera.js`는 장치 선택과 스트림 열기·닫기만 맡는다.
 
 | 상태 (`CameraStatus`) | 뜻 | 회복 |
 |---|---|---|
@@ -412,7 +444,7 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 
 ### 촬영 한 사이클 (구현됨, 3-1)
 
-`js/session.js`가 상태 전이와 타이머를, `js/capture.js`가 캡처와 결과 이미지 자원을, `js/main.js`가 화면 표시와 입력 연결을 맡는다. `session.js`는 DOM·카메라·캔버스를 모르고, 사진 만들기·정리 함수와 시계·타이머를 주입받는다(Node 테스트 `tests/session.test.mjs`).
+`core/session.js`가 상태 전이와 타이머를, `camera/capture.js`가 캡처와 결과 이미지 자원을, `main.js`가 화면 표시와 입력 연결을 맡는다. `session.js`는 DOM·카메라·캔버스를 모르고, 사진 만들기·정리 함수와 시계·타이머를 주입받는다(Node 테스트 `test/core/session.test.mjs`).
 
 ```text
 대기 ─(시작 요청: 대기 상태 + 카메라 준비 + 페이지 보임)─▶ 카운트다운 3·2·1
@@ -495,7 +527,7 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 
 ### 자동 시작과 이탈 취소 (구현됨, 3-2)
 
-`js/auto-start.js`가 인식 상태와 상태 기계를 잇는다. 판정은 순수 함수 `decideAutoRequest()`이고, 연결부 `createAutoStart()`는 계기마다 이 함수를 불러 `session.request(..., 'presence')`를 보낸다(Node 테스트 `tests/auto-start.test.mjs`). 인식 상태는 "인식됨 / 인식 안됨"만 받고, 좌표·점수는 들어오지 않는다.
+`core/auto-start.js`가 인식 상태와 상태 기계를 잇는다. 판정은 순수 함수 `decideAutoRequest()`이고, 연결부 `createAutoStart()`는 계기마다 이 함수를 불러 `session.request(..., 'presence')`를 보낸다(Node 테스트 `test/core/auto-start.test.mjs`). 인식 상태는 "인식됨 / 인식 안됨"만 받고, 좌표·점수는 들어오지 않는다.
 
 **레벨 판정 (사용자 확정 2026-10-15):** 인식 상태가 바뀌는 순간(엣지)이 아니라, 평가할 때의 상태를 보고 정한다. 쿨타임이 끝났을 때 스윗스팟이 비어 있지 않아도 그대로 진행하기로 했으므로, 사람이 계속 서 있으면 쿨타임이 끝나는 즉시 다음 회차가 시작된다.
 
@@ -565,7 +597,7 @@ camera-monitor (ready·페이지 표시) ──▶ presence-monitor 감지 루�
 - bundle을 동적 `import`로 불러온다. 불러오기나 생성에 실패해도 카메라 미리보기는 계속 동작하고, 실패 사실은 `D` 화면 `detector` 줄에 보인다. 실패하면 아래 "감지기 재생성" 규칙으로 다시 만든다.
 - **생성 전 사전 확인 (4-1):** MediaPipe 생성을 시작하기 전에 비용이 적은 확인부터 한다. 확인이 실패하면 로더·wasm·통계 타이머를 아예 만들지 않는다.
   1. WebGL: 1×1 `OffscreenCanvas`에 `webgl2` 컨텍스트를, 없으면 `webgl` 컨텍스트를 만들어 본다. 둘 다 없으면 `webgl-unavailable`("하드웨어 가속 꺼짐 또는 WebGL 없음")이다. 확인용 컨텍스트는 `WEBGL_lose_context`로 바로 놓는다. 렌더러 이름(`WEBGL_debug_renderer_info`)은 D 화면에 보이고, SwiftShader·Basic Render Driver 같은 소프트웨어 렌더러는 `(software)`로 표시한다. 소프트웨어 렌더러는 감지가 되므로 **장애로 보지 않고**, 감지기를 만들 때 콘솔 경고 1줄(`[webgl] software WebGL renderer: ...`, 반복 오류 로그 제한 적용)만 남긴다. 현장 실행 스크립트가 시작할 때 하드웨어 가속을 다시 켜기 때문이다(사용자 결정 2026-10-15).
-  2. 모델: `modelPath`를 받아 HTTP 상태(실패하면 `model-unavailable`), 크기 `modelBytes`, SHA-256 `modelSha256`(다르면 `model-invalid`)을 확인한다. 기준값은 `config.faceDetection`에 있고 `tools/vendor-mediapipe.mjs`의 기록과 같아야 한다(`tests/face-detector.test.mjs`가 실제 파일과 대조한다). 통과한 바이트는 기억해 두고 다음 생성 때 다시 받지 않는다.
+  2. 모델: `modelPath`를 받아 HTTP 상태(실패하면 `model-unavailable`), 크기 `modelBytes`, SHA-256 `modelSha256`(다르면 `model-invalid`)을 확인한다. 기준값은 `config.faceDetection`에 있고 `tools/vendor-mediapipe.mjs`의 기록과 같아야 한다(`test/vision/face-detector.test.mjs`가 실제 파일과 대조한다). 통과한 바이트는 기억해 두고 다음 생성 때 다시 받지 않는다.
   - 확인한 바이트를 `baseOptions.modelAssetBuffer`(복사본)로 넘긴다. 그래서 생성 중에 모델 받기가 실패할 수 없다.
 - **실패한 생성의 정리 (4-1):** 사전 확인을 통과하고도 MediaPipe 생성이 실패할 수 있다(아래 "MediaPipe 1.1.1 생성 실패 누적"). 그래서 delegate 시도마다 다음을 한다.
   - MediaPipe가 쓸 WebGL 캔버스(1×1 `OffscreenCanvas`)를 직접 만들어 `canvas` 옵션으로 넘긴다. 라이브러리 기본값과 같은 종류다. 실패하면 그 캔버스의 컨텍스트를 놓는다.
@@ -575,7 +607,7 @@ camera-monitor (ready·페이지 표시) ──▶ presence-monitor 감지 루�
     - 타이머는 진행 중인 시도가 하나뿐일 때, 라이브러리 번들이 **직접** 부른(호출 스택에서 바로 위 프레임이 번들 파일 `vision_bundle.mjs`) 60초 간격만 그 시도의 것으로 기록한다. 같은 시간에 다른 코드가 만든 60초 타이머는 지우지 않는다.
     - 로더 요소는 첫 시도가 시작될 때 이미 있던 같은 URL의 요소를 기억해 두고 건드리지 않는다.
     - 시도가 겹치면(앱은 `detector-keeper`가 하나씩만 만든다) 감싼 `setInterval`은 하나만 두고 마지막 시도가 끝날 때 되돌린다. 로더 요소도 모두 끝난 뒤에만 지운다(불러오는 중인 로더를 지우면 그 시도가 멈춘다). 겹친 동안 생긴 타이머는 누구 것인지 몰라 지우지 않는다.
-    - 확인: Node 테스트(가짜 번들은 `tests/fixtures/`의 별도 파일)와 확인 도구의 실제 MediaPipe 시나리오. 판별을 끄면 실제 브라우저에서 60초 타이머가 1→7로 늘어 시나리오가 실패했다.
+    - 확인: Node 테스트(가짜 번들은 `test/fixtures/`의 별도 파일)와 확인 도구의 실제 MediaPipe 시나리오. 판별을 끄면 실제 브라우저에서 60초 타이머가 1→7로 늘어 시나리오가 실패했다.
   - 실패 원인은 오류의 `code`(`DetectorFault`)로 붙인다: `bundle-load-failed`, `model-unavailable`, `model-invalid`, `webgl-unavailable`, `create-failed`. 실행 중 원인은 `webgl-context-lost`, `detect-failing`이다.
 - Chrome은 실패한 동적 `import()` 결과를 기억해, 원인이 없어져도 같은 URL로는 다시 받지 않는다(2단계 검수 수정 중 확인). 그래서 불러오기에 실패한 적이 있으면 다음 시도에 `?retry=N`을 붙여 새로 받는다. 한 번 성공한 bundle 모듈은 감지기를 다시 만들 때도 그대로 쓴다.
 - `config.faceDetection.delegates` 순서(`GPU` → `CPU`)로 생성을 시도한다. 앞선 delegate가 실패한 이유는 `D` 화면 `delegate` 줄에 보인다.
@@ -610,7 +642,7 @@ camera-monitor (ready·페이지 표시) ──▶ presence-monitor 감지 루�
 - 카메라가 `ready`이고 페이지가 보이며 영상 크기가 0이 아닐 때만 돈다. 아니면 즉시 멈추고(`paused`) 인식 상태를 **인식 안됨**으로 되돌린다. 카메라 감시 모듈의 `subscribe()`와 `visibilitychange`로 시작·중지한다.
 - **새 프레임만 관측으로 센다 (3-3):** 감지할 때마다 카메라의 누적 프레임 수(`getFrameInfo().count`)를 보고, 직전 감지 이후 새 프레임이 없으면 감지를 건너뛴다. 카메라 프레임이 멈춘 뒤 끊김으로 판정되기까지(약 3초) 같은 프레임이 "있음"으로 쌓여 인식됨이 되는 일을 막는다. 건너뛰는 동안 인식 상태는 그대로 두고, 끊김 판정은 카메라 감시가 맡는다. D `faces` 줄에 `same-frame skips` 수.
 - **판정 기준이 바뀌면 다시 잰다 (3-3):** `setSettings()`로 영역·얼굴 크기·신뢰도·시간 중 하나라도 바뀌면(조절 중 변경, 취소·닫기 복원, 기본값으로) 인식 상태를 처음 상태로 돌리고 바로 "인식 안됨"을 알린다. 새 기준으로 `presentHoldMs` 동안 다시 확인돼야 인식됨이 된다. 조절 화면을 저장 없이 닫았을 때 임시 기준으로 안정된 인식됨이 남아 바로 자동 시작되던 문제를 막는다(단위 검수). 값이 같으면 다시 재지 않는다. D `faces` 줄에 `criteria resets` 수.
-- 시계·타이머·document를 주입할 수 있다(`timers`, `now`, `doc`). 기본은 전역 타이머, `performance.now()`, `document`이고, Node 테스트(`tests/presence-monitor.test.mjs`)에서 실제 감지 루프를 돌리는 데 쓴다.
+- 시계·타이머·document를 주입할 수 있다(`timers`, `now`, `doc`). 기본은 전역 타이머, `performance.now()`, `document`이고, Node 테스트(`test/vision/presence-monitor.test.mjs`)에서 실제 감지 루프를 돌리는 데 쓴다.
 - 4K 영상을 그대로 넣지 않는다. 긴 변을 `inputMaxSize`(640px) 이하로 줄인 캔버스에 그려 감지한다(OBS 1080×1920 → 360×640).
 - 호출 간격은 `1000 / maxFps`에서 처리 시간을 뺀 값이다. `detectForVideo` 타임스탬프는 `max(performance.now(), 직전 + 1)`로 항상 증가시킨다.
 - 감지가 실패한 프레임은 "없음"으로 판정한다. 15번 연속 실패하면(약 1초) 감지기를 버리고 다시 만든다(아래, `detect-failing`). 콘솔 경고는 반복 오류 로그 제한(2절)을 따른다. 감지가 성공하면 재시도 간격을 처음으로 돌린다.
@@ -691,15 +723,15 @@ camera-monitor (ready·페이지 표시) ──▶ presence-monitor 감지 루�
 
 위 `presence.*` 값은 **기본값**이다. 운영자가 조절 화면(아래)에서 저장한 값이 있으면 그 값을 쓴다. 판정은 매 프레임 현재 설정 객체를 읽으므로, 감지기를 다시 만들지 않고 다음 감지부터 반영된다.
 
-**테스트:** `npm test`(`node --test "tests/**/*.test.mjs"`, glob 인자 때문에 Node 22 이상, 의존성 없음).
+**테스트:** `npm test`(`node --test "test/**/*.test.mjs"`, glob 인자 때문에 Node 22 이상, 의존성 없음).
 
-- `tests/presence.test.mjs`: 좌표 변환(반전, 가로 영상·9:16·세로로 긴 영상의 cover 크롭), 영역 경계·최소/최대 크기·신뢰도, 안정화(유지 시간 경계, 깜빡임, 짧은 끊김, 시간값 0)
-- `tests/presence-settings.test.mjs`: 설정 검증(아래)과 영역 이동·크기 조절 계산
-- `tests/region-drag.test.mjs`: 끌기 종료 조건(놓기, `blur`, `lostpointercapture`, 버튼 떼어짐)과 리스너 해제
-- `tests/detector-keeper.test.mjs`: 생성 실패 → 원인 제거 → 재생성, 생성 중 중복 시작 1회, 폐기 후 재생성, 재시도 간격(15·30·60·120·240·300·300초), 상태 전이, 영구 원인, 버림과 `markHealthy`
-- `tests/face-detector.test.mjs`: 모델 사전 확인(404·네트워크 오류·크기·SHA-256), WebGL 확인, 사전 확인 실패 시 생성 미시작, 생성 5회 실패 뒤 타이머·로더 스크립트·GL 컨텍스트 0, GPU 실패 → CPU 성공, 컨텍스트 손실 알림, config와 실제 모델 파일 대조
-- `tests/presence-monitor.test.mjs`(4-1 추가): 감지기 상태 알림 전이, 장애 중 재시도 앞당김 금지, 컨텍스트 손실 즉시 버림 → 재생성
-- `tests/guidance.test.mjs`, `tests/log-limit.test.mjs`: 안내 규칙(카메라·감지기 조합, 30초 전환, 이어 재기), 로그 제한
+- `test/core/presence.test.mjs`: 좌표 변환(반전, 가로 영상·9:16·세로로 긴 영상의 cover 크롭), 영역 경계·최소/최대 크기·신뢰도, 안정화(유지 시간 경계, 깜빡임, 짧은 끊김, 시간값 0)
+- `test/config/presence-settings.test.mjs`: 설정 검증(아래)과 영역 이동·크기 조절 계산
+- `test/ui/region-drag.test.mjs`: 끌기 종료 조건(놓기, `blur`, `lostpointercapture`, 버튼 떼어짐)과 리스너 해제
+- `test/vision/detector-keeper.test.mjs`: 생성 실패 → 원인 제거 → 재생성, 생성 중 중복 시작 1회, 폐기 후 재생성, 재시도 간격(15·30·60·120·240·300·300초), 상태 전이, 영구 원인, 버림과 `markHealthy`
+- `test/vision/face-detector.test.mjs`: 모델 사전 확인(404·네트워크 오류·크기·SHA-256), WebGL 확인, 사전 확인 실패 시 생성 미시작, 생성 5회 실패 뒤 타이머·로더 스크립트·GL 컨텍스트 0, GPU 실패 → CPU 성공, 컨텍스트 손실 알림, config와 실제 모델 파일 대조
+- `test/vision/presence-monitor.test.mjs`(4-1 추가): 감지기 상태 알림 전이, 장애 중 재시도 앞당김 금지, 컨텍스트 손실 즉시 버림 → 재생성
+- `test/core/guidance.test.mjs`, `test/core/log-limit.test.mjs`: 안내 규칙(카메라·감지기 조합, 30초 전환, 이어 재기), 로그 제한
 
 감지 루프와 화면은 브라우저 하네스로 확인한다(로그 05·06).
 
@@ -709,14 +741,14 @@ camera-monitor (ready·페이지 표시) ──▶ presence-monitor 감지 루�
 
 **열고 닫기**
 
-- `R` 키로 열고 닫는다. 열려 있으면 `Esc`로도 닫는다. `D`(개발용 정보)와는 따로 켜고 끈다. 키 정의는 `js/main.js`의 `Keys`에 있다.
+- `R` 키로 열고 닫는다. 열려 있으면 `Esc`로도 닫는다. `D`(개발용 정보)와는 따로 켜고 끈다. 키 정의는 `main.js`의 `Keys`에 있다.
 - 열면 다음이 보인다.
   - 조절 패널(화면 아래, "패널 위·아래" 버튼으로 위로 옮길 수 있음)
   - 9:16 영역 위의 편집 사각형
   - 감지 박스(인정 초록, 제외 빨강)와 얼굴 크기 가이드(영역 가운데에 최소 파랑, 최대 보라 정사각형)
 - 닫으면 패널·편집 사각형·겹쳐 그리기가 모두 숨겨진다. `D`가 켜져 있으면 `D` 정보와 그 겹쳐 그리기만 남는다. 둘 다 꺼져 있으면 관람객 화면에 흔적이 없다. 인식 상태 임시 표시(`showPresenceIndicator`)는 조절 화면과 무관하게 원래대로 보인다.
 
-**조절 항목과 범위** (`js/presence-settings.js`의 `presenceLimits`)
+**조절 항목과 범위** (`config/presence-settings.js`의 `presenceLimits`)
 
 | 항목 | 조작 | 범위 |
 |---|---|---|
@@ -810,7 +842,7 @@ camera-monitor (ready·페이지 표시) ──▶ presence-monitor 감지 루�
 | wasm | `FilesetResolver.forVisionTasks()`는 WebAssembly SIMD를 지원하면 `vision_wasm_internal.*`, 아니면 `vision_wasm_nosimd_internal.*`를 고른다. 둘 다 둔다. `vision_wasm_module_internal.*`(`forVisionTasks(path, true)` 전용)과 `.cjs`·`.map`·`.d.ts`는 복사하지 않는다 |
 | 크기 | 합계 약 27.2MB (가장 큰 파일 `vision_wasm_internal.wasm` 13.5MB, GitHub 100MB 단일 파일 제한 이내) |
 
-기본 사용 형태 (앱에서는 `js/face-detector.js`가 이렇게 부르고, 경로는 `config.faceDetection`에 있다):
+기본 사용 형태 (앱에서는 `vision/face-detector.js`가 이렇게 부르고, 경로는 `config.faceDetection`에 있다):
 
 ```js
 import { FilesetResolver, FaceDetector } from '/lib/mediapipe/tasks-vision/vision_bundle.mjs';
@@ -846,7 +878,7 @@ const detector = await FaceDetector.createFromOptions(fileset, {
 
 ### 캡처와 결과 이미지 (구현됨, 3-1)
 
-`js/capture.js`의 `createCapture().take()`가 다음 순서로 만든다.
+`camera/capture.js`의 `createCapture().take()`가 다음 순서로 만든다.
 
 0. **확인 (3-3):** 이전 회차의 효과·인코딩이 끝나지 않았으면 `capture busy`, 마지막 새 카메라 프레임이 `config.capture.maxFrameAgeMs`(500ms, 가안)보다 오래됐으면 `stale frame`으로 캔버스를 만들기 전에 실패한다. 500ms는 30fps 프레임 간격(약 33ms)보다 충분히 길고, 끊김 판정(3초)보다 짧다.
 1. **프레임 잡기 (동기):** 미리보기와 같은 `object-fit: cover` 계산(`presence.js`의 `computeCoverMapping`)으로 영상에서 보이는 9:16 영역을 픽셀 단위로 구한다(`computeCaptureCrop`). 그 크기 그대로의 캔버스에 좌우 반전(`translate` + `scale(-1, 1)`, 미리보기의 `scaleX(-1)`과 같음)으로 그린다. 축소·확대하지 않으므로 OBS 1080×1920이면 1080×1920, 2160×3840이면 2160×3840이다. 가로 영상이면 가운데를 잘라 높이를 유지한다(예: 1920×1080 → 608×1080). 캔버스를 만든 직후부터 크기 지정·`getContext`(null 포함)·`drawImage` 중 어디서 실패해도 그 캔버스를 비우고 실패한다(3-3).
