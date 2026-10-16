@@ -41,6 +41,15 @@
 | `tools/browser-check.mjs` | 시나리오 2개 추가 (아래) |
 | `test/core/oil-paint.test.mjs`, `test/config/effect-settings.test.mjs`, `test/effect/effect-preview.test.mjs` | Node 테스트 33개 |
 
+| 커밋 | 내용 |
+|---|---|
+| `9983285` | core·config: 획 목록·해상도 비례·tick/seed, 설정 범위·정규화, `config.effect` 기본값, Node 테스트 |
+| `0882ab6` | `effect/`: 셰이더·렌더러·미리보기 모듈, Node 테스트 |
+| `271269a` | 화면 연결: `#effect` 캔버스, CSS, D 화면 줄 |
+| `521f3ed` | 브라우저 확인 시나리오 2개 |
+| `5ea569f` | 문서: SYSTEM·PROJECT·README·이 로그 |
+| (이 커밋) | 로그에 커밋 표 |
+
 - **하지 않은 것:** 촬영 결과에 효과 적용(`applyPhotoEffect`는 그대로 통과), 조절 화면·파일 저장, 흑백·감열지 패스, 인쇄, 다른 프리셋, push·병합.
 
 ## 결정과 이유
