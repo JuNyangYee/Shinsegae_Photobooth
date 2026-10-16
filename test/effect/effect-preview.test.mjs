@@ -76,14 +76,14 @@ function setup({ ready = true, renderer = fakeRenderer(), createRenderer, settin
 }
 
 describe('computeEffectView', () => {
-  it('9:16 영상 + 반전: 전체를 좌우로 뒤집어 읽는다 (uv 왼쪽 아래 원점)', () => {
+  it('9:16 영상 + 반전: 전체를 좌우로 뒤집어 읽는다 (uv 왼쪽 아래 원점). 미리보기 = 결과 × 배율', () => {
     const view = computeEffectView({ videoWidth: 1080, videoHeight: 1920, stageAspect: STAGE, mirror: true, previewScale: 0.5 });
-    assert.deepEqual(view, { width: 540, height: 960, sourceOffset: [1, 0], sourceScale: [-1, 1] });
+    assert.deepEqual(view, { width: 540, height: 960, resultWidth: 1080, resultHeight: 1920, sourceOffset: [1, 0], sourceScale: [-1, 1] });
   });
 
-  it('반전 없음: 그대로', () => {
+  it('반전 없음, 4K 입력: 결과는 1080x1920으로 줄인다 (짧은 변 1080)', () => {
     const view = computeEffectView({ videoWidth: 2160, videoHeight: 3840, stageAspect: STAGE, mirror: false, previewScale: 1 });
-    assert.deepEqual(view, { width: 2160, height: 3840, sourceOffset: [0, 0], sourceScale: [1, 1] });
+    assert.deepEqual(view, { width: 1080, height: 1920, resultWidth: 1080, resultHeight: 1920, sourceOffset: [0, 0], sourceScale: [1, 1] });
   });
 
   it('가로 영상: 캡처와 같은 가운데 영역을 읽는다 (cover)', () => {
@@ -98,7 +98,9 @@ describe('computeEffectView', () => {
         const right = mirror ? xAt(0) : xAt(1);
         assert.ok(Math.abs(left - crop.x) <= 0.5 && Math.abs(right - (crop.x + crop.width)) <= 0.5, `${videoWidth}x${videoHeight} x`);
         assert.ok(Math.abs(yTopAt(1) - crop.y) <= 0.5 && Math.abs(yTopAt(0) - (crop.y + crop.height)) <= 0.5, `${videoWidth}x${videoHeight} y`);
-        assert.ok(Math.abs(view.width - crop.width) <= 1 && Math.abs(view.height - crop.height) <= 1);
+        assert.equal(Math.min(view.resultWidth, view.resultHeight), 1080);
+        assert.ok(Math.abs(view.resultWidth / view.resultHeight - crop.width / crop.height) < 0.01);
+        assert.deepEqual([view.width, view.height], [view.resultWidth, view.resultHeight]); // 배율 1
         // 반전이면 화면 왼쪽이 영상 오른쪽이다
         assert.equal(xAt(0) > xAt(1), mirror);
       }
@@ -118,8 +120,8 @@ describe('createEffectPreview', () => {
     assert.ok(t.renderer.calls.length >= 24 && t.renderer.calls.length <= 25, `${t.renderer.calls.length}`);
     assert.ok(s.drawingsPerSecond >= 24 && s.drawingsPerSecond <= 25, `${s.drawingsPerSecond}`); // 1초 창 양 끝에 걸치면 25
     const call = t.renderer.calls.at(-1);
-    assert.equal(call.width, 540);
-    assert.equal(call.height, 960);
+    assert.equal(call.width, 1080);
+    assert.equal(call.height, 1920);
     assert.deepEqual(call.sourceScale, [-1, 1]);
     assert.ok(call.seed >= 0 && call.seed < 997);
   });
@@ -144,7 +146,7 @@ describe('createEffectPreview', () => {
     assert.deepEqual(issues, ['boil: 3 -> 1', 'previewScale: 0.1 -> 0.25']);
     t.run(100);
     assert.equal(t.renderer.calls.at(-1).settings.boil, 1);
-    assert.equal(t.renderer.calls.at(-1).width, 270);
+    assert.equal(t.renderer.calls.at(-1).width, 270); // 결과 1080 x 0.25
   });
 
   it('카메라가 준비되지 않으면 그리지 않고 캔버스를 숨긴다 (앞 그림이 남지 않게)', () => {
@@ -208,6 +210,45 @@ describe('createEffectPreview', () => {
     assert.equal(t.preview.getState().contextLosses, 1);
     assert.equal(t.canvas.hidden, false);
     assert.ok(renderers[1].calls.length > 0);
+  });
+
+  it('renderStill: 화면의 마지막 그림과 같은 프레임(소스 다시 쓰기)·seed·설정으로 결과 크기에 화면 밖으로 그린다', () => {
+    const t = setup();
+    t.preview.start();
+    t.preview.setSettings({ previewScale: 0.5 });
+    t.run(200);
+    const shown = t.renderer.calls.at(-1);
+    assert.equal(shown.width, 540);
+    const still = t.preview.renderStill();
+    const call = t.renderer.calls.at(-1);
+    assert.equal(call.source, null, '소스를 다시 올리지 않는다 = 미리보기가 그린 프레임');
+    assert.equal(call.output, 'pixels');
+    assert.equal(call.seed, shown.seed);
+    assert.equal(call.settings, shown.settings);
+    assert.deepEqual([call.width, call.height], [1080, 1920]);
+    assert.deepEqual(call.sourceScale, shown.sourceScale);
+    assert.equal(still.sameAsPreview, true);
+    assert.equal(still.seed, shown.seed);
+    assert.deepEqual([still.width, still.height], [1080, 1920]);
+  });
+
+  it('renderStill: 영상 크기가 바뀌었으면 지금 프레임으로 새로 그린다', () => {
+    const t = setup();
+    t.preview.start();
+    t.run(100);
+    t.video.videoWidth = 2160;
+    t.video.videoHeight = 3840;
+    const still = t.preview.renderStill();
+    assert.equal(t.renderer.calls.at(-1).source, t.video);
+    assert.equal(still.sameAsPreview, false);
+    assert.deepEqual([still.width, still.height], [1080, 1920]);
+  });
+
+  it('renderStill: 효과가 돌고 있지 않으면 not-running 오류', () => {
+    const t = setup({ createRenderer: () => { throw new EffectError(EffectFault.WEBGL_UNAVAILABLE, 'no'); } });
+    t.preview.start();
+    t.run(100);
+    assert.throws(() => t.preview.renderStill(), (e) => e.fault === EffectFault.NOT_RUNNING && /fallback/.test(e.message));
   });
 
   it('enabled false면 시작하지 않는다', () => {

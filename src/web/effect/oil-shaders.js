@@ -185,10 +185,11 @@ void main(){
   o = vec4(clamp(c, 0., 1.), 1.);
 }`;
 
-// 출력 단계: 효과 결과 → 화면(또는 이후 캡처). 지금은 그대로 통과한다.
+// 출력 단계: 효과 결과 → 화면 또는 결과 사진(화면 밖). 지금은 그대로 통과한다.
 // 감열지 출력용 흑백·디더링 패스를 붙일 때 이 셰이더를 바꾸거나 이 앞에 패스를 더한다.
+// uFlipY: 결과 사진은 위아래를 뒤집어 그려 readPixels가 위 줄부터 읽히게 한다 (NEAREST 1:1이라 화소 값은 같다)
 export const FS_OUTPUT = `#version 300 es
 precision highp float;
 in vec2 vUV; out vec4 o;
-uniform sampler2D uImage;
-void main(){ o = vec4(texture(uImage, vUV).rgb, 1.); }`;
+uniform sampler2D uImage; uniform float uFlipY;
+void main(){ vec2 uv = vec2(vUV.x, uFlipY > .5 ? 1. - vUV.y : vUV.y); o = vec4(texture(uImage, uv).rgb, 1.); }`;

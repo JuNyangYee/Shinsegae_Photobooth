@@ -10,7 +10,7 @@
 import { config } from '../config/config.js';
 import { normalizeEffectSettings } from '../config/effect-settings.js';
 import { errorLog } from '../core/log-limit.js';
-import { drawingTick, seedForTick } from '../core/oil-paint.js';
+import { drawingTick, resultSizeFor, seedForTick } from '../core/oil-paint.js';
 import { computeCoverMapping } from '../core/presence.js';
 import { EffectError, EffectFault, createOilRenderer } from './oil-renderer.js';
 
@@ -23,18 +23,21 @@ export const EffectStatus = Object.freeze({
 });
 
 /**
- * 보이는 9:16 영역 → 그리는 해상도와 소스 uv 변환. 소스는 위아래를 뒤집어 올리므로 uv는 왼쪽 아래 원점이다.
- * @returns {{ width: number, height: number, sourceOffset: [number, number], sourceScale: [number, number] } | null}
+ * 보이는 9:16 영역 → 결과 사진 크기(짧은 변 1080), 미리보기 해상도(결과 × previewScale), 소스 uv 변환.
+ * 소스는 위아래를 뒤집어 올리므로 uv는 왼쪽 아래 원점이다.
+ * @returns {{ width: number, height: number, resultWidth: number, resultHeight: number,
+ *   sourceOffset: [number, number], sourceScale: [number, number] } | null}
  */
 export function computeEffectView({ videoWidth, videoHeight, stageAspect, mirror, previewScale }) {
   const m = computeCoverMapping({ videoWidth, videoHeight, stageAspect, mirror });
   if (m === null) return null;
-  const width = Math.max(2, Math.round(m.visibleWidth * videoWidth * previewScale));
-  const height = Math.max(2, Math.round(m.visibleHeight * videoHeight * previewScale));
+  const result = resultSizeFor(m.visibleWidth * videoWidth, m.visibleHeight * videoHeight);
+  const width = Math.max(2, Math.round(result.width * previewScale));
+  const height = Math.max(2, Math.round(result.height * previewScale));
   const v0 = 1 - m.offsetY - m.visibleHeight;
   const sourceOffset = mirror ? [m.offsetX + m.visibleWidth, v0] : [m.offsetX, v0];
   const sourceScale = [mirror ? -m.visibleWidth : m.visibleWidth, m.visibleHeight];
-  return { width, height, sourceOffset, sourceScale };
+  return { width, height, resultWidth: result.width, resultHeight: result.height, sourceOffset, sourceScale };
 }
 
 /**
@@ -59,6 +62,8 @@ export function createEffectPreview({
   let frameId = null;
   let lastTick = null;
   let lastSeed = null;
+  // 화면에 보이는 마지막 그림: 그 그림의 카메라 프레임은 렌더러의 소스 텍스처에 남아 있다 (다음 그림에서 바뀐다)
+  let lastDrawing = null;
   let dirty = true;
   let view = null;
   let shown = false;
@@ -98,6 +103,7 @@ export function createEffectPreview({
     event.preventDefault(); // 브라우저가 컨텍스트를 되살릴 수 있게 한다 (webglcontextrestored)
     contextLosses += 1;
     renderer = null; // 잃은 컨텍스트의 자원은 지울 수 없고 지울 필요도 없다
+    lastDrawing = null;
     log.warn('effect', 'webgl context lost -> camera preview');
     setStatus(EffectStatus.CONTEXT_LOST, 'webglcontextlost, waiting for restore');
   }
@@ -134,6 +140,7 @@ export function createEffectPreview({
       });
       lastTick = tick;
       lastSeed = seed;
+      lastDrawing = { tick, seed, settings, view, videoWidth: video.videoWidth, videoHeight: video.videoHeight, at: t };
       dirty = false;
       renderFailures = 0;
       cpuAvg = cpuAvg === null ? cpuMs : cpuAvg * 0.9 + cpuMs * 0.1;
@@ -151,8 +158,39 @@ export function createEffectPreview({
       log.warn('effect', `effect render failed -> camera preview (${reason})`);
       try { renderer?.dispose(); } catch { /* 이미 망가진 상태 */ }
       renderer = null;
+      lastDrawing = null;
       setStatus(EffectStatus.FALLBACK, reason);
     }
+  }
+
+  /**
+   * 결과 사진: 지금 화면에 보이는 그림과 같은 카메라 프레임·그림 번호·seed·설정으로, 결과 크기(짧은 변 1080)에 화면 밖으로 그린다.
+   * 동기로 끝난다. 미리보기가 다음 그림을 그리기 전(같은 작업 안)에 불러야 같은 프레임이다 (capture.js가 그렇게 부른다).
+   * 보이는 그림이 없으면(카메라 준비 직후) 지금 프레임으로 그린다. 효과를 쓸 수 없으면 EffectError.
+   * @returns {{ pixels: Uint8ClampedArray, width: number, height: number, seed: number, tick: number,
+   *   sameAsPreview: boolean, ms: number }}
+   */
+  function renderStill() {
+    if (!renderer || (status !== EffectStatus.RUNNING && status !== EffectStatus.WAITING_CAMERA)) {
+      throw new EffectError(EffectFault.NOT_RUNNING, `preview effect is ${status}${fault ? ` (${fault})` : ''}`);
+    }
+    const t0 = now();
+    const reuse = lastDrawing !== null && lastDrawing.videoWidth === video.videoWidth && lastDrawing.videoHeight === video.videoHeight;
+    let drawing = lastDrawing;
+    if (!reuse) {
+      const v = computeEffectView({
+        videoWidth: video.videoWidth, videoHeight: video.videoHeight, stageAspect, mirror, previewScale: settings.previewScale,
+      });
+      if (v === null) throw new EffectError(EffectFault.RENDER_FAILED, 'video has no frame');
+      const tick = drawingTick(t0, settings.fps);
+      drawing = { tick, seed: seedForTick(tick), settings, view: v };
+    }
+    const { view: v } = drawing;
+    const { pixels } = renderer.render(reuse ? null : video, {
+      settings: drawing.settings, width: v.resultWidth, height: v.resultHeight, seed: drawing.seed,
+      sourceOffset: v.sourceOffset, sourceScale: v.sourceScale, output: 'pixels',
+    });
+    return { pixels, width: v.resultWidth, height: v.resultHeight, seed: drawing.seed, tick: drawing.tick, sameAsPreview: reuse, ms: now() - t0 };
   }
 
   return {
@@ -185,6 +223,9 @@ export function createEffectPreview({
       return issues;
     },
     getSettings: () => settings,
+    /** config.effect.enabled. false면 결과 사진에도 효과를 입히지 않는다 */
+    isEnabled: () => enabled,
+    renderStill,
     /** D 화면용 상태 (이미지 내용은 내보내지 않는다) */
     getState() {
       const s = renderer?.getStats() ?? null;

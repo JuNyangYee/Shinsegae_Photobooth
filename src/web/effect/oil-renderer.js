@@ -19,6 +19,7 @@ export const EffectFault = Object.freeze({
   FRAMEBUFFER_INCOMPLETE: 'framebuffer-incomplete',
   CONTEXT_LOST: 'context-lost',
   RENDER_FAILED: 'render-failed',
+  NOT_RUNNING: 'not-running', // 결과 사진을 그리려 했지만 미리보기 효과가 돌고 있지 않음 (장애·컨텍스트 손실 중)
 });
 
 export class EffectError extends Error {
@@ -71,8 +72,10 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
   gl.bindTexture(gl.TEXTURE_2D, srcTex);
   setFilter(gl.LINEAR, gl.LINEAR);
 
-  let T = null; // 그리는 해상도에 맞춘 텍스처 묶음
-  let size = { width: 0, height: 0 };
+  // 그리는 해상도마다 텍스처 묶음 (미리보기 크기와 결과 사진 크기가 다르면 두 묶음). 최근 것 2개만 둔다
+  const targets = new Map();
+  const MAX_TARGET_SETS = 2;
+  let T = null; // 지금 그리는 해상도의 묶음
   let disposed = false;
   const queries = []; // GPU 시간 측정 중인 질의 (결과가 나오면 꺼낸다)
   const stats = { draws: 0, cpuMs: 0, gpuMs: null, strokes: 0, width: 0, height: 0, pxScale: 0, timer: Boolean(timer) };
@@ -138,38 +141,52 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
     }
   }
 
-  function freeTargets() {
-    if (!T) return;
-    for (const key of ['grade', 'sst', 'sst2', 'tfm', 'paint', 'hgt', 'paintC', 'composed']) {
-      gl.deleteTexture(T[key].t);
-      gl.deleteFramebuffer(T[key].fb);
+  function freeTargets(set) {
+    for (const key of ['grade', 'sst', 'sst2', 'tfm', 'paint', 'hgt', 'paintC', 'composed', 'out']) {
+      if (!set[key]) continue;
+      gl.deleteTexture(set[key].t);
+      gl.deleteFramebuffer(set[key].fb);
     }
-    gl.deleteFramebuffer(T.mrt);
-    T = null;
+    gl.deleteFramebuffer(set.mrt);
+  }
+
+  function useTargets(W, H) {
+    const key = `${W}x${H}`;
+    let set = targets.get(key);
+    if (set) {
+      targets.delete(key); // 최근 사용 순서로
+    } else {
+      set = allocate(W, H);
+      while (targets.size >= MAX_TARGET_SETS) {
+        const [oldKey, oldSet] = targets.entries().next().value;
+        freeTargets(oldSet);
+        targets.delete(oldKey);
+      }
+    }
+    targets.set(key, set);
+    T = set;
   }
 
   // 원본 allocate()의 oil2f 부분. 흐름장(sst·tfm)은 절반 해상도, 나머지는 그리는 해상도
   function allocate(W, H) {
-    freeTargets();
-    canvas.width = W;
-    canvas.height = H;
     const fw = Math.round(W / 2);
     const fh = Math.round(H / 2);
-    T = {
+    const set = {
       grade: tex(W, H, { mip: true }),
       sst: tex(fw, fh, { float: true }), sst2: tex(fw, fh, { float: true }), tfm: tex(fw, fh, { float: true }),
       paint: tex(W, H, { mip: true }), hgt: tex(W, H),
       paintC: tex(W, H), // 보완 층이 비교할 '지금까지 칠한 결과' 사본
       composed: tex(W, H, { nearest: true }), // 출력 단계의 입력 (합성 결과)
     };
-    T.mrt = gl.createFramebuffer();
-    gl.bindFramebuffer(gl.FRAMEBUFFER, T.mrt);
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, T.paint.t, 0);
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, T.hgt.t, 0);
+    set.mrt = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, set.mrt);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, set.paint.t, 0);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, set.hgt.t, 0);
     gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
     checkFramebuffer();
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    size = { width: W, height: H };
+    set.out = null; // 결과 사진(화면 밖) 출력. 처음 쓸 때 만든다
+    return set;
   }
 
   // 원본 pass(): 전체 화면 삼각형 하나. target이 null이면 캔버스
@@ -294,45 +311,70 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
    *   sourceOffset?: [number, number], sourceScale?: [number, number], referenceShortSide?: number }} options
    *   width·height: 그리는 해상도. sourceOffset·sourceScale: 출력 uv(왼쪽 아래 원점, 0~1) → 소스 텍스처 uv
    *   (위아래를 뒤집어 올리므로 텍스처 uv도 왼쪽 아래 원점). 기본값은 소스 전체 그대로.
-   * @returns {{ strokes: number, cpuMs: number }}
+   *   output: 'canvas'(화면 캔버스, 크기를 맞춘다) 또는 'pixels'(화면 밖에 그려 RGBA 화소를 위 줄부터 돌려준다.
+   *   화면 캔버스는 건드리지 않는다. 결과 사진용)
+   * @returns {{ strokes: number, cpuMs: number, pixels?: Uint8ClampedArray }}
    */
-  function render(source, { settings, width, height, seed, sourceOffset = [0, 0], sourceScale = [1, 1], referenceShortSide }) {
+  function render(source, {
+    settings, width, height, seed, sourceOffset = [0, 0], sourceScale = [1, 1], referenceShortSide, output = 'canvas',
+  }) {
     if (disposed) throw new Error('renderer disposed');
     if (gl.isContextLost()) throw new EffectError(EffectFault.CONTEXT_LOST, 'context is lost');
     const t0 = performance.now();
-    if (size.width !== width || size.height !== height) allocate(width, height);
+    useTargets(width, height);
+    if (output === 'canvas' && (canvas.width !== width || canvas.height !== height)) {
+      canvas.width = width;
+      canvas.height = height;
+    }
     const D = resolveOilDrawing(settings, { width, height, referenceShortSide });
     let query = null;
-    if (timer) {
+    if (timer && output === 'canvas') { // GPU 시간은 미리보기 그림만 잰다
       pollTimer();
       if (queries.length < 4) {
         query = gl.createQuery();
         gl.beginQuery(timer.TIME_ELAPSED_EXT, query);
       }
     }
-    if (source !== null) upload(source);
-    pass(PR.grade, T.grade, { uSrc: srcTex }, { uAmt: D.grade, uSrcOffset: sourceOffset, uSrcScale: sourceScale });
-    pass(PR.sst, T.sst, { uTex: T.grade });
-    pass(PR.blur, T.sst2, { uTex: T.sst }, { uDir: [1 / T.sst.w, 0], uSigma: D.flowSigma });
-    pass(PR.blur, T.sst, { uTex: T.sst2 }, { uDir: [0, 1 / T.sst.h], uSigma: D.flowSigma });
-    pass(PR.tfm, T.tfm, { uTex: T.sst });
-    const count = paintStrokes(D, seed);
-    pass(PR.compose, T.composed, { uPaint: T.paint, uHgt: T.hgt }, { uStr: D.strength, uRelief: D.relief, uPxScale: D.pxScale });
-    pass(PR.output, null, { uImage: T.composed });
-    if (query) {
-      gl.endQuery(timer.TIME_ELAPSED_EXT);
-      queries.push(query);
+    let count = 0;
+    let pixels;
+    try {
+      if (source !== null) upload(source);
+      pass(PR.grade, T.grade, { uSrc: srcTex }, { uAmt: D.grade, uSrcOffset: sourceOffset, uSrcScale: sourceScale });
+      pass(PR.sst, T.sst, { uTex: T.grade });
+      pass(PR.blur, T.sst2, { uTex: T.sst }, { uDir: [1 / T.sst.w, 0], uSigma: D.flowSigma });
+      pass(PR.blur, T.sst, { uTex: T.sst2 }, { uDir: [0, 1 / T.sst.h], uSigma: D.flowSigma });
+      pass(PR.tfm, T.tfm, { uTex: T.sst });
+      count = paintStrokes(D, seed);
+      pass(PR.compose, T.composed, { uPaint: T.paint, uHgt: T.hgt }, { uStr: D.strength, uRelief: D.relief, uPxScale: D.pxScale });
+      if (output === 'pixels') {
+        if (!T.out) T.out = tex(width, height, { nearest: true });
+        pass(PR.output, T.out, { uImage: T.composed }, { uFlipY: 1 });
+        pixels = new Uint8ClampedArray(width * height * 4);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, T.out.fb);
+        gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      } else {
+        pass(PR.output, null, { uImage: T.composed }, { uFlipY: 0 });
+      }
+    } finally {
+      // 중간에 실패해도 다음 그림이 섞기·질의가 켜진 상태에서 시작하지 않게 한다
+      gl.disable(gl.BLEND);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.bindVertexArray(null);
+      if (query) {
+        gl.endQuery(timer.TIME_ELAPSED_EXT);
+        queries.push(query);
+      }
     }
     const cpuMs = performance.now() - t0;
-    Object.assign(stats, { draws: stats.draws + 1, cpuMs, strokes: count, width, height, pxScale: D.pxScale });
-    return { strokes: count, cpuMs };
+    if (output === 'canvas') Object.assign(stats, { draws: stats.draws + 1, cpuMs, strokes: count, width, height, pxScale: D.pxScale });
+    return { strokes: count, cpuMs, pixels };
   }
 
   function dispose() {
     if (disposed) return;
     disposed = true;
     if (!gl.isContextLost()) {
-      freeTargets();
+      for (const set of targets.values()) freeTargets(set);
       for (const q of queries) gl.deleteQuery(q);
       for (const { p } of owned.programs) gl.deleteProgram(p);
       for (const t of owned.textures) gl.deleteTexture(t);
@@ -340,6 +382,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
       for (const a of owned.arrays) gl.deleteVertexArray(a);
     }
     queries.length = 0;
+    targets.clear();
     T = null;
   }
 
