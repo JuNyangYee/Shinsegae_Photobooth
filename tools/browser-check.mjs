@@ -237,6 +237,7 @@ function createApp(cdp, origin) {
   }
 
   const app = {
+    cdp,
     events,
     evaluate,
     async init() {
@@ -393,6 +394,61 @@ async function runScenarios(app, origin) {
     expect(completedDelta === 1, `completed +${completedDelta}`);
     expect(resources && resources.urls === 0 && resources.canvases === 0 && resources.pending === 0, `resources ${dev.get('resources')}`);
     return `${dev.get('capture')?.split(',')[0]}; result image ${image}; ${dev.get('resources')}`;
+  });
+
+  await scenario('사진 효과 미리보기: 캔버스 표시, 초당 그림 = fps, 컨텍스트 손실 → 원본 미리보기 → 복구', async () => {
+    const line = await app.waitFor('effect running', async () => {
+      const value = (await app.dev()).get('effect') ?? '';
+      return /^running, \d+x\d+/.test(value) ? value : null;
+    }, 10000);
+    await sleep(2500); // 초당 그림 수는 최근 1초로 잰다
+    const running = (await app.dev()).get('effect') ?? '';
+    const m = /fps (\d+) -> (\d+) drawings\/s/.exec(running);
+    expect(m && Math.abs(Number(m[2]) - Number(m[1])) <= 1, `drawings/s: ${running}`);
+    const layout = await app.evaluate(`(() => { const c = document.getElementById('effect'), v = document.getElementById('preview');
+      const box = (e) => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map(Math.round).join(','); };
+      return { hidden: c.hidden, canvas: box(c), video: box(v), canvasTransform: getComputedStyle(c).transform, videoMirrored: v.classList.contains('is-mirrored') }; })()`);
+    expect(!layout.hidden && layout.canvas === layout.video, `canvas ${JSON.stringify(layout)}`);
+    expect(layout.canvasTransform === 'none', `effect canvas must not be CSS-mirrored: ${layout.canvasTransform}`);
+    // 컨텍스트 손실 (WEBGL_lose_context) → 캔버스 숨김(원본 미리보기), 카메라 그대로 → 되살리면 다시 효과
+    await app.evaluate("window.__loseEffect = document.getElementById('effect').getContext('webgl2').getExtension('WEBGL_lose_context'); __loseEffect.loseContext(); true");
+    await app.waitFor('context-lost', async () => /^context-lost/.test((await app.dev()).get('effect') ?? ''), 5000);
+    const lost = await app.evaluate("({ hidden: document.getElementById('effect').hidden, playing: !document.getElementById('preview').paused })");
+    const cameraWhileLost = (await app.dev()).get('status') ?? '';
+    expect(lost.hidden && lost.playing && /^ready/.test(cameraWhileLost), `while lost: ${JSON.stringify(lost)} camera ${cameraWhileLost}`);
+    await app.evaluate('__loseEffect.restoreContext(); true');
+    const restored = await app.waitFor('effect restored', async () => {
+      const value = (await app.dev()).get('effect') ?? '';
+      return /^running, .*context lost 1x/.test(value) ? value : null;
+    }, 8000);
+    expect(!(await app.evaluate("document.getElementById('effect').hidden")), 'canvas hidden after restore');
+    return `${line.split(', fps')[0]}; ${m[2]} drawings/s at fps ${m[1]}; context lost → camera preview → restored`;
+  });
+
+  await scenario('효과 WebGL2 생성 실패 → 원본 미리보기, 카메라·감지기·S 그대로', async () => {
+    // 페이지 스크립트보다 먼저 효과 캔버스의 webgl2만 null을 돌려주게 한다 (감지기의 WebGL은 그대로)
+    const { identifier } = await app.cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: `(() => {
+      const original = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = function (type, ...rest) {
+        if (this.id === 'effect' && type === 'webgl2') return null;
+        return original.call(this, type, ...rest);
+      };
+    })();` });
+    try {
+      await app.open();
+      await waitReady(app);
+      const dev = await app.dev();
+      const effect = dev.get('effect') ?? '';
+      expect(/^fallback \(webgl2-unavailable/.test(effect), `effect ${effect}`);
+      expect(await app.evaluate("document.getElementById('effect').hidden"), 'effect canvas visible in fallback');
+      expect((await app.status()) === '', 'visitor status message shown in fallback');
+      const { completedDelta, resources } = await manualCycle(app);
+      expect(completedDelta === 1, `S completed +${completedDelta}`);
+      expect(resources && resources.urls === 0 && resources.canvases === 0 && resources.pending === 0, 'resources not released');
+      return `${effect}; camera ready, detector ok, S cycle ok`;
+    } finally {
+      await app.cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier });
+    }
   });
 
   await scenario('조절값 API GET·PUT 왕복 (저장 파일은 원래대로)', async () => {
