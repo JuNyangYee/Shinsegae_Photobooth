@@ -359,13 +359,15 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 | (최상위) | `index.html`, `main.js`(화면 조립), `style.css` | 모든 폴더 |
 | `config/` | 설정값, 운영자 조절값의 검증·정규화·저장 형식, 조절값 파일 불러오기·저장 | `config` |
 | `core/` | DOM·카메라·캔버스·MediaPipe·네트워크에 의존하지 않는 계산·상태 | `core`, `config`의 순수한 파일 |
-| `camera/` | 카메라 스트림, 카메라 상태 감시, 캔버스 캡처 | `core`, `config` |
-| `vision/` | MediaPipe 감지기 생성·재생성, 감지 루프 | `core`, `config` |
-| `ui/` | 운영자용 DOM 화면 | `core`, `config` |
+| `camera/` | 카메라 스트림, 카메라 상태 감시, 캔버스 캡처 | `camera`, `core`, `config` |
+| `vision/` | MediaPipe 감지기 생성·재생성, 감지 루프 | `vision`, `core`, `config` |
+| `ui/` | 운영자용 DOM 화면 | `ui`, `core`, `config` |
 
-- **`core` 규칙(검사함):** `core`의 파일과 거기서 전이적으로 닿는 파일은 `core/`·`config/` 안에 있어야 하고, 브라우저 전역(`document`, `window`, `navigator`, `location`, `localStorage`, `fetch`, `WebSocket`, 캔버스·이미지·미디어 생성자, `requestAnimationFrame` 등)을 쓰지 않는다. 동적 `import()`도 문자열 경로만 허용한다. 타이머·`performance`·`Date`·`console`·`globalThis`는 Node에도 있어 허용한다(시계·타이머를 주입받는 기본값). `test/core-deps.test.mjs`가 검사한다.
+- **`core` 규칙(검사함):** `core`의 파일과 거기서 전이적으로 닿는 파일은 `core/`·`config/` 안에 있어야 하고, 브라우저 전역(`document`, `window`, `navigator`, `location`, `localStorage`, `fetch`, `WebSocket`, 캔버스·이미지·미디어 생성자, `requestAnimationFrame` 등)을 쓰지 않는다. 동적 `import()`도 문자열 경로만 허용한다. 타이머·`performance`·`Date`·`console`·`URL`은 Node에도 있어 허용한다. 전역 객체 `globalThis`·`window`·`self`는 대괄호·구조분해·괄호·별칭 등 어느 형태로든 쓰면 위반이다. 예외는 하나뿐이다: 매개변수 기본값 `timers = globalThis`(`core/session.js`의 타이머 주입)는 그 이름을 `setTimeout`·`clearTimeout`·`setInterval`·`clearInterval` 호출로만 쓸 때 허용한다. `test/core-deps.test.mjs`가 검사한다.
+  - 검사기는 경계를 지키는 안전장치이고 완전한 JS 파서가 아니다. 파일 안에서 선언된 이름(매개변수, `let`·`const`·`var`, 함수·클래스 이름, 구조분해, `catch`, import)은 전역으로 보지 않는데, 범위를 추적하지 않아 한 파일에 지역 `location`과 전역 `location`이 함께 있으면 전역 쪽을 놓친다. `/`는 직전 토큰으로 정규식·나눗셈을 가르고, 애매하면 나눗셈으로 본다(코드를 건너뛰지 않는 쪽).
 - `config/settings-file.js`는 기본 `fetch`가 `globalThis.fetch`라 순수하지 않다. 그래서 `config`는 폴더 전체가 순수하지 않고, `core`에서 부르면 위의 검사가 실패한다.
-- 지금 실제 의존: `ui` → `config`, `camera`·`vision` → `core`, `config`와 `core`는 바깥 폴더를 부르지 않는다. `camera`·`vision`·`ui`끼리는 서로 부르지 않고 `main.js`가 잇는다.
+- 지금 실제 의존: `ui` → `config`, `camera`·`vision` → `core`, `config`와 `core`는 바깥 폴더를 부르지 않는다. 같은 폴더 안 의존도 있다(`camera-monitor` → `camera`, `presence-monitor` → `detector-keeper`·`face-detector`, `presence-tuning` → `region-drag`, `settings-file` → `presence-settings`, `auto-start` → `session` → `log-limit`). `camera`·`vision`·`ui`끼리는 서로 부르지 않고 `main.js`가 잇는다.
+- 표의 "불러와도 되는 것" 중 자동으로 검사하는 것은 `core` 행뿐이다. 다른 행은 규칙으로 지킨다.
 - 저장소 루트의 `config/`(운영자 조절값 파일 `presence.local.json`, Git 제외)와 `src/web/config/`(설정 코드)는 다른 폴더다.
 - 테스트는 `test/` 아래 소스와 같은 이름의 폴더에, 주 대상 모듈 위치를 따라 둔다. 테스트 폴더는 소스 위치를 비추므로 1개짜리라도 둔다(`test/camera/`, `test/tools/`).
 
