@@ -10,7 +10,7 @@ import {
 } from '../config/presence-settings.js';
 import { createRegionDrag } from './region-drag.js';
 import { SettingsSource } from '../config/settings-file.js';
-import { saveStateOf, showSaveState } from './save-state.js';
+import { loadedSaveState, saveStateOf, showSaveState } from './save-state.js';
 
 // 슬라이더 항목: [설정 키, 범위, 표시 소수 자릿수, 단위]
 const SLIDERS = [
@@ -68,7 +68,9 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, i
   }
 
   function renderSaveState() {
-    showSaveState(panel, stateText, saveStateOf({ saving, failed: saveFailed, dirty: !samePresenceSettings(current, saved) }));
+    // 바꾸지 않았을 때 보일 상태는 시작할 때 불러온 결과로 (파일 없음·불러오기 실패·고쳐 씀, 6단계 검수 1)
+    const base = loadedSaveState({ source: savedSource, note: savedNote, issues: loaded.issues });
+    showSaveState(panel, stateText, saveStateOf({ saving, failed: saveFailed, dirty: !samePresenceSettings(current, saved), base }));
   }
 
   function showMessage(text) {

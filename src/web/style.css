@@ -880,6 +880,10 @@ body {
 [data-save="dirty"] .op-state { background: rgba(217, 164, 65, 0.2); color: var(--op-warn); }
 [data-save="saving"] .op-state { background: rgba(217, 164, 65, 0.12); color: var(--op-warn); }
 [data-save="failed"] .op-state { background: rgba(179, 32, 44, 0.12); color: var(--op-error); }
+/* 바꾸지 않았지만 파일과 같지 않은 상태 (6단계 검수 1): 파일 없음·불러오기 실패·고쳐 씀 */
+[data-save="defaults"] .op-state { background: rgba(47, 95, 82, 0.1); color: var(--pine-deep); }
+[data-save="adjusted"] .op-state { background: rgba(217, 164, 65, 0.2); color: var(--op-warn); }
+[data-save="load-failed"] .op-state { background: rgba(179, 32, 44, 0.12); color: var(--op-error); }
 
 .op-buttons {
   display: flex;

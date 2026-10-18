@@ -13,7 +13,7 @@ import {
   sameEffectSettings,
 } from '../config/effect-settings.js';
 import { SettingsSource } from '../config/settings-file.js';
-import { saveStateOf, showSaveState } from './save-state.js';
+import { loadedSaveState, saveStateOf, showSaveState } from './save-state.js';
 
 // 슬라이더 항목: [조절값 키, 범위, 표시 소수 자릿수]. 범위는 원본 갤러리 슬라이더와 같다 (effect-settings.js)
 const SLIDERS = [
@@ -83,7 +83,9 @@ export function createEffectTuning({ panel, preview, defaults, initial, saveSett
   }
 
   function renderSaveState() {
-    showSaveState(panel, stateText, saveStateOf({ saving, failed: saveFailed, dirty: !sameEffectSettings(current, saved) }));
+    // 바꾸지 않았을 때 보일 상태는 시작할 때 불러온 결과로 (파일 없음·불러오기 실패·고쳐 씀, 6단계 검수 1)
+    const base = loadedSaveState({ source: savedSource, note: savedNote, issues: loaded.issues });
+    showSaveState(panel, stateText, saveStateOf({ saving, failed: saveFailed, dirty: !sameEffectSettings(current, saved), base }));
   }
 
   function showMessage(text) {

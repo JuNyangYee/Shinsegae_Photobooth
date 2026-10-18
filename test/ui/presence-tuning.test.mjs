@@ -24,7 +24,7 @@ function fakeElement() {
   };
 }
 
-function setup() {
+function setup({ loaded = {} } = {}) {
   globalThis.window ??= new EventTarget(); // region-drag가 끌기 동안 창 이벤트를 받는다
   const elements = new Map();
   const element = (selector) => {
@@ -42,7 +42,7 @@ function setup() {
   const tuning = createPresenceTuning({
     stage: { getBoundingClientRect: () => ({ left: 0, top: 0, width: 1080, height: 1920 }) },
     panel, layer, monitor, defaults,
-    initial: { settings: defaults, issues: [], source: SettingsSource.FILE, note: '' },
+    initial: { settings: defaults, issues: [], source: SettingsSource.FILE, note: '', ...loaded },
     // 저장 요청은 손으로 끝낸다
     saveSettings: (settings) => new Promise((resolve, reject) => saves.push({ settings, resolve, reject })),
   });
@@ -137,5 +137,26 @@ describe('presence-tuning: 저장 상태 표시 (6-3)', () => {
     t.saves[1].resolve();
     await flush();
     assert.equal(t.panel.dataset.save, 'saved');
+  });
+});
+
+describe('presence-tuning: 불러온 결과에 따른 저장 상태 (6단계 검수 1)', () => {
+  it('파일 없음 → defaults, 브라우저 저장값을 옮기지 못함 → adjusted, 옮김 → saved', async () => {
+    for (const [loaded, expected] of [
+      [{ source: SettingsSource.DEFAULTS, note: 'no file' }, 'defaults'],
+      [{ source: SettingsSource.LOCAL_ONLY, note: 'migration to file failed: HTTP 500' }, 'adjusted'],
+      [{ source: SettingsSource.MIGRATED, note: 'from localStorage (removed)' }, 'saved'],
+    ]) {
+      const t = current = setup({ loaded });
+      t.tuning.toggle();
+      assert.equal(t.panel.dataset.save, expected, loaded.source);
+      t.tuning.close();
+    }
+    const t = current = setup({ loaded: { source: SettingsSource.DEFAULTS, note: 'no file' } });
+    t.tuning.toggle();
+    t.clickSave();
+    t.saves[0].resolve();
+    await flush();
+    assert.equal(t.panel.dataset.save, 'saved', '저장하면 파일이 생긴다');
   });
 });

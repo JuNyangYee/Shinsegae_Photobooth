@@ -21,7 +21,7 @@ function fakeElement() {
   };
 }
 
-function setup({ initialSettings = normalizeEffectSettings(defaults, defaults).settings } = {}) {
+function setup({ initialSettings = normalizeEffectSettings(defaults, defaults).settings, loaded = {} } = {}) {
   const elements = new Map();
   const element = (selector) => {
     if (!elements.has(selector)) elements.set(selector, fakeElement());
@@ -37,7 +37,7 @@ function setup({ initialSettings = normalizeEffectSettings(defaults, defaults).s
   const opens = [];
   const tuning = createEffectTuning({
     panel, preview, defaults,
-    initial: { settings: initialSettings, issues: [], source: SettingsSource.FILE, note: '' },
+    initial: { settings: initialSettings, issues: [], source: SettingsSource.FILE, note: '', ...loaded },
     saveSettings: (settings) => new Promise((resolve, reject) => saves.push({ settings, resolve, reject })),
     onOpenChange: (open) => opens.push(open),
     timers: { setInterval: () => 1, clearInterval: () => {} },
@@ -195,4 +195,27 @@ describe('effect-tuning: 저장 상태 표시 (6-3)', () => {
     await flush();
     assert.equal(t.panel.dataset.save, 'saved');
   });
+});
+
+describe('effect-tuning: 불러온 결과에 따른 저장 상태 (6단계 검수 1)', () => {
+  for (const [loaded, expected] of [
+    [{ source: SettingsSource.DEFAULTS, note: 'no file' }, 'defaults'],
+    [{ source: SettingsSource.DEFAULTS, note: 'file read failed: timeout 3000ms' }, 'load-failed'],
+    [{ source: SettingsSource.FILE, issues: ['outputMode: missing -> default'] }, 'adjusted'],
+    [{ source: SettingsSource.FILE }, 'saved'],
+  ]) {
+    it(`${loaded.source} ${loaded.note ?? ''}${loaded.issues ? ' + issues' : ''} → ${expected}, 저장에 성공하면 saved`, async () => {
+      const t = current = setup({ loaded });
+      t.tuning.toggle();
+      assert.equal(t.panel.dataset.save, expected);
+      t.slide('fps', 12);
+      assert.equal(t.panel.dataset.save, 'dirty');
+      t.slide('fps', 24); // 불러온 값으로 돌아오면 다시 불러온 상태
+      assert.equal(t.panel.dataset.save, expected);
+      t.click('save');
+      t.saves[0].resolve();
+      await flush();
+      assert.equal(t.panel.dataset.save, 'saved');
+    });
+  }
 });

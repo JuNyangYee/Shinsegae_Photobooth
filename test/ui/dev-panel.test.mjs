@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { devLineTone, renderDevPanel, splitDevLine } from '../../src/web/ui/dev-panel.js';
-import { SaveState, saveStateOf, showSaveState } from '../../src/web/ui/save-state.js';
+import { SaveState, loadedSaveState, saveStateOf, showSaveState } from '../../src/web/ui/save-state.js';
+import { SettingsSource } from '../../src/web/config/settings-file.js';
 
 // 필요한 만큼만 흉내 낸 DOM: 요소·글자 노드, textContent는 자식 글자를 이어 붙인다
 function fakeDocument() {
@@ -76,6 +77,20 @@ describe('save-state (R·E 저장 상태)', () => {
     assert.equal(saveStateOf({ saving: false, failed: true, dirty: true }), SaveState.FAILED);
     assert.equal(saveStateOf({ saving: false, failed: false, dirty: true }), SaveState.DIRTY);
     assert.equal(saveStateOf({ saving: false, failed: false, dirty: false }), SaveState.SAVED);
+  });
+
+  it('바꾸지 않은 상태는 불러온 결과를 따른다: 파일 없음·불러오기 실패·고쳐 씀·파일 (6단계 검수 1)', () => {
+    const base = (source, note = '', issues = []) => loadedSaveState({ source, note, issues });
+    assert.equal(base(SettingsSource.DEFAULTS, 'no file'), SaveState.DEFAULTS);
+    assert.equal(base(SettingsSource.DEFAULTS, 'file is invalid', ['not valid JSON']), SaveState.LOAD_FAILED);
+    assert.equal(base(SettingsSource.DEFAULTS, 'file read failed: timeout 3000ms'), SaveState.LOAD_FAILED);
+    assert.equal(base(SettingsSource.FILE, '', ['fps: 99 -> 30']), SaveState.ADJUSTED);
+    assert.equal(base(SettingsSource.LOCAL_ONLY, 'migration to file failed'), SaveState.ADJUSTED);
+    assert.equal(base(SettingsSource.FILE), SaveState.SAVED);
+    assert.equal(base(SettingsSource.MIGRATED), SaveState.SAVED);
+    assert.equal(base(SettingsSource.SAVED, '', ['old issue']), SaveState.SAVED, '이번 실행에 저장했으면 저장됨');
+    assert.equal(saveStateOf({ saving: false, failed: false, dirty: false, base: SaveState.DEFAULTS }), SaveState.DEFAULTS);
+    assert.equal(saveStateOf({ saving: false, failed: false, dirty: true, base: SaveState.DEFAULTS }), SaveState.DIRTY);
   });
 
   it('패널 data-save와 상태 글자를 함께 바꾼다', () => {
