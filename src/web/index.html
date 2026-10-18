@@ -8,6 +8,9 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; img-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Shinsegae Christmas Photobooth</title>
+  <!-- 서체는 숨겨진 화면(카운트다운·결과)에서 처음 쓰여도 바로 보이도록 미리 받는다 -->
+  <link rel="preload" href="assets/fonts/GowunBatang-Bold.woff" as="font" type="font/woff" crossorigin>
+  <link rel="preload" href="assets/fonts/GowunDodum-Regular.woff" as="font" type="font/woff" crossorigin>
   <link rel="stylesheet" href="style.css">
   <script type="module" src="main.js"></script>
 </head>
@@ -16,9 +19,45 @@
     <video id="preview" class="preview" autoplay muted playsinline></video>
     <!-- 사진 효과 미리보기 (유화 · 획). 영상 위를 덮는다. 효과를 쓸 수 없으면 숨겨 원본 미리보기가 보인다. -->
     <canvas id="effect" class="effect" hidden></canvas>
-    <!-- 촬영 한 사이클 (기본 UI, 최종 디자인 아님): 결과 사진, 카운트다운 숫자, 촬영 순간 플래시 -->
-    <img id="result" class="result" alt="" hidden>
-    <p id="countdown" class="countdown" hidden></p>
+
+    <!-- ---- 관람객 화면 (6-2, ui/guest-screen.js). 문구는 config/guest-text.js ---- -->
+    <!-- 결과: 출력물 카드 (결과 사진), 안내, 남은 시간 -->
+    <div id="result-view" class="result-view" hidden>
+      <p id="result-title" class="result-title"></p>
+      <div id="result-card" class="result-card">
+        <div class="result-photo"><img id="result" class="result" alt="" decoding="async" hidden></div>
+      </div>
+      <p id="result-note" class="result-note"></p>
+      <div id="result-timer" class="result-timer">
+        <span class="result-timer-track"><span id="result-timer-fill" class="result-timer-fill"></span></span>
+      </div>
+      <p id="result-back" class="result-back"></p>
+    </div>
+    <!-- 준비 중·직원 문의 안내의 바탕 막. 장식 프레임은 그 위에 보인다 (안내 글자는 아래 #status) -->
+    <div id="status-veil" class="status-veil" hidden></div>
+    <!-- 장식 프레임: 가장자리 띠, 솔가지 가랜드·리본, 인식되면 밝아지는 테두리 빛 -->
+    <div class="frame" aria-hidden="true">
+      <div class="frame-glow"></div>
+      <div class="frame-band"></div>
+      <div class="frame-top"></div>
+      <div class="frame-bottom"></div>
+    </div>
+    <!-- 대기 안내 -->
+    <p id="guide" class="guide" hidden></p>
+    <!-- 3·2·1: 숫자, 원형 진행(두 반원), 안내 -->
+    <div id="countdown" class="countdown" hidden>
+      <div id="countdown-dial" class="countdown-dial">
+        <span class="countdown-ring">
+          <span class="ring-half is-right"><span id="countdown-ring-a" class="ring-fill"></span></span>
+          <span class="ring-half is-left"><span id="countdown-ring-b" class="ring-fill"></span></span>
+        </span>
+        <p id="countdown-number" class="countdown-number"></p>
+      </div>
+      <p id="countdown-caption" class="countdown-caption"></p>
+    </div>
+    <!-- 쿨타임 문구 -->
+    <p id="notice" class="notice" hidden></p>
+    <!-- 촬영 순간 플래시 -->
     <div id="flash" class="flash"></div>
     <canvas id="dev-overlay" class="dev-overlay" hidden></canvas>
     <!-- 운영자용 인식 영역 편집 (R 키). 관람객 화면에는 보이지 않는다. -->
@@ -34,10 +73,9 @@
         <span class="tuning-handle" data-handle="w"></span>
       </div>
     </div>
-    <p id="presence" class="presence" hidden></p>
-    <p id="notice" class="notice" hidden></p>
     <!-- 운영자 표시: 자동 촬영 일시정지(P) 중 (config.showPauseIndicator로 끈다) -->
     <p id="pause-badge" class="pause-badge" hidden></p>
+    <!-- 준비 중·직원 문의 안내 (관람객 화면). 확인 도구가 #status 글자로 안내를 읽는다. 바탕 막은 위 #status-veil -->
     <p id="status" class="status" hidden></p>
   </main>
   <pre id="dev-info" class="dev-info" hidden></pre>

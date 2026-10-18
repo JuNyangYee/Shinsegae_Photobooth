@@ -13,33 +13,22 @@ import { effectTunables, serializeEffectSettings } from './config/effect-setting
 import { EffectStatus, createEffectPreview } from './effect/effect-preview.js';
 import { createPhotoEffect } from './effect/photo-effect.js';
 import { createEffectTuning } from './ui/effect-tuning.js';
+import { guestText } from './config/guest-text.js';
+import { createGuestScreen } from './ui/guest-screen.js';
 
 const stage = document.getElementById('stage');
 const video = document.getElementById('preview');
 const effectCanvas = document.getElementById('effect');
-const statusText = document.getElementById('status');
-const presenceText = document.getElementById('presence');
 const devInfo = document.getElementById('dev-info');
 const devOverlay = document.getElementById('dev-overlay');
-const resultImage = document.getElementById('result');
-const countdownText = document.getElementById('countdown');
-const flash = document.getElementById('flash');
-const noticeText = document.getElementById('notice');
 const pauseBadge = document.getElementById('pause-badge');
 
 // 운영자 단축키 (관람객용 아님): D 개발용 정보, R 인식 범위 조절, E 사진 효과 조절, S 수동 촬영 시작, X 강제 초기화,
 // P 자동 촬영 일시정지
 const Keys = Object.freeze({ devInfo: 'KeyD', tuning: 'KeyR', effectTuning: 'KeyE', start: 'KeyS', reset: 'KeyX', pause: 'KeyP' });
 
-// 관람객용 문구 (사용자 확정 2026-10-15). 상태 상세는 D 키 개발용 정보에만 보인다.
-const messages = Object.freeze({
-  preparing: '준비 중입니다.\n잠시만 기다려 주세요.',
-  staff: '준비 중입니다.\n직원에게 문의해 주세요.',
-  present: '인식됨', // 인식 상태 임시 표시 (가안)
-  absent: '인식 안됨',
-  cooldown: '다음 촬영을 준비 중입니다.', // 쿨타임 문구 (가안)
-  paused: '자동 촬영 일시정지 (P)', // 운영자 표시 (가안)
-});
+// 관람객 화면 표현 (6-2). 문구는 config/guest-text.js 한곳에 있고, 상태 상세는 D 키 개발용 정보에만 보인다.
+const guest = createGuestScreen({ root: document, text: guestText, countdownSeconds: config.session.countdownSeconds });
 
 // 기다려도 스스로 풀리기 어려운 카메라 상태는 바로 직원 문의 문구를 보인다. 감지기는 장애(fault)가 그렇다.
 const staffNowStatuses = new Set([CameraStatus.UNSUPPORTED, CameraStatus.PERMISSION_DENIED]);
@@ -131,8 +120,6 @@ let guidanceSince = null; // 카메라·감지기 중 하나라도 쓸 수 없�
 let guidanceNow = Guidance.NONE;
 let devInfoTimer = null;
 let devOverlayFrame = null;
-let shownPhotoUrl = null;
-let lastSessionState = SessionState.IDLE;
 
 // 저장소 접근 자체가 막힌 환경에서도 앱은 기본값으로 동작한다.
 function getStorage() {
@@ -156,8 +143,7 @@ function isRoundActive() {
 }
 
 function showStatus(message) {
-  statusText.textContent = message;
-  statusText.hidden = !message || isRoundActive();
+  guest.setStatus({ message, kind: guidanceNow, visible: Boolean(message) && !isRoundActive() });
 }
 
 // 카메라와 감지기 상태를 하나의 안내 규칙으로 판정한다 (guidance.js). 감지기를 쓸 수 없어도 S 수동 촬영은 된다.
@@ -182,18 +168,16 @@ function renderStatus() {
   });
   guidanceSince = decision.since;
   guidanceNow = decision.guidance;
-  showStatus(decision.guidance === Guidance.NONE ? '' : messages[decision.guidance]);
+  showStatus(decision.guidance === Guidance.NONE ? '' : guestText[decision.guidance]);
   if (decision.recheckInMs !== null) staffNoticeTimer = setTimeout(renderStatus, decision.recheckInMs);
 }
 
-// 카메라나 감지기를 쓸 수 없으면 "준비 중" 문구만 보이고 인식 표시는 숨긴다.
+// 카메라나 감지기를 쓸 수 없으면 "준비 중" 문구만 보이고 인식 표시(테두리 빛)·대기 안내는 숨긴다.
+// 인식 표시는 config.showPresenceIndicator로 끈다. 대기 안내는 대기 상태에서만 보인다(카운트다운·쿨타임은 각자 문구).
 function renderPresence() {
-  const visible = config.showPresenceIndicator && camera.isReady() && guidanceNow === Guidance.NONE && !isShowingPhoto();
-  presenceText.hidden = !visible;
-  if (!visible) return;
-  const present = presence.isPresent();
-  presenceText.textContent = present ? messages.present : messages.absent;
-  presenceText.classList.toggle('is-present', present);
+  const visible = camera.isReady() && guidanceNow === Guidance.NONE && !isShowingPhoto();
+  guest.setPresence(config.showPresenceIndicator && visible && presence.isPresent());
+  guest.setGuide(visible && session.getState().state === SessionState.IDLE);
 }
 
 // ---- 촬영 한 사이클 화면 ----
@@ -209,28 +193,12 @@ function handleEffectTuningOpenChange(open) {
   if (!devInfo.hidden) renderDevInfo();
 }
 
+// 카운트다운·플래시·결과 사진은 guest-screen이 보인다. 결과가 끝나면 그 안에서 <img>의 src를 먼저 지우고,
+// 그 뒤 session이 Object URL을 정리한다 (같은 알림 안에서 동기로).
 function renderSession(s) {
-  countdownText.hidden = s.state !== SessionState.COUNTDOWN;
-  if (s.state === SessionState.COUNTDOWN) countdownText.textContent = String(s.countdown);
-
-  if (s.state === SessionState.CAPTURING && lastSessionState !== SessionState.CAPTURING) {
-    flash.animate([{ opacity: 0.9 }, { opacity: 0 }], { duration: 400, easing: 'ease-out' });
-  }
-  lastSessionState = s.state;
-
-  // 결과 사진. 결과가 끝나면 src를 먼저 지우고, 그 뒤 session이 Object URL을 정리한다.
-  const url = s.state === SessionState.RESULT ? s.photo.url : null;
-  if (url !== shownPhotoUrl) {
-    if (url) resultImage.src = url;
-    else resultImage.removeAttribute('src');
-    shownPhotoUrl = url;
-  }
-  resultImage.hidden = url === null;
-
+  guest.renderSession(s);
   renderStatus();
-  const cooling = s.state === SessionState.COOLDOWN && guidanceNow === Guidance.NONE;
-  noticeText.hidden = !cooling;
-  if (cooling) noticeText.textContent = messages.cooldown;
+  guest.setNotice(s.state === SessionState.COOLDOWN && guidanceNow === Guidance.NONE);
   renderPresence();
   if (!devInfo.hidden) renderDevInfo();
 }
@@ -454,7 +422,7 @@ function togglePause() {
 
 function renderPauseBadge() {
   pauseBadge.hidden = !(autoPaused && config.showPauseIndicator);
-  pauseBadge.textContent = messages.paused;
+  pauseBadge.textContent = guestText.paused;
 }
 
 // 시작할 때 조절값: 파일 → (없으면) localStorage에서 옮김 → 기본값. 실패하거나 시간 초과면 기본값 (settings-file.js).

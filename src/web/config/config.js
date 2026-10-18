@@ -55,7 +55,7 @@ export const config = Object.freeze({
     absentGraceMs: 1000, // "없음"이 이만큼 이어져야 인식 안됨
   }),
 
-  // "인식됨 / 인식 안됨" 임시 표시 (최종 디자인 전 기본 UI)
+  // 인식 표시: 인식되면 관람객 화면 테두리가 따뜻하게 밝아진다 (6-2). 끄면 대기 안내만 보인다
   showPresenceIndicator: true,
 
   // 자동 촬영 일시정지(P) 중 화면 구석의 작은 운영자 표시 (가안). D 화면에는 항상 보인다.

@@ -1,7 +1,38 @@
+/* 서체 (6-2). 같은 행사의 다른 웹 체험(ThrowSnow)과 같은 서체·색 계열을 쓴다. 저장소 안 파일만 쓴다 (CSP, 오프라인).
+   제목·숫자: 고운바탕 Bold, 본문: 고운돋움. KS X 1001 완성형 2,350자 + 영숫자·기호로 줄인 woff라 그 밖의 글자는 시스템 서체로 보인다.
+   라이선스: SIL Open Font License 1.1 (assets/fonts/OFL-*.txt) */
+@font-face {
+  font-family: 'Gowun Batang';
+  src: url('assets/fonts/GowunBatang-Bold.woff') format('woff');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Gowun Dodum';
+  src: url('assets/fonts/GowunDodum-Regular.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* 화면 비율은 main.js가 config.js 값으로 덮어쓴다. */
 :root {
   --stage-ratio-w: 9;
   --stage-ratio-h: 16;
+  /* 관람객 화면 (6-2, 가안): 크림·딥 레드·골드·솔잎 그린. 크림·솔잎은 ThrowSnow 팔레트와 같은 값 */
+  --font-title: 'Gowun Batang', serif;
+  --font-body: 'Gowun Dodum', system-ui, sans-serif;
+  --cream: #f3e4d6;
+  --paper: #fbf7ef;
+  --ink: #3a2418;
+  --red-deep: #9b1c26;
+  --gold: #d9a441;
+  --gold-light: #f6d58a;
+  --pine: #2f5f52;
+  --pine-deep: #1d3f35;
+  --paper-grain: url('assets/paper.webp') 0 0 / 24cqw;
 }
 
 html,
@@ -18,13 +49,14 @@ body {
   place-items: center;
 }
 
-/* 뷰포트 비율과 무관하게 9:16 영역을 가운데에 최대 크기로 둔다. 나머지는 검정. */
+/* 뷰포트 비율과 무관하게 9:16 영역을 가운데에 최대 크기로 둔다. 나머지는 검정.
+   관람객 화면의 길이는 모두 cqw(9:16 영역 폭의 1%)로 써서 1080×1920과 2160×3840에서 같은 비율로 보인다. */
 .stage {
   position: relative;
   width: min(100vw, 100vh * var(--stage-ratio-w) / var(--stage-ratio-h));
   aspect-ratio: var(--stage-ratio-w) / var(--stage-ratio-h);
   overflow: hidden;
-  background: #000;
+  background: var(--pine-deep);
   container-type: inline-size;
 }
 
@@ -50,30 +82,9 @@ body {
   height: 100%;
 }
 
-.status {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  margin: 0;
-  padding: 0 8%;
-  color: #fff;
-  font: 500 clamp(16px, 4cqw, 48px) / 1.5 system-ui, sans-serif;
-  text-align: center;
-  word-break: keep-all;
-  white-space: pre-line;
-}
-
-.status[hidden],
-.effect[hidden],
-.presence[hidden],
-.notice[hidden],
-.pause-badge[hidden],
-.result[hidden],
-.countdown[hidden],
-.dev-overlay[hidden],
+/* 9:16 영역 안은 hidden이면 언제나 숨긴다 (아래 규칙들의 display보다 우선) */
+#stage [hidden],
 .dev-info[hidden],
-.tuning-layer[hidden],
 .tuning-panel[hidden] {
   display: none;
 }
@@ -93,71 +104,355 @@ body {
   pointer-events: none;
 }
 
-/* 인식 상태 임시 표시 (최종 디자인 전 기본 UI, config.showPresenceIndicator) */
-.presence {
+/* ---- 관람객 화면 (6-2, ui/guest-screen.js). 미리보기·결과 사진은 흰 감열지 위의 검은 점이 되므로,
+   글자는 늘 불투명한 종이·리본 위에 둔다. 움직임은 transform·opacity만 쓴다. ---- */
+
+/* 장식 프레임: 가장자리 딥 레드 띠(안쪽 금선, 둥근 모서리), 위 솔가지 가랜드·리본, 아래 가랜드 */
+.frame,
+.frame > * {
   position: absolute;
-  left: 50%;
-  bottom: 4%;
-  transform: translateX(-50%);
-  margin: 0;
-  padding: 0.4em 1.2em;
-  border-radius: 999px;
-  color: #fff;
-  background: rgba(0, 0, 0, 0.55);
-  font: 600 clamp(14px, 3.5cqw, 40px) / 1.4 system-ui, sans-serif;
-  white-space: nowrap;
-}
-
-.presence.is-present {
-  background: rgba(20, 140, 60, 0.85);
-}
-
-/* ---- 촬영 한 사이클 (기본 UI, 최종 디자인 아님) ---- */
-
-/* 결과 사진은 이미 반전된 9:16 이미지이므로 그대로 채운다. 미리보기 위를 덮는다. */
-.result {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  background: #000;
-}
-
-.countdown {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  margin: 0;
-  color: #fff;
-  font: 700 clamp(96px, 40cqw, 640px) / 1 system-ui, sans-serif;
-  text-shadow: 0 0 0.06em rgba(0, 0, 0, 0.7);
   pointer-events: none;
 }
 
-/* 촬영 순간 짧은 흰 화면. main.js가 Web Animations로 투명도를 움직인다. */
+.frame {
+  inset: 0;
+}
+
+.frame-band {
+  inset: 2.2cqw;
+  border: 0.45cqw solid var(--gold);
+  border-radius: 4cqw;
+  box-shadow: 0 0 0 6cqw var(--red-deep), inset 0 0 2.4cqw rgba(20, 8, 4, 0.35);
+}
+
+.frame-top {
+  left: 0;
+  top: 0;
+  width: 100%;
+  aspect-ratio: 900 / 360;
+  background: url('assets/garland-top.svg') center top / 100% auto no-repeat;
+}
+
+.frame-bottom {
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  aspect-ratio: 900 / 200;
+  background: url('assets/garland-bottom.svg') center bottom / 100% auto no-repeat;
+}
+
+/* 인식 표시: 인식되면 금선이 굵어지고 테두리 안쪽이 따뜻한 금빛으로 밝아진다 (config.showPresenceIndicator) */
+.frame-glow {
+  inset: 2.2cqw;
+  border-radius: 4cqw;
+  box-shadow: inset 0 0 0 1.1cqw rgba(246, 213, 138, 0.95), inset 0 0 9cqw 2.4cqw rgba(255, 196, 92, 0.7);
+  opacity: 0;
+  transition: opacity 0.6s ease;
+  will-change: opacity;
+}
+
+.stage.is-present .frame-glow {
+  opacity: 1;
+}
+
+/* 종이 알약: 대기 안내·카운트다운 안내·쿨타임 문구가 같은 모양을 쓴다 */
+.guide,
+.countdown-caption,
+.notice {
+  display: flex;
+  align-items: center;
+  gap: 2cqw;
+  margin: 0;
+  padding: 2.2cqw 5cqw 2.2cqw 3.6cqw;
+  border-radius: 999px;
+  background: var(--paper-grain), var(--paper);
+  color: var(--red-deep);
+  box-shadow: 0 0.8cqw 2.4cqw rgba(40, 20, 10, 0.35), inset 0 0 0 0.4cqw var(--gold);
+  font: 400 5.2cqw / 1.2 var(--font-body);
+  white-space: nowrap;
+}
+
+.guide::before,
+.countdown-caption::before,
+.notice::before {
+  content: '';
+  flex: none;
+  width: 6.4cqw;
+  height: 6.4cqw;
+  background: center / contain no-repeat;
+}
+
+/* 대기 안내: 아래쪽 가운데, 천천히 떠오르듯 움직인다 */
+.guide {
+  position: absolute;
+  left: 50%;
+  bottom: 15cqw;
+  translate: -50% 0;
+  animation: guide-float 3.2s ease-in-out infinite alternate;
+}
+
+.guide::before {
+  background-image: url('assets/icon-footprints.svg');
+}
+
+@keyframes guide-float {
+  from { transform: translateY(0); }
+  to { transform: translateY(-1.2cqw); }
+}
+
+/* 3·2·1: 딥 레드 원판 위 크림 숫자, 금빛 원형 진행. 얼굴을 덜 가리게 가운데보다 조금 아래 */
+.countdown {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5cqw;
+  padding-top: 24cqw;
+  pointer-events: none;
+}
+
+.countdown-dial {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 46cqw;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--paper-grain), rgba(155, 28, 38, 0.95);
+  box-shadow: 0 1.6cqw 5cqw rgba(30, 10, 5, 0.45), inset 0 0 0 0.5cqw rgba(246, 213, 138, 0.55);
+}
+
+.countdown-ring,
+.ring-half,
+.ring-fill {
+  position: absolute;
+}
+
+.countdown-ring {
+  inset: 2.4cqw;
+}
+
+.countdown-ring::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1.6cqw solid rgba(243, 228, 214, 0.22);
+  border-radius: 50%;
+}
+
+/* 반원 두 개를 transform으로 돌려 원을 채운다 (ui/guest-screen.js). 처음에는 반대쪽 반원 안에 숨어 있다 */
+.ring-half {
+  top: 0;
+  width: 50%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.ring-half.is-right { right: 0; }
+.ring-half.is-left { left: 0; }
+
+.ring-fill {
+  top: 0;
+  box-sizing: border-box;
+  width: 200%;
+  height: 100%;
+  border: 1.6cqw solid transparent;
+  border-radius: 50%;
+  transform: rotate(45deg);
+}
+
+.is-right .ring-fill {
+  left: -100%;
+  border-bottom-color: var(--gold-light);
+  border-left-color: var(--gold-light);
+}
+
+.is-left .ring-fill {
+  left: 0;
+  border-top-color: var(--gold-light);
+  border-right-color: var(--gold-light);
+}
+
+.countdown-number {
+  margin: 0 0 1.6cqw;
+  color: var(--cream);
+  font: 700 28cqw / 1 var(--font-title);
+  text-shadow: 0 0.6cqw 1.6cqw rgba(60, 10, 10, 0.5);
+}
+
+.countdown-caption::before {
+  background-image: url('assets/icon-star.svg');
+}
+
+/* 촬영 순간: 따뜻한 흰빛. ui/guest-screen.js가 투명도를 짧게 움직인다 */
 .flash {
   position: absolute;
   inset: 0;
-  background: #fff;
+  background: #fff8ec;
   opacity: 0;
   pointer-events: none;
 }
 
-/* 쿨타임 문구 (가안). 인식 상태 표시와 겹치지 않게 위쪽에 둔다. */
+/* 결과: 솔잎 그린 바탕 위 출력물 카드(흰 종이, 그림자, 살짝 기울임, 금빛 테이프). 프레임 장식은 그 위에 그대로 */
+.result-view {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 26cqw;
+  background: var(--paper-grain), radial-gradient(ellipse at 50% 45%, var(--pine) 0%, var(--pine-deep) 62%, #142c25 100%);
+  color: var(--cream);
+}
+
+.result-title {
+  margin: 0;
+  font: 700 6.4cqw / 1.2 var(--font-title);
+  letter-spacing: 0.02em;
+  text-shadow: 0 0.4cqw 1.2cqw rgba(0, 0, 0, 0.35);
+}
+
+.result-card {
+  position: relative;
+  margin-top: 4.4cqw;
+  padding: 2.4cqw 2.4cqw 6.4cqw;
+  background: var(--paper-grain), var(--paper);
+  box-shadow: 0 2.4cqw 6cqw rgba(0, 0, 0, 0.45), 0 0.3cqw 0.8cqw rgba(0, 0, 0, 0.3);
+  transform: rotate(-2deg);
+}
+
+.result-card::before {
+  content: '';
+  position: absolute;
+  top: -2.2cqw;
+  left: 50%;
+  width: 20cqw;
+  height: 5cqw;
+  background: rgba(217, 164, 65, 0.78);
+  box-shadow: 0 0.3cqw 0.6cqw rgba(0, 0, 0, 0.2);
+  transform: translateX(-50%) rotate(3deg);
+}
+
+/* 결과 사진은 이미 반전된 9:16 이미지이므로 그대로 채운다. */
+.result-photo {
+  width: 52cqw;
+  aspect-ratio: var(--stage-ratio-w) / var(--stage-ratio-h);
+  background: #fff;
+}
+
+.result {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.result-note {
+  margin: 5cqw 0 0;
+  font: 400 5.4cqw / 1.3 var(--font-body);
+}
+
+/* 남은 시간: 금빛 막대가 줄어든다 (transform) */
+.result-timer {
+  margin-top: 2.6cqw;
+}
+
+.result-timer-track {
+  display: block;
+  width: 34cqw;
+  height: 1cqw;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(243, 228, 214, 0.22);
+}
+
+.result-timer-fill {
+  display: block;
+  height: 100%;
+  background: var(--gold-light);
+  transform-origin: left center;
+}
+
+.result-back {
+  margin: 1.8cqw 0 0;
+  color: rgba(243, 228, 214, 0.75);
+  font: 400 3.4cqw / 1.3 var(--font-body);
+}
+
+/* 쿨타임: 대기 안내와 같은 자리, 차분한 솔잎 그린 알약 */
 .notice {
   position: absolute;
   left: 50%;
-  top: 4%;
-  transform: translateX(-50%);
+  bottom: 15cqw;
+  translate: -50% 0;
+  background: var(--paper-grain), rgba(29, 63, 53, 0.92);
+  color: var(--cream);
+  box-shadow: 0 0.8cqw 2.4cqw rgba(0, 0, 0, 0.3), inset 0 0 0 0.35cqw rgba(217, 164, 65, 0.8);
+}
+
+.notice::before {
+  background-image: url('assets/icon-star.svg');
+  animation: star-twinkle 2.4s ease-in-out infinite alternate;
+}
+
+@keyframes star-twinkle {
+  from { transform: scale(0.85) rotate(-8deg); opacity: 0.75; }
+  to { transform: scale(1.05) rotate(8deg); opacity: 1; }
+}
+
+/* 준비 중·직원 문의: 솔잎 그린 막 위 크림 종이 카드. 첫 줄은 제목처럼, 위에 금빛 방울 (준비 중이면 흔들린다) */
+.status-veil {
+  position: absolute;
+  inset: 0;
+  background: var(--paper-grain), rgba(29, 63, 53, 0.92);
+}
+
+.status {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  translate: -50% -50%;
+  box-sizing: border-box;
+  width: 76cqw;
   margin: 0;
-  padding: 0.4em 1.2em;
-  border-radius: 999px;
-  color: #fff;
-  background: rgba(0, 0, 0, 0.55);
-  font: 600 clamp(14px, 3.5cqw, 40px) / 1.4 system-ui, sans-serif;
-  white-space: nowrap;
+  padding: 24cqw 6cqw 9cqw;
+  border-radius: 4cqw;
+  background: var(--paper-grain), var(--paper);
+  box-shadow: 0 2cqw 6cqw rgba(0, 0, 0, 0.4), inset 0 0 0 0.5cqw var(--gold);
+  color: var(--ink);
+  font: 400 5.2cqw / 1.5 var(--font-body);
+  text-align: center;
+  white-space: pre-line;
+  word-break: keep-all;
+}
+
+.status::first-line {
+  color: var(--red-deep);
+  font: 700 7.4cqw / 1.6 var(--font-title);
+}
+
+.status::before {
+  content: '';
+  position: absolute;
+  top: 5.6cqw;
+  left: 50%;
+  width: 14cqw;
+  height: 16.8cqw;
+  margin-left: -7cqw;
+  background: url('assets/icon-ornament.svg') center / contain no-repeat;
+  transform-origin: 50% 0;
+  animation: ornament-swing 1.6s ease-in-out infinite alternate;
+}
+
+.status[data-kind="staff"]::before {
+  animation: none;
+}
+
+@keyframes ornament-swing {
+  from { transform: rotate(-7deg); }
+  to { transform: rotate(7deg); }
 }
 
 /* 개발용 감지 박스·영역 겹쳐 그리기 (D 키). 9:16 영역 좌표 그대로 그린다 (이미 반전 후 좌표). */
