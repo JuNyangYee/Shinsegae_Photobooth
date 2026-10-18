@@ -4,7 +4,9 @@ import { describe, it } from 'node:test';
 
 import { config } from '../../src/web/config/config.js';
 import {
+  DITHER_METHODS,
   EFFECT_TUNABLE_KEYS,
+  OUTPUT_MODES,
   applyEffectTunables,
   effectLimits,
   effectTunables,
@@ -29,6 +31,30 @@ describe('normalizeEffectSettings', () => {
     assert.deepEqual(settings.refine, [3.5, 3, 10, 0.6, 0.22]);
     assert.equal(settings.previewScale, 1);
     assert.ok(Object.isFrozen(settings) && Object.isFrozen(settings.layers[0]) && Object.isFrozen(settings.refine));
+  });
+
+  it('출력 단계 기본값: 감열지, 80mm 576점, 레벨 중립 (6-1 사용자 결정)', () => {
+    const { settings } = normalizeEffectSettings(defaults, defaults);
+    assert.equal(settings.outputMode, 'thermal');
+    assert.equal(settings.paperDots, 576);
+    assert.ok(DITHER_METHODS.includes(settings.dither));
+    assert.deepEqual([settings.brightness, settings.contrast, settings.gamma], [0, 1, 1]);
+  });
+
+  it('출력 모드·점 방식은 목록에 없으면 기본값, 용지 점 수는 8의 배수·범위로, 레벨은 범위로', () => {
+    const { settings, issues } = normalizeEffectSettings({
+      ...defaults, outputMode: 'sepia', dither: 7, paperDots: 383, brightness: 2, contrast: 0, gamma: 9,
+    }, defaults);
+    assert.equal(settings.outputMode, defaults.outputMode);
+    assert.equal(settings.dither, defaults.dither);
+    assert.equal(settings.paperDots, 384);
+    assert.deepEqual([settings.brightness, settings.contrast, settings.gamma], [0.5, 0.5, 2.5]);
+    assert.ok(issues.includes('outputMode: "sepia" -> default') && issues.includes('dither: 7 -> default'));
+    assert.ok(issues.includes('paperDots: 383 -> 384'));
+    for (const mode of OUTPUT_MODES) assert.equal(normalizeEffectSettings({ ...defaults, outputMode: mode }, defaults).settings.outputMode, mode);
+    for (const method of DITHER_METHODS) assert.equal(normalizeEffectSettings({ ...defaults, dither: method }, defaults).settings.dither, method);
+    assert.equal(normalizeEffectSettings({ ...defaults, paperDots: 5000 }, defaults).settings.paperDots, 1024);
+    assert.equal(normalizeEffectSettings({ ...defaults, paperDots: 1 }, defaults).settings.paperDots, 128);
   });
 
   it('범위 밖은 범위로, fps는 정수로', () => {
@@ -72,9 +98,12 @@ describe('normalizeEffectSettings', () => {
 describe('효과 조절값 (E 화면·파일, 5-2)', () => {
   const base = normalizeEffectSettings(defaults, defaults).settings;
 
-  it('조절값은 7개, 보완 층 문턱은 refine[4]', () => {
+  it('조절값은 13개(5-2의 7개 + 출력 단계 6개), 보완 층 문턱은 refine[4]', () => {
     assert.deepEqual(Object.keys(effectTunables(base)), [...EFFECT_TUNABLE_KEYS]);
-    assert.deepEqual(effectTunables(base), { strength: 0.1, size: 1.25, boil: 0.1, fps: 24, grade: 1, refineThreshold: 0.22, previewScale: 1 });
+    assert.deepEqual(effectTunables(base), {
+      strength: 0.1, size: 1.25, boil: 0.1, fps: 24, grade: 1, refineThreshold: 0.22, previewScale: 1,
+      outputMode: 'thermal', dither: defaults.dither, brightness: 0, contrast: 1, gamma: 1, paperDots: 576,
+    });
   });
 
   it('조절값을 덮으면 붓 층 모양은 그대로, 범위 밖은 맞춘다', () => {
@@ -87,7 +116,10 @@ describe('효과 조절값 (E 화면·파일, 5-2)', () => {
   });
 
   it('저장 → 읽기 왕복이 같다', () => {
-    const changed = applyEffectTunables(base, { fps: 8, boil: 0.4, previewScale: 0.5 }, defaults).settings;
+    const changed = applyEffectTunables(base, {
+      fps: 8, boil: 0.4, previewScale: 0.5, outputMode: 'gray', dither: 'atkinson', brightness: 0.1, contrast: 1.3, gamma: 1.4, paperDots: 384,
+    }, defaults).settings;
+    assert.deepEqual([changed.outputMode, changed.dither, changed.paperDots], ['gray', 'atkinson', 384]);
     const text = serializeEffectSettings(changed);
     assert.deepEqual(JSON.parse(text), { version: 1, settings: effectTunables(changed) });
     const back = parseStoredEffectSettings(text, defaults);
@@ -102,7 +134,7 @@ describe('효과 조절값 (E 화면·파일, 5-2)', () => {
     assert.equal(partial.source, 'stored');
     assert.equal(partial.settings.fps, 10);
     assert.equal(partial.settings.strength, 0.1);
-    assert.equal(partial.issues.length, 6);
+    assert.equal(partial.issues.length, 12);
     for (const [text, issue] of [['{', /not valid JSON/], ['[]', /not an object/], ['{"version":2,"settings":{}}', /version 2/]]) {
       const r = parseStoredEffectSettings(text, defaults);
       assert.equal(r.source, 'default');
@@ -110,5 +142,16 @@ describe('효과 조절값 (E 화면·파일, 5-2)', () => {
       assert.ok(sameEffectSettings(r.settings, base));
     }
     assert.deepEqual(parseStoredEffectSettings(null, defaults).issues, []);
+  });
+
+  it('5-2 파일(같은 버전 1, 조절값 7개만)을 읽으면 그 값은 쓰고 출력 단계는 기본값(감열지)으로 채운다', () => {
+    const old = JSON.stringify({ version: 1, settings: {
+      strength: 0.3, size: 1, boil: 0.2, fps: 12, grade: 0.5, refineThreshold: 0.3, previewScale: 0.75,
+    } }, null, 2);
+    const r = parseStoredEffectSettings(old, defaults);
+    assert.equal(r.source, 'stored');
+    assert.deepEqual([r.settings.strength, r.settings.fps, r.settings.refine[4], r.settings.previewScale], [0.3, 12, 0.3, 0.75]);
+    assert.deepEqual([r.settings.outputMode, r.settings.paperDots, r.settings.dither], ['thermal', 576, defaults.dither]);
+    assert.deepEqual(r.issues, ['outputMode', 'dither', 'brightness', 'contrast', 'gamma', 'paperDots'].map((k) => `${k}: missing -> default`));
   });
 });

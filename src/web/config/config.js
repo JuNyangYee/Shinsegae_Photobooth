@@ -100,6 +100,22 @@ export const config = Object.freeze({
     // 미리보기 처리 해상도 배율. 결과 사진 크기(짧은 변 1080, 4K 입력도 1080x1920) 대비 (사용자 결정 2026-10-16).
     // 1이면 미리보기가 결과와 같은 그림이다. 현장 PC가 느리면 먼저 fps를 낮추고, 그래도 느리면 이 값을 낮춘다.
     previewScale: 1,
+    // ---- 출력 단계 (6-1, 사용자 결정 2026-10-19): 유화 합성 뒤 감열지 흑백 시뮬레이션. 화면에 보이는 것이 곧 출력물이다 ----
+    // 'thermal' 감열지(1비트 점) / 'gray' 회색조만 / 'off' 컬러 유화 그대로
+    outputMode: 'thermal',
+    // 점 방식: 'blue-noise'·'bayer'(문턱값, GPU) / 'atkinson'·'floyd-steinberg'(오차 확산, CPU). 기본값은 측정 뒤 제안 (가안, 로그 2026-10-19-01)
+    dither: 'blue-noise',
+    brightness: 0, // 밝기: 회색조에 더한다 (-0.5~0.5)
+    contrast: 1, // 대비: 0.5를 중심으로 늘린다 (0.5~2)
+    gamma: 1, // 감마: 1보다 크면 중간 밝기를 밝게 (0.4~2.5)
+    // 용지 폭의 점 수 (8의 배수). 80mm 용지 576점(203dpi), 58mm는 384점. 세로는 9:16이면 576 → 1024
+    paperDots: 576,
+  }),
+
+  // 감열지 화면 표시 색 (6-1). 화면에서만 쓴다. 인쇄 데이터는 순수 1비트(검은 점·흰 바탕)다. [R, G, B] 0~255
+  thermalDisplay: Object.freeze({
+    paper: Object.freeze([246, 242, 233]), // 약간 따뜻한 흰색
+    ink: Object.freeze([26, 26, 30]), // 아주 진한 회색
   }),
 
   // 효과 조절값 파일 API (서버 bin/server/serve.ps1 → config/effect.local.json, 5-2).
@@ -109,7 +125,8 @@ export const config = Object.freeze({
     timeoutMs: 3000,
   }),
 
-  // 결과 이미지 형식 (가안). 크기는 미리보기에 보이는 9:16 영역의 원본 해상도 그대로다.
+  // 결과 이미지 형식 (가안). 효과 끔·회색조 모드는 이 형식이다. 감열지 모드는 무손실 PNG(화면용)와
+  // 1비트 인쇄 데이터(PNG·래스터 비트)를 만든다 (6-1, effect/photo-effect.js).
   capture: Object.freeze({
     type: 'image/jpeg',
     quality: 0.92,

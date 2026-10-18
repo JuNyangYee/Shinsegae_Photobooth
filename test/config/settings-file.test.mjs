@@ -211,12 +211,23 @@ describe('loadInitialEffectSettings (효과 조절값, 5-2): 파일 → 기본�
   const file = (read) => ({ read, write: () => { throw new Error('must not write'); } });
 
   it('파일이 있으면 그 값', async () => {
-    const text = JSON.stringify({ version: 1, settings: { strength: 0.3, size: 1, boil: 0.2, fps: 12, grade: 0.5, refineThreshold: 0.3, previewScale: 0.5 } });
+    const text = JSON.stringify({ version: 1, settings: { strength: 0.3, size: 1, boil: 0.2, fps: 12, grade: 0.5, refineThreshold: 0.3, previewScale: 0.5,
+      outputMode: 'gray', dither: 'bayer', brightness: -0.1, contrast: 1.2, gamma: 0.9, paperDots: 384 } });
     const r = await loadInitialEffectSettings({ file: file(async () => ({ found: true, text })), defaults: config.effect });
     assert.equal(r.source, SettingsSource.FILE);
     assert.equal(r.settings.fps, 12);
     assert.deepEqual(r.settings.refine, [3.5, 3, 10, 0.6, 0.3]);
+    assert.deepEqual([r.settings.outputMode, r.settings.dither, r.settings.paperDots, r.settings.gamma], ['gray', 'bayer', 384, 0.9]);
     assert.deepEqual(r.issues, []);
+  });
+
+  it('5-2 파일(출력 단계 값 없음)도 파일 값으로 읽고, 출력 단계는 기본값(감열지)으로 채워 알린다 (6-1)', async () => {
+    const text = JSON.stringify({ version: 1, settings: { strength: 0.3, size: 1, boil: 0.2, fps: 12, grade: 0.5, refineThreshold: 0.3, previewScale: 0.5 } });
+    const r = await loadInitialEffectSettings({ file: file(async () => ({ found: true, text })), defaults: config.effect });
+    assert.equal(r.source, SettingsSource.FILE);
+    assert.equal(r.settings.fps, 12);
+    assert.equal(r.settings.outputMode, 'thermal');
+    assert.equal(r.issues.length, 6);
   });
 
   it('파일이 없으면 기본값 (no file), 읽기 실패·형식 오류도 기본값', async () => {
