@@ -6,7 +6,7 @@ import { deflateSync, inflateSync } from 'node:zlib';
 
 import {
   applyLevels, bayerRanks, blueNoiseRanks, crc32, dither, ditherErrorDiffusion, ditherThreshold, encodeOneBitPng, grayLevelsInPlace,
-  isGpuDither, levelOf, maskToRgba, packPrintBits, printSizeFor, readPngHeader, reduceToPrintGray, thresholdMap,
+  isGpuDither, levelOf, maskToRgba, packPrintBits, printSizeFor, readPngHeader, reduceToPrintGray, sharpAxis, thresholdMap, upscaleSharp,
 } from '../../src/web/core/thermal.js';
 
 const NEUTRAL = { brightness: 0, contrast: 1, gamma: 1 };
@@ -170,6 +170,56 @@ describe('오차 확산 (CPU)', () => {
   it('방식 분류: bayer·blue-noise는 GPU에서도, atkinson·floyd-steinberg는 CPU만', () => {
     assert.deepEqual(['bayer', 'blue-noise', 'atkinson', 'floyd-steinberg'].map(isGpuDither), [true, true, false, false]);
     assert.throws(() => dither(new Uint8Array(4), 2, 2, 'stucki'), /unknown error diffusion/);
+  });
+});
+
+describe('화면 표시용 확대 (정수배 최근접 + 경계 1화소만 섞음, 화면 전용)', () => {
+  const paper = [250, 240, 230];
+  const ink = [10, 20, 30];
+
+  it('1배는 그대로, 2배(정수배)는 최근접과 같아 섞인 화소가 없다', () => {
+    const mask = new Uint8Array([1, 0, 0, 1, 1, 1]); // 3x2
+    const same = upscaleSharp(mask, 3, 2, 3, 2, paper, ink);
+    assert.deepEqual([...same], [...maskToRgba(mask, paper, ink)]);
+    const two = upscaleSharp(mask, 3, 2, 6, 4, paper, ink);
+    for (let y = 0; y < 4; y += 1) {
+      for (let x = 0; x < 6; x += 1) {
+        const c = mask[Math.floor(y / 2) * 3 + Math.floor(x / 2)] ? paper : ink;
+        assert.deepEqual([...two.slice((y * 6 + x) * 4, (y * 6 + x) * 4 + 3)], c, `${x},${y}`);
+      }
+    }
+  });
+
+  it('1.875배(576 → 1080): 모든 점의 화면 폭이 1.875화소로 같다 (최근접은 1·2화소)', () => {
+    const { bound, weight } = sharpAxis(1080, 576);
+    const mass = new Float64Array(576);
+    let blended = 0;
+    for (let o = 0; o < 1080; o += 1) {
+      if (bound[o] - 1 >= 0) mass[bound[o] - 1] += (256 - weight[o]) / 256;
+      if (bound[o] < 576) mass[bound[o]] += weight[o] / 256;
+      if (weight[o] > 0 && weight[o] < 256) blended += 1;
+    }
+    for (let i = 0; i < 576; i += 1) assert.ok(Math.abs(mass[i] - 1.875) < 1e-9, `dot ${i}: ${mass[i]}`);
+    const nearest = new Float64Array(576);
+    for (let o = 0; o < 1080; o += 1) nearest[Math.floor(((o + 0.5) * 576) / 1080)] += 1;
+    assert.deepEqual([...new Set(nearest)].sort(), [1, 2]);
+    assert.equal(blended, 504, '경계에 걸친 화소만 섞는다 (576 - 72개 경계는 화소 경계와 맞지 않음)');
+  });
+
+  it('줄 묶음으로 나눠 채워도 한 번에 만든 것과 같다', () => {
+    const mask = new Uint8Array(64 * 114).map((_, i) => (i * 2654435761 >>> 9) & 1);
+    const whole = upscaleSharp(mask, 64, 114, 120, 213, paper, ink);
+    const out = new Uint8ClampedArray(120 * 213 * 4);
+    for (let r = 0; r < 213; r += 50) upscaleSharp(mask, 64, 114, 120, 213, paper, ink, { rows: [r, Math.min(213, r + 50)], out });
+    assert.deepEqual(out, whole);
+  });
+
+  it('위 줄부터 쓴다: 왼쪽 위 점 하나만 검정이면 화면 왼쪽 위가 잉크색, 오른쪽 아래는 종이색', () => {
+    const mask = new Uint8Array(8 * 4).fill(1);
+    mask[0] = 0;
+    const out = upscaleSharp(mask, 8, 4, 15, 8, paper, ink);
+    assert.deepEqual([...out.slice(0, 3)], ink);
+    assert.deepEqual([...out.slice(out.length - 4, out.length - 1)], paper);
   });
 });
 

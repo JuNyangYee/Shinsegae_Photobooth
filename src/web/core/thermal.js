@@ -354,6 +354,65 @@ export function maskToRgba(mask, paper, ink) {
   return rgba;
 }
 
+// ---------- 화면 표시용 확대 (인쇄 데이터와 무관) ----------
+
+/**
+ * 한 축의 확대 표: 출력 화소 o(0..D-1)가 덮는 구간 [o, o+1)을 인쇄 점 좌표로 옮겨, 가장 가까운 점 경계 b와
+ * 그 경계 오른쪽(b번 점)이 차지하는 비율 w(0..256)를 정수로 구한다. 경계에 걸친 화소만 0 < w < 256이고, 나머지는
+ * 한 점 안에 있어 최근접과 같다(정수배 최근접 + 경계 1화소만 보간, "sharp bilinear" 계열).
+ * 셰이더 FS_THERMAL_SHOW의 axis()와 같은 정수식이라 GPU와 CPU 결과가 같다.
+ *   t = (2o+1)·P / 2D (화소 중심의 점 좌표), b = floor(t + 1/2), w = clamp(((t − b)·D/P + 1/2)·256, 0, 256) 반올림
+ */
+export function sharpAxis(D, P) {
+  const bound = new Int32Array(D);
+  const weight = new Int32Array(D);
+  for (let o = 0; o < D; o += 1) {
+    const T = (2 * o + 1) * P;
+    const b = Math.floor((T + D) / (2 * D));
+    const num = Math.max(0, T - 2 * D * b + P);
+    bound[o] = b;
+    weight[o] = Math.min(256, Math.floor((256 * num + P) / (2 * P)));
+  }
+  return { bound, weight };
+}
+
+/**
+ * 마스크(Pw×Ph, 위 줄부터, 1 = 흰 점) → 화면 크기(Dw×Dh) RGBA. 종이색·잉크색 사이를 경계 화소만 섞는다.
+ * 세로 계산은 셰이더와 같게 GL 방향(아래 원점)으로 하고 위 줄부터 쓴다. 결과 사진의 화면용 이미지(b)를 만든다.
+ * rows [시작, 끝)과 out(Dw·Dh·4 버퍼)을 주면 그 줄들만 채운다 (긴 작업을 나눠 화면 끊김을 줄일 때).
+ */
+export function upscaleSharp(mask, Pw, Ph, Dw, Dh, paper, ink, { rows = [0, Dh], out = null } = {}) {
+  const xs = sharpAxis(Dw, Pw);
+  const ys = sharpAxis(Dh, Ph);
+  const clampX = (v) => Math.min(Pw - 1, Math.max(0, v));
+  const clampY = (v) => Math.min(Ph - 1, Math.max(0, v));
+  const x0 = new Int32Array(Dw);
+  const x1 = new Int32Array(Dw);
+  for (let o = 0; o < Dw; o += 1) {
+    x0[o] = clampX(xs.bound[o] - 1);
+    x1[o] = clampX(xs.bound[o]);
+  }
+  const rgba = out ?? new Uint8ClampedArray(Dw * Dh * 4);
+  for (let r = rows[0]; r < rows[1]; r += 1) {
+    const g = Dh - 1 - r; // GL 방향 출력 줄
+    const wy = ys.weight[g];
+    const row0 = (Ph - 1 - clampY(ys.bound[g] - 1)) * Pw; // GL 줄 b-1 → 위 줄부터의 번호
+    const row1 = (Ph - 1 - clampY(ys.bound[g])) * Pw;
+    for (let o = 0; o < Dw; o += 1) {
+      const wx = xs.weight[o];
+      const lo = mask[row0 + x0[o]] * (256 - wx) + mask[row0 + x1[o]] * wx;
+      const hi = mask[row1 + x0[o]] * (256 - wx) + mask[row1 + x1[o]] * wx;
+      const v = lo * (256 - wy) + hi * wy; // 0..65536 (흰 점 비율)
+      const i = (r * Dw + o) * 4;
+      rgba[i] = (ink[0] * (65536 - v) + paper[0] * v + 32768) >> 16;
+      rgba[i + 1] = (ink[1] * (65536 - v) + paper[1] * v + 32768) >> 16;
+      rgba[i + 2] = (ink[2] * (65536 - v) + paper[2] * v + 32768) >> 16;
+      rgba[i + 3] = 255;
+    }
+  }
+  return rgba;
+}
+
 // PNG CRC-32 (ISO 3309)
 const CRC_TABLE = (() => {
   const table = new Uint32Array(256);
