@@ -525,7 +525,17 @@ async function runScenarios(app, origin) {
     expect(dev.get('delegate') && dev.get('delegate') !== '-', `delegate ${dev.get('delegate')}`);
     expect(dev.get('guidance') === 'none', `guidance ${dev.get('guidance')}`);
     expect((await app.status()) === '', 'visitor status message shown');
-    return `delegate ${dev.get('delegate')}, ${dev.get('video')}, detect @ ${parseFps(dev.get('detect'))}fps, settings ${dev.get('settings')}`;
+    // 관람객 화면 서체·장식 에셋 (6-2): 서체 두 개가 로드되고, 받은 에셋이 모두 200
+    const assets = await app.evaluate(`(async () => { await document.fonts.ready;
+      const fonts = [...document.fonts].map((f) => f.family.replace(/"/g, '') + ' ' + f.status);
+      const files = performance.getEntriesByType('resource').filter((e) => new URL(e.name).pathname.startsWith('/assets/'))
+        .map((e) => ({ path: new URL(e.name).pathname, status: e.responseStatus }));
+      return { fonts, files }; })()`);
+    expect(assets.fonts.includes('Gowun Batang loaded') && assets.fonts.includes('Gowun Dodum loaded'), `fonts ${assets.fonts.join(', ')}`);
+    const failed = assets.files.filter((f) => f.status !== 200);
+    expect(assets.files.length >= 5 && failed.length === 0, `assets ${JSON.stringify(failed.length ? failed : assets.files)}`);
+    return `delegate ${dev.get('delegate')}, ${dev.get('video')}, detect @ ${parseFps(dev.get('detect'))}fps, settings ${dev.get('settings')};`
+      + ` fonts loaded, ${assets.files.length} assets 200`;
   });
 
   await scenario('S 수동 한 사이클 (결과 사진 표시 → 쿨타임 → 대기), 사진 자원 0', async () => {
@@ -851,8 +861,9 @@ async function runScenarios(app, origin) {
       await app.waitFor('camera ready', async () => /^ready/.test((await app.dev()).get('status') ?? ''), 20000);
       await app.waitFor('preparing notice', async () => (await app.status()).startsWith('준비 중입니다.'), 5000);
       const notice = (await app.status()).replace(/\n/g, ' ');
-      const presenceHidden = await app.evaluate("document.getElementById('presence').hidden");
-      expect(presenceHidden, 'presence indicator visible during detector fault');
+      // 인식 표시(테두리 빛)와 대기 안내가 숨겨져 있다 (6-2)
+      const presenceHidden = await app.evaluate("!document.getElementById('stage').classList.contains('is-present') && document.getElementById('guide').hidden");
+      expect(presenceHidden, 'presence indicator or idle guide visible during detector fault');
       const dev = await app.dev();
       const { completedDelta, resources } = await withAutoPaused(app, () => manualCycle(app));
       expect(completedDelta === 1, `S completed +${completedDelta}`);
