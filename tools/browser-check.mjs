@@ -396,12 +396,13 @@ async function withAutoPaused(app, run) {
 }
 
 /**
- * 감열지 S 한 장: 효과 캔버스 그림을 기록하고 S → 결과(무손실 PNG)가 셔터 직전 그림과 화소까지 같고, 다른 그림과는 다르며,
- * 결과 화소가 종이색·잉크색 두 가지뿐이고, 인쇄 데이터가 576x1024 1비트인지 본다 (6-1). withAutoPaused 안에서 부른다.
+ * 감열지 S 한 장: 효과 캔버스 그림을 기록하고 S → 결과 화면용 이미지(무손실 PNG, 1080x1920)가 셔터 직전 그림과 화소까지 같고,
+ * 다른 그림과는 다르며, 종이색·잉크색과 그 사이(경계 화소)뿐이고, 인쇄 데이터가 576x1024 1비트인지 본다 (6-1).
+ * withAutoPaused 안에서 부른다.
  */
 async function thermalShot(app, { method, check }) {
   await app.evaluate(EFFECT_READER);
-  await app.evaluate('window.__fxReader.drawings.length = 0; true');
+  await app.evaluate('window.__fxReader.drawings.length = 0; window.__fxReader.pinned = null; true');
   await sleep(500);
   const { completedDelta, resources, dev, image, extra: c } = await manualCycle(app, { onResult: () => app.evaluate(EFFECT_COMPARE) });
   await app.evaluate('window.__fxReader.drawings.length = 0; true');
@@ -409,22 +410,24 @@ async function thermalShot(app, { method, check }) {
   expect(photoFree(resources), `resources ${dev.get('resources')}`);
   const fx = dev.get('photo-fx') ?? '';
   expect(new RegExp(`^applied thermal 576x1024 ${method} .*same drawing as preview, ${check}`).test(fx), `photo-fx ${fx}`);
-  expect(image.startsWith('576x1024') && /image\/png/.test(dev.get('capture') ?? ''), `result ${image}, capture ${dev.get('capture')}`);
+  expect(image.startsWith('1080x1920') && /image\/png/.test(dev.get('capture') ?? ''), `result ${image}, capture ${dev.get('capture')}`);
   const print = dev.get('print') ?? '';
   expect(/^576x1024 1-bit, raster 72B\/row 73728B, png \d+B \(IHDR depth 1 color 0\)/.test(print), `print ${print}`);
-  expect(c.size === '576x1024' && c.previewSize === '576x1024' && c.shutterIndex >= 0, `compare ${JSON.stringify(c)}`);
-  expect(c.colors.length <= 2, `result colors ${c.colors.join(' ')}`);
-  expect(c.resultRendering === 'pixelated' && c.canvasRendering === 'pixelated', `image-rendering ${c.resultRendering} / ${c.canvasRendering}`);
+  // 화면용 이미지(b)는 결과 크기로 미리 확대한다(정수배 최근접 + 경계 1화소만 섞음). CSS 확대 방식은 쓰지 않는다
+  expect(c.size === '1080x1920' && c.previewSize === '1080x1920' && c.shutterIndex >= 0, `compare ${JSON.stringify(c)}`);
+  expect(c.twoTone.ends.length === 2 && c.twoTone.offLine === 0, `result is not paper/ink only: ${JSON.stringify(c.twoTone)}`);
+  expect(c.resultRendering === 'auto' && c.canvasRendering === 'auto', `image-rendering ${c.resultRendering} / ${c.canvasRendering}`);
   const atShutter = c.drawings[c.shutterIndex];
   const others = c.drawings.filter((_, i) => i !== c.shutterIndex);
   expect(atShutter.mismatch === 0, `shutter drawing differs in ${atShutter.mismatch} px (${JSON.stringify(c.drawings)})`);
   expect(others.length > 0 && others.every((d) => d.mismatch > 0), `other drawings: ${JSON.stringify(c.drawings)}`);
-  return { fx, print, compare: `shutter drawing 0 px differ, other drawings ${others.map((d) => d.mismatch).join('/')} px, colors ${c.colors.length}` };
+  return { fx, print, compare: `shutter drawing 0 px differ, other drawings ${others.map((d) => d.mismatch).join('/')} px,`
+    + ` paper/ink ${c.twoTone.ends.join(' / ')} only (pure ${(c.twoTone.pureRatio * 100).toFixed(1)}%, rest edge blends)` };
 }
 
 // 효과 캔버스에 새 그림이 그려진 화면 갱신마다 화소를 복사해 둔다(최근 8장, 페이지 메모리 안에서만).
 // preserveDrawingBuffer가 false라, 앱의 requestAnimationFrame 콜백 뒤 같은 화면 갱신 안에서 읽어야 그림이 남아 있다.
-// 셔터 순간(카운트다운 숫자가 숨겨지는 순간)도 기록한다.
+// 셔터 순간(카운트다운 숫자가 숨겨지는 순간)도 기록하고, 그때 마지막 그림을 따로 남긴다(결과가 늦게 나와도 8장 밖으로 밀리지 않게, 6-1).
 const EFFECT_READER = `(() => {
   if (window.__fxReader) return true;
   const c = document.getElementById('effect');
@@ -433,7 +436,7 @@ const EFFECT_READER = `(() => {
   const probe = new Uint8Array(8 * 8 * 4);
   new MutationObserver(() => {
     const cd = document.getElementById('countdown');
-    if (cd.hidden && r.wasCounting) r.shutterAt = performance.now();
+    if (cd.hidden && r.wasCounting) { r.shutterAt = performance.now(); r.pinned = r.drawings[r.drawings.length - 1] ?? null; }
     r.wasCounting = !cd.hidden;
   }).observe(document.getElementById('countdown'), { attributes: true, attributeFilter: ['hidden'] });
   const loop = () => {
@@ -469,15 +472,23 @@ const EFFECT_COMPARE = `(() => {
   // 화소가 정확히 다른 수 (감열지 결과는 무손실 PNG라 셔터 직전 그림과 0이어야 한다, 6-1)
   const mismatch = (d) => { let c = 0; for (let y = 0; y < H; y++) for (let xx = 0; xx < W; xx++) { const i = (y * W + xx) * 4, j = ((d.H - 1 - y) * d.W + xx) * 4;
     if (res[i] !== d.buf[j] || res[i + 1] !== d.buf[j + 1] || res[i + 2] !== d.buf[j + 2]) c++; } return c; };
-  const colors = new Set(); for (let i = 0; i < res.length && colors.size < 9; i += 4) colors.add(res[i] + ',' + res[i + 1] + ',' + res[i + 2]);
-  const out = r.drawings.filter((d) => d.W === W && d.H === H).map((d) => ({
+  // 감열지 화면은 종이색·잉크색 두 색과 그 사이(경계 화소)뿐이다: 화소마다 R로 비율을 구해 G·B가 같은 비율인지, 순수 두 색 비율
+  const ends = (() => { const c = new Map(); for (let i = 0; i < res.length; i += 4) { const k = res[i] + ',' + res[i + 1] + ',' + res[i + 2]; c.set(k, (c.get(k) ?? 0) + 1); }
+    return [...c.entries()].sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k]) => k.split(',').map(Number)).sort((a, b) => a[0] - b[0]); })();
+  let offLine = 0, pure = 0;
+  if (ends.length === 2) { const [ink, paper] = ends; for (let i = 0; i < res.length; i += 4) {
+    const t = (res[i] - ink[0]) / (paper[0] - ink[0]);
+    if (Math.abs(res[i + 1] - (ink[1] + t * (paper[1] - ink[1]))) > 1.5 || Math.abs(res[i + 2] - (ink[2] + t * (paper[2] - ink[2]))) > 1.5) offLine++;
+    if (t === 0 || t === 1) pure++; } }
+  const list = r.pinned && !r.drawings.includes(r.pinned) ? [r.pinned, ...r.drawings] : r.drawings;
+  const out = list.filter((d) => d.W === W && d.H === H).map((d) => ({
     beforeShutter: d.at < r.shutterAt, msFromShutter: Math.round(d.at - r.shutterAt),
     diff: +diff(resGrid, grid((xx, y) => { const i = ((d.H - 1 - y) * d.W + xx) * 4; return [d.buf[i], d.buf[i + 1], d.buf[i + 2]]; })).toFixed(3),
     mismatch: mismatch(d),
   }));
   const shutterDrawing = out.map((d) => d.beforeShutter).lastIndexOf(true);
   return { size: W + 'x' + H, previewSize: r.drawings.length ? r.drawings.at(-1).W + 'x' + r.drawings.at(-1).H : '-', shutterAt: r.shutterAt, drawings: out, shutterIndex: shutterDrawing,
-    colors: [...colors], resultRendering: getComputedStyle(img).imageRendering, canvasRendering: getComputedStyle(document.getElementById('effect')).imageRendering };
+    twoTone: { ends: ends.map((c) => c.join(',')), offLine, pureRatio: +(pure / (W * H)).toFixed(3) }, resultRendering: getComputedStyle(img).imageRendering, canvasRendering: getComputedStyle(document.getElementById('effect')).imageRendering };
 })()`;
 
 // ---------- 시나리오 ----------
@@ -553,7 +564,7 @@ async function runScenarios(app, origin) {
     return `${line.split(', fps')[0]}; ${m[2]} drawings/s at fps ${m[1]}; context lost → camera preview → restored`;
   });
 
-  await scenario('촬영 결과(감열지 기본값): 576x1024 PNG가 셔터 순간 미리보기 점 그림과 화소까지 같음, 인쇄 데이터 576x1024 1비트', async () => withAutoPaused(app, async () => {
+  await scenario('촬영 결과(감열지 기본값): 화면용 1080x1920 PNG가 셔터 순간 미리보기 점 그림과 화소까지 같음, 인쇄 데이터 576x1024 1비트', async () => withAutoPaused(app, async () => {
     const { fx, print, compare } = await thermalShot(app, { method: 'blue-noise', check: 'gpu=cpu' });
     return `${fx.split(' (applied')[0]}; ${compare}; print ${print.split(', black')[0]}`;
   }));
@@ -585,7 +596,7 @@ async function runScenarios(app, origin) {
     }
   });
 
-  await scenario('출력 모드 3단계(E): 끔 1080x1920 JPEG, 회색조 1080x1920 JPEG, 감열지 Atkinson(CPU) 576x1024 PNG = 미리보기, 용지 384점·감마 저장 → 새로고침 유지', async () => {
+  await scenario('출력 모드 3단계(E): 끔 1080x1920 JPEG, 회색조 1080x1920 JPEG, 감열지 Atkinson(CPU) PNG = 미리보기, 용지 384점·감마 저장 → 새로고침 유지', async () => {
     const details = [];
     try {
       await app.open();
@@ -608,6 +619,8 @@ async function runScenarios(app, origin) {
       await app.choose('outputMode', 'thermal');
       await app.choose('dither', 'bayer');
       await app.waitFor('bayer', async () => /^thermal 576x1024 bayer/.test(subLine(await app.devText(), 'output')), 5000);
+      const bayerCanvas = await app.evaluate("(() => { const c = document.getElementById('effect'); return c.width + 'x' + c.height; })()");
+      expect(bayerCanvas === '1080x1920', `bayer canvas ${bayerCanvas}`);
       await app.choose('dither', 'atkinson');
       const shot = await withAutoPaused(app, () => thermalShot(app, { method: 'atkinson', check: 'cpu dither' }));
       details.push(`atkinson ${shot.compare}`);
@@ -626,7 +639,7 @@ async function runScenarios(app, origin) {
           ? subLine(text, 'output') : null;
       }, 10000);
       const canvas = await app.evaluate("(() => { const c = document.getElementById('effect'); return c.width + 'x' + c.height + ' ' + getComputedStyle(c).imageRendering; })()");
-      expect(canvas === '384x683 pixelated', `canvas after reload ${canvas}`);
+      expect(canvas === '1080x1920 auto', `canvas after reload ${canvas}`);
       const api = await app.evaluate(`(async () => (await (await fetch('${EFFECT_SETTINGS_API}', { cache: 'no-store' })).json()))()`);
       expect(api.version === 1 && api.settings.outputMode === 'thermal' && api.settings.dither === 'atkinson' && api.settings.paperDots === 384
         && api.settings.gamma === 1.3, `file ${JSON.stringify(api)}`);
@@ -748,7 +761,7 @@ async function runScenarios(app, origin) {
         expect(completedDelta === 1, `${mode}: S completed +${completedDelta}`);
         // 감열지 기본값: 원본 사진에 같은 출력 단계를 CPU로 (인쇄 데이터 포함, 6-1)
         expect(/^RAW PHOTO thermal 576x1024 /.test(fx) && expected[mode].test(fx), `${mode}: photo-fx ${fx}`);
-        expect(image.startsWith('576x1024'), `${mode}: result image ${image}`);
+        expect(image.startsWith('1080x1920'), `${mode}: result image ${image}`);
         expect(/^576x1024 1-bit/.test(dev.get('print') ?? ''), `${mode}: print ${dev.get('print')}`);
         expect(photoFree(resources), `${mode}: resources ${dev.get('resources')}`);
         if (mode === 'lose') {
@@ -760,7 +773,7 @@ async function runScenarios(app, origin) {
         }
         details.push(`${mode} → ${/\(([^)]*)\)/.exec(fx)?.[1] ?? fx}`);
       }
-      return `${details.join('; ')}; results: raw photo -> thermal 576x1024 on CPU with print data, preview running again`;
+      return `${details.join('; ')}; results: raw photo -> thermal 576x1024 on CPU with print data (shown 1080x1920), preview running again`;
     } finally {
       await app.cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier });
     }
