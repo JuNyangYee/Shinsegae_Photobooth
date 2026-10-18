@@ -220,7 +220,8 @@ body {
   width: 46cqw;
   aspect-ratio: 1;
   border-radius: 50%;
-  background: var(--paper-grain), rgba(155, 28, 38, 0.95);
+  /* 글자 바탕은 불투명 (6-3): 뒤의 흑백 점이 비치지 않게 */
+  background: var(--paper-grain), var(--red-deep);
   box-shadow: 0 1.6cqw 5cqw rgba(30, 10, 5, 0.45), inset 0 0 0 0.5cqw rgba(246, 213, 138, 0.55);
 }
 
@@ -295,7 +296,8 @@ body {
   pointer-events: none;
 }
 
-/* 결과: 솔잎 그린 바탕 위 출력물 카드(흰 종이, 그림자, 살짝 기울임, 금빛 테이프). 프레임 장식은 그 위에 그대로 */
+/* 결과: 솔잎 그린 바탕 위 출력물 카드(흰 종이, 그림자, 금빛 테이프). 프레임 장식은 그 위에 그대로.
+   카드는 기울이지 않는다 (6-3): 흑백 점 사진을 회전하면 다시 보간돼 점이 뭉개진다(합성 화면 측정, 로그 2026-10-19-03) */
 .result-view {
   position: absolute;
   inset: 0;
@@ -320,7 +322,6 @@ body {
   padding: 2.4cqw 2.4cqw 6.4cqw;
   background: var(--paper-grain), var(--paper);
   box-shadow: 0 2.4cqw 6cqw rgba(0, 0, 0, 0.45), 0 0.3cqw 0.8cqw rgba(0, 0, 0, 0.3);
-  transform: rotate(-2deg);
 }
 
 .result-card::before {
@@ -335,9 +336,10 @@ body {
   transform: translateX(-50%) rotate(3deg);
 }
 
-/* 결과 사진은 이미 반전된 9:16 이미지이므로 그대로 채운다. */
+/* 결과 사진은 이미 반전된 9:16 이미지이므로 그대로 채운다.
+   폭 53.333cqw = 576/1080: 1080 폭 화면에서 감열지 576점이 화면 화소와 1:1로 놓여 점이 덜 뭉개진다 (6-3) */
 .result-photo {
-  width: 52cqw;
+  width: 53.3333cqw;
   aspect-ratio: var(--stage-ratio-w) / var(--stage-ratio-h);
   background: #fff;
 }
@@ -387,7 +389,7 @@ body {
   left: 50%;
   bottom: 15cqw;
   translate: -50% 0;
-  background: var(--paper-grain), rgba(29, 63, 53, 0.92);
+  background: var(--paper-grain), var(--pine-deep); /* 불투명 (6-3) */
   color: var(--cream);
   box-shadow: 0 0.8cqw 2.4cqw rgba(0, 0, 0, 0.3), inset 0 0 0 0.35cqw rgba(217, 164, 65, 0.8);
 }

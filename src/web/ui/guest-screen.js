@@ -95,10 +95,11 @@ export function createGuestScreen({ root, text, countdownSeconds, now = () => pe
       shownUrl = url;
       shownEndsAt = undefined;
       if (url) {
-        // 출력물이 위에서 내려와 살짝 기울어진 채 놓인다 (기울기는 CSS .result-card)
+        // 출력물이 기울어진 채 위에서 내려와 반듯하게 놓인다. 놓인 뒤에는 기울이지 않는다: 흑백 점 사진을 회전하면 다시 보간돼
+        // 점이 뭉개진다 (6-3, CSS .result-card)
         resultCard.animate([
-          { opacity: 0, transform: 'translateY(-10cqw) rotate(-7deg) scale(0.94)' },
-          { opacity: 1, transform: 'translateY(0) rotate(-2deg) scale(1)' },
+          { opacity: 0, transform: 'translateY(-10cqw) rotate(-5deg) scale(0.94)' },
+          { opacity: 1, transform: 'translateY(0) rotate(0deg) scale(1)' },
         ], { duration: 700, easing: SETTLE });
       }
     }
