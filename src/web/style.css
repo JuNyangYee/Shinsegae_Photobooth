@@ -477,13 +477,18 @@ body {
   box-sizing: border-box;
   width: min(58em, calc(100vw - 1.6em));
   max-height: calc(100vh - 1.6em);
-  overflow: hidden;
+  overflow-y: auto; /* 화면보다 길면 휠로 넘긴다 (6단계 검수 2) */
+  overscroll-behavior: contain;
   padding: 0.3em 0.9em 0.7em;
   border-radius: 0.7em;
   background: url('assets/paper.webp') 0 0 / 22em, rgba(251, 247, 239, 0.96);
   box-shadow: 0 0.5em 1.6em rgba(20, 10, 5, 0.4), inset 0 0 0 0.12em var(--gold);
   color: var(--ink);
   font: 400 var(--op-dev-size) / 1.38 var(--op-mono);
+}
+
+/* R 조절 중에는 D가 영역·핸들 끌기를 막지 않게 마우스를 통과시킨다 (그동안 D는 넘기지 못한다) */
+body:has(#tuning-panel:not([hidden])) .dev-info {
   pointer-events: none;
 }
 
@@ -636,9 +641,10 @@ body {
   bottom: auto;
 }
 
-/* 가로 화면: 9:16 영역 옆 빈 곳에 세운다 (기본 오른쪽, 위·아래 버튼을 누르면 왼쪽) */
-@media (min-aspect-ratio: 1 / 1) {
-  .op-panel {
+/* 9:16 영역 옆 빈 곳에 패널이 들어가는 넓은 가로 화면 (main.js updateOperatorRoom이 실제 남는 폭을 재서 붙인다,
+   6단계 검수 2): 옆에 세운다 (기본 오른쪽, 위·아래 버튼을 누르면 왼쪽). 좁은 가로 창은 세로 화면처럼 아래·위 */
+.op-side-room {
+  & .op-panel {
     top: 1em;
     right: 1em;
     bottom: auto;
@@ -648,12 +654,12 @@ body {
     max-height: calc(100vh - 2em);
   }
 
-  .op-panel[data-dock="top"] {
+  & .op-panel[data-dock="top"] {
     right: auto;
     left: 1em;
   }
 
-  .dev-info {
+  & .dev-info {
     width: clamp(26em, calc(var(--op-side) - 1.6em), 58em);
   }
 }

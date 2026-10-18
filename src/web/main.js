@@ -209,6 +209,18 @@ function applyLayout() {
   document.documentElement.style.setProperty('--stage-ratio-w', String(width));
   document.documentElement.style.setProperty('--stage-ratio-h', String(height));
   video.classList.toggle('is-mirrored', config.mirror);
+  updateOperatorRoom();
+}
+
+// 운영자 패널(R·E)을 9:16 영역 옆 빈 곳에 세울 공간이 실제로 있는지 (6단계 검수 2). 화면 비율만 보면 좁은 가로 창
+// (예: 1200×1080)에서 패널이 영상을 가린다. 옆 빈 폭에 패널 최소 폭(24em)과 여백(2em)이 들어갈 때만 옆으로 세운다
+// (style.css의 .op-side-room). 1080×1920·2160×3840(세로)은 공간이 없어 아래·위, 1920×1080은 옆이다.
+const OPERATOR_PANEL_ROOM_EM = 26;
+
+function updateOperatorRoom() {
+  const side = (window.innerWidth - stage.getBoundingClientRect().width) / 2;
+  const em = parseFloat(getComputedStyle(document.getElementById('effect-panel')).fontSize);
+  document.documentElement.classList.toggle('op-side-room', side >= OPERATOR_PANEL_ROOM_EM * em);
 }
 
 // ---- 개발용 정보 (D 키 토글, 기본 숨김) ----
@@ -530,6 +542,7 @@ window.addEventListener('keydown', (event) => {
 });
 
 applyLayout();
+window.addEventListener('resize', updateOperatorRoom);
 camera.subscribe(() => {
   session.setCameraReady(camera.isReady());
   renderStatus();
