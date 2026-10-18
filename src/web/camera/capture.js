@@ -1,5 +1,6 @@
 // 한 장 캡처: 미리보기에 보이는 9:16 영역을 원본 해상도로 잘라 좌우 반전하고, 결과 이미지(Object URL)로 만든다.
 // 이미지는 메모리에만 둔다. 파일·영구 저장소·서버에 저장하지 않는다. 다 쓴 사진은 release()로 정리한다.
+// 감열지 출력이면 사진에 인쇄 데이터(print: 1비트 래스터·PNG)가 함께 붙는다 (6-1, effect/photo-effect.js). 인쇄 연동 때 넘길 데이터다.
 // Node 테스트: test/camera/capture.test.mjs
 
 import { computeCoverMapping } from '../core/presence.js';
@@ -22,8 +23,9 @@ export function computeCaptureCrop({ videoWidth, videoHeight, stageAspect }) {
 }
 
 /**
- * 사진 효과 자리 (TBD). 캡처한 캔버스를 받아 결과로 보일 캔버스를 돌려준다.
- * 지금은 그대로 통과한다. 새 캔버스를 돌려줘도 되며, 캡처 쪽이 둘 다 정리한다.
+ * 사진 효과 자리. 캡처한 캔버스를 받아 결과로 보일 캔버스를 돌려준다 (기본값은 그대로 통과, 앱은 photo-effect.js).
+ * 새 캔버스를 돌려줘도 되며, 캡처 쪽이 둘 다 정리한다. { canvas, type, quality?, print }를 돌려주면 그 형식으로 인코딩하고
+ * print(인쇄 데이터)를 사진에 붙인다.
  * signal이 abort되면(촬영 제한 시간 초과·강제 초기화) 하던 일을 멈춘다. 멈추지 않아도 캡처 쪽이 결과를 버리고 정리한다.
  * @param {HTMLCanvasElement} canvas
  * @param {{ signal?: AbortSignal }} [options]
@@ -52,6 +54,7 @@ export function createCapture({
 }) {
   const liveUrls = new Set(); // 아직 revoke하지 않은 결과 이미지
   const liveCanvases = new Set(); // 아직 비우지 않은 캡처 캔버스
+  const livePrints = new Set(); // 아직 release하지 않은 사진의 인쇄 데이터 (감열지)
   let pending = 0; // 끝나지 않은 효과·인코딩 작업 수 (취소된 회차의 것 포함)
   let taken = 0;
   let released = 0;
@@ -136,26 +139,33 @@ export function createCapture({
     });
   }
 
-  function encode(canvas) {
+  function encode(canvas, as = type, asQuality = quality) {
     return new Promise((resolve, reject) => {
-      canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('toBlob returned null'))), type, quality);
+      canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('toBlob returned null'))), as, asQuality);
     });
   }
+
+  // 효과 단계 결과: 캔버스 하나, 또는 { canvas, type, quality, print }
+  const outputCanvas = (result) => (result && typeof result === 'object' && 'canvas' in result ? result.canvas : result);
 
   async function finish({ canvas, crop, source }, grabMs, signal) {
     let output = canvas;
     try {
       // 캡처 이미지 → (사진 효과) → 결과 표시
-      output = await untilAborted(
+      const produced = await untilAborted(
         Promise.resolve().then(() => effect(canvas, { signal })),
         signal,
-        (late) => { if (late && late !== canvas) freeCanvas(late); },
+        (late) => { const lateCanvas = outputCanvas(late); if (lateCanvas && lateCanvas !== canvas) freeCanvas(lateCanvas); },
       );
+      output = outputCanvas(produced);
+      const custom = produced !== output ? produced : {};
       const encodeStart = now();
-      const blob = await untilAborted(encode(output), signal);
+      const blob = await untilAborted(encode(output, custom.type ?? type, custom.quality ?? quality), signal);
       signal?.throwIfAborted();
       const url = urls.createObjectURL(blob);
       liveUrls.add(url);
+      const print = custom.print ?? null;
+      if (print) livePrints.add(print);
       last = Object.freeze({
         width: output.width,
         height: output.height,
@@ -166,7 +176,7 @@ export function createCapture({
         grabMs,
         encodeMs: now() - encodeStart,
       });
-      return Object.freeze({ url, width: last.width, height: last.height });
+      return Object.freeze({ url, width: last.width, height: last.height, print });
     } finally {
       // 성공·실패·취소 모두 여기서 바로 비운다. toBlob은 호출할 때 픽셀을 복사하므로 인코딩 중에 비워도 된다.
       freeCanvas(canvas);
@@ -198,15 +208,16 @@ export function createCapture({
         throw error;
       }
     },
-    /** 결과 이미지를 정리한다 (Object URL revoke). 여러 번 불러도 한 번만 정리한다. */
+    /** 결과 이미지를 정리한다 (Object URL revoke, 인쇄 데이터 놓기). 여러 번 불러도 한 번만 정리한다. */
     release(photo) {
+      if (photo.print) livePrints.delete(photo.print);
       if (!liveUrls.delete(photo.url)) return;
       urls.revokeObjectURL(photo.url);
       released += 1;
     },
     /** D 개발용 화면: 마지막 캡처 크기와 남은 자원 수 */
     getStats: () => ({
-      taken, released, liveUrls: liveUrls.size, liveCanvases: liveCanvases.size, pending, last, lastError,
+      taken, released, liveUrls: liveUrls.size, liveCanvases: liveCanvases.size, livePrints: livePrints.size, pending, last, lastError,
     }),
   };
 }

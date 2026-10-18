@@ -73,7 +73,7 @@ export function createFakeWebGL2() {
     'vertexAttribPointer', 'vertexAttribDivisor', 'texParameteri', 'bindTexture', 'texStorage2D', 'bindFramebuffer',
     'framebufferTexture2D', 'drawBuffers', 'useProgram', 'viewport', 'activeTexture', 'uniform1i', 'uniform2f', 'uniform2fv',
     'uniform1f', 'drawArrays', 'generateMipmap', 'pixelStorei', 'texImage2D', 'bufferData', 'drawArraysInstanced', 'enable',
-    'disable', 'blendFunc', 'blitFramebuffer']) impl[name] = noop;
+    'disable', 'blendFunc', 'blitFramebuffer', 'texSubImage2D', 'uniform3fv']) impl[name] = noop;
   const failing = new Map();
   for (const name of Object.keys(impl)) {
     const original = impl[name];

@@ -51,7 +51,7 @@ describe('createCapture', () => {
   it('보이는 영역을 원본 해상도로 잘라 좌우 반전해 그리고, 캔버스는 인코딩 뒤 비운다', async () => {
     const { env, capture } = setup();
     const photo = await capture.take();
-    assert.deepEqual(photo, { url: 'blob:fake/1', width: 608, height: 1080 });
+    assert.deepEqual(photo, { url: 'blob:fake/1', width: 608, height: 1080, print: null });
     const [canvas] = env.canvases;
     assert.deepEqual(canvas.calls, [
       ['translate', 608, 0],
@@ -88,6 +88,27 @@ describe('createCapture', () => {
     assert.equal(stats.released, 2);
     assert.equal(stats.liveUrls, 0);
     assert.equal(stats.liveCanvases, 0);
+  });
+
+  it('효과 단계가 { canvas, type, print }를 주면 그 형식으로 인코딩하고 인쇄 데이터를 사진에 붙인다, release가 놓는다 (6-1)', async () => {
+    const env2 = fakeEnvironment();
+    const print = { width: 576, height: 1024, bits: new Uint8Array(72 * 1024) };
+    const effect = async () => {
+      const out = env2.createCanvas();
+      out.width = 576;
+      out.height = 1024;
+      return { canvas: out, type: 'image/png', print };
+    };
+    const { env, capture } = setup({ effect });
+    const photo = await capture.take();
+    assert.deepEqual(photo, { url: 'blob:fake/1', width: 576, height: 1024, print });
+    assert.deepEqual(env2.canvases[0].calls.at(-1), ['toBlob', 'image/png', 0.92]);
+    assert.equal(env.liveCanvasCount() + env2.liveCanvasCount(), 0); // 원본·화면용 캔버스 모두 비움
+    assert.equal(capture.getStats().livePrints, 1);
+    assert.equal(capture.getStats().last.type, 'image/png');
+    capture.release(photo);
+    assert.equal(capture.getStats().livePrints, 0);
+    assert.equal(capture.getStats().liveUrls, 0);
   });
 
   it('영상이 없으면 바로 예외, 캔버스를 만들지 않는다', () => {
@@ -176,6 +197,29 @@ describe('createCapture: 취소 경계 (검수 B)', () => {
     await flush();
     assert.equal(env2.liveCanvasCount(), 0);
     assert.equal(capture.getStats().pending, 0);
+  });
+
+  it('효과 단계가 늦게 { canvas, print }를 돌려줘도 그 캔버스를 비운다', async () => {
+    const env2 = fakeEnvironment();
+    let finishEffect;
+    const effect = () => new Promise((resolve) => {
+      finishEffect = () => {
+        const out = env2.createCanvas();
+        out.width = 576;
+        out.height = 1024;
+        resolve({ canvas: out, type: 'image/png', print: {} });
+      };
+    });
+    const { capture } = setup({ effect });
+    const controller = new AbortController();
+    const result = capture.take({ signal: controller.signal });
+    await flush();
+    controller.abort(new Error('reset'));
+    await assert.rejects(result, /reset/);
+    finishEffect();
+    await flush();
+    assert.equal(env2.liveCanvasCount(), 0);
+    assert.equal(capture.getStats().livePrints, 0);
   });
 
   it('이미 abort된 신호면 효과·인코딩 전에 실패하고 정리한다', async () => {

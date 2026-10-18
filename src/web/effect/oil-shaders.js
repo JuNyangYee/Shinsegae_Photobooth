@@ -12,7 +12,8 @@
 // - FS_UNDER: 밑칠 밉 단계 4.5를 uUnderLod로 받는다 (해상도 비례로 + log2(s))
 // - FS_STROKE: 붓털 무늬 주기를 uBrisLen·uBrisWid(기준 해상도 값)로 받는다 (원본은 uLen·uWid)
 // - FS_COMPOSE: 법선 세기를 uRelief(= 강도 × s)로, 캔버스 결 주기를 px / uPxScale로 계산한다
-// - 출력 단계 FS_OUTPUT을 하나 더 둔다 (지금은 그대로 통과. 감열지용 흑백·디더링 자리)
+// - 출력 단계 FS_OUTPUT을 하나 더 둔다 (컬러 그대로 또는 회색조·레벨)
+// - 감열지 출력 단계 FS_THERMAL_REDUCE·FS_THERMAL_DITHER·FS_THERMAL_SHOW (6-1, 원본에 없음. 계산은 core/thermal.js와 같다)
 
 export const VS = `#version 300 es
 const vec2 P[3] = vec2[3](vec2(-1.,-1.), vec2(3.,-1.), vec2(-1.,3.));
@@ -189,8 +190,87 @@ void main(){
 // 출력 단계: 효과 결과 → 화면 또는 결과 사진(화면 밖). 지금은 그대로 통과한다.
 // 감열지 출력용 흑백·디더링 패스를 붙일 때 이 셰이더를 바꾸거나 이 앞에 패스를 더한다.
 // uFlipY: 결과 사진은 위아래를 뒤집어 그려 readPixels가 위 줄부터 읽히게 한다 (NEAREST 1:1이라 화소 값은 같다)
+// 출력 단계의 회색조·레벨 (core/thermal.js levelOf와 같은 식): Rec.601 회색조 → 대비(0.5 중심) → 밝기 → 0~1 → 감마
+const LEVELS = `
+uniform float uBrightness, uContrast, uGamma;
+float levels(vec3 c){
+  float g = dot(c, vec3(.299,.587,.114));
+  g = clamp((g - .5)*uContrast + .5 + uBrightness, 0., 1.);
+  return pow(g, 1./uGamma);
+}`;
+
+// 출력 단계: 합성 결과 → 화면 캔버스 또는 결과 사진용 화면 밖 대상. uGray 1이면 회색조·레벨 (출력 모드 'gray')
 export const FS_OUTPUT = `#version 300 es
 precision highp float;
 in vec2 vUV; out vec4 o;
-uniform sampler2D uImage; uniform float uFlipY;
-void main(){ vec2 uv = vec2(vUV.x, uFlipY > .5 ? 1. - vUV.y : vUV.y); o = vec4(texture(uImage, uv).rgb, 1.); }`;
+uniform sampler2D uImage; uniform float uFlipY, uGray;
+${LEVELS}
+void main(){
+  vec2 uv = vec2(vUV.x, uFlipY > .5 ? 1. - vUV.y : vUV.y);
+  vec3 c = texture(uImage, uv).rgb;
+  o = vec4(uGray > .5 ? vec3(levels(c)) : c, 1.);
+}`;
+
+// 감열지 1: 합성 결과(W×H) → 회색조·레벨 → 인쇄 해상도로 면적 평균. 출력은 (Pw/4)×Ph RGBA8에 가로 4점씩 묶는다
+// (텍셀 i의 r·g·b·a = 점 4i..4i+3). 화소로 읽을 때 4분의 1만 옮기고, 읽은 바이트가 그대로 점 순서다.
+// 점 하나가 덮는 원본 구간 [x·s, (x+1)·s)와 겹친 넓이로 가중 평균한다(s = 원본/인쇄, 576이면 1.875). 위아래는 GL 방향(아래 원점)
+export const FS_THERMAL_REDUCE = `#version 300 es
+precision highp float; precision highp int;
+out vec4 o;
+uniform sampler2D uImage; uniform vec2 uScale;
+${LEVELS}
+float dotGray(int x, int y){
+  vec2 a = vec2(float(x), float(y))*uScale, b = a + uScale;
+  ivec2 n = textureSize(uImage, 0);
+  int x0 = int(floor(a.x)), x1 = min(int(ceil(b.x)), n.x);
+  int y0 = int(floor(a.y)), y1 = min(int(ceil(b.y)), n.y);
+  float sum = 0., wsum = 0.;
+  for (int j = 0; j < 12; j++){
+    int sy = y0 + j; if (sy >= y1) break;
+    float wy = min(b.y, float(sy + 1)) - max(a.y, float(sy));
+    for (int i = 0; i < 12; i++){
+      int sx = x0 + i; if (sx >= x1) break;
+      float w = wy*(min(b.x, float(sx + 1)) - max(a.x, float(sx)));
+      sum += w*levels(texelFetch(uImage, ivec2(sx, sy), 0).rgb);
+      wsum += w;
+    }
+  }
+  return sum/wsum;
+}
+void main(){
+  ivec2 f = ivec2(gl_FragCoord.xy);
+  int x = f.x*4;
+  o = vec4(dotGray(x, f.y), dotGray(x + 1, f.y), dotGray(x + 2, f.y), dotGray(x + 3, f.y));
+}`;
+
+// 감열지 2 (문턱값 디더, GPU): 8비트 회색 g와 8비트 문턱 t(core/thermal.js thresholdMap)를 정수로 비교해 g >= t면 흰 점.
+// 문턱 지도는 위 줄부터 올리므로 점 좌표도 위 원점(y = Ph-1-행)으로 읽는다. CPU ditherThreshold와 비트 단위로 같다.
+// uPack 1: 결과 사진용으로 4점씩 묶어 0/1 (출력 (Pw/4)×Ph), 0: 화면 캔버스(Pw×Ph)에 종이색·잉크색
+export const FS_THERMAL_DITHER = `#version 300 es
+precision highp float; precision highp int;
+out vec4 o;
+uniform sampler2D uGray, uThr; uniform float uPack; uniform vec3 uPaper, uInk;
+float white(int x, int yGL){
+  int h = textureSize(uGray, 0).y;
+  ivec2 n = textureSize(uThr, 0);
+  vec4 v = texelFetch(uGray, ivec2(x >> 2, yGL), 0);
+  float g = floor(dot(v, vec4(equal(ivec4(x & 3), ivec4(0, 1, 2, 3))))*255. + .5);
+  float t = floor(texelFetch(uThr, ivec2(x % n.x, (h - 1 - yGL) % n.y), 0).r*255. + .5);
+  return g >= t ? 1. : 0.;
+}
+void main(){
+  ivec2 f = ivec2(gl_FragCoord.xy);
+  if (uPack > .5) o = vec4(white(f.x*4, f.y), white(f.x*4 + 1, f.y), white(f.x*4 + 2, f.y), white(f.x*4 + 3, f.y));
+  else o = vec4(mix(uInk, uPaper, white(f.x, f.y)), 1.);
+}`;
+
+// 감열지 3 (오차 확산, CPU에서 디더한 마스크): R8 Pw×Ph(위 줄부터, 0 검정 / 255 흰색) → 화면 캔버스에 종이색·잉크색
+export const FS_THERMAL_SHOW = `#version 300 es
+precision highp float; precision highp int;
+out vec4 o;
+uniform sampler2D uMask; uniform vec3 uPaper, uInk;
+void main(){
+  ivec2 f = ivec2(gl_FragCoord.xy);
+  float w = texelFetch(uMask, ivec2(f.x, textureSize(uMask, 0).y - 1 - f.y), 0).r;
+  o = vec4(mix(uInk, uPaper, step(.5, w)), 1.);
+}`;

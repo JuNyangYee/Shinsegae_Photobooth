@@ -4,21 +4,44 @@
 // 효과를 그리지 못하면 원본 사진(결과 크기로 줄임)으로 대신한다. 관람객 흐름을 끊지 않고 D 화면과 로그에만 남긴다.
 // 이미지는 메모리에만 둔다. Node 테스트: test/effect/photo-effect.test.mjs
 //
-// 같은 프레임인 이유: capture.js는 프레임을 잡은 같은 작업의 마이크로태스크에서 이 함수를 부르고, 이 함수는 끝까지 동기다.
+// 같은 프레임인 이유: capture.js는 프레임을 잡은 같은 작업의 마이크로태스크에서 이 함수를 부르고, renderStill까지는 동기다.
 // 미리보기는 requestAnimationFrame에서만 새 프레임을 올리므로 그 사이에 소스 텍스처가 바뀌지 않는다.
+//
+// 출력 모드 (6-1, 그 그림의 settings.outputMode):
+// - off: 컬러 유화 (결과 크기, JPEG는 capture.js 기본 형식)
+// - gray: 회색조·레벨 (결과 크기, JPEG)
+// - thermal: (a) 인쇄용 1비트 데이터가 정본이다: 인쇄 해상도(576x1024 등)의 래스터 비트(1 = 검은 점)와 1비트 PNG.
+//   (b) 화면 표시용은 (a)의 마스크를 종이색·잉크색으로 칠한 같은 크기의 PNG다(화면은 CSS로 최근접 확대). 미리보기 캔버스와 같은 화소다.
+// 효과를 그리지 못하면 원본 사진에 같은 출력 단계를 CPU로 적용한다(감열지면 인쇄 데이터도 만든다).
+// 출력 단계 자체가 실패하면 원본 컬러 사진(결과 크기, JPEG)으로 대신한다.
 
+import { config } from '../config/config.js';
 import { errorLog } from '../core/log-limit.js';
 import { resultSizeFor } from '../core/oil-paint.js';
+import {
+  dither, ditherThreshold, encodeOneBitPng, grayLevelsInPlace, isGpuDither, maskToRgba, packPrintBits, printSizeFor,
+  readPngHeader, reduceToPrintGray, thresholdMap,
+} from '../core/thermal.js';
+
+/** zlib 형식 압축 (PNG IDAT). 브라우저 내장 CompressionStream, 외부 전송 없음 */
+export async function deflateZlib(raw) {
+  const stream = new Blob([raw]).stream().pipeThrough(new CompressionStream('deflate'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
 
 /**
- * @param {{ preview: { isEnabled: () => boolean, renderStill: Function },
+ * @param {{ preview: { isEnabled: () => boolean, renderStill: Function, getSettings: () => object },
  *   createCanvas?: () => HTMLCanvasElement, createImageData?: (pixels: Uint8ClampedArray, w: number, h: number) => ImageData,
- *   log?: { warn: Function, clear: Function }, now?: () => number }} options
+ *   display?: { paper: number[], ink: number[] }, deflate?: (raw: Uint8Array) => Promise<Uint8Array>,
+ *   createBlob?: (bytes: Uint8Array) => Blob, log?: { warn: Function, clear: Function }, now?: () => number }} options
  */
 export function createPhotoEffect({
   preview,
   createCanvas = () => document.createElement('canvas'),
   createImageData = (pixels, w, h) => new ImageData(pixels, w, h),
+  display = config.thermalDisplay,
+  deflate = deflateZlib,
+  createBlob = (bytes) => new Blob([bytes], { type: 'image/png' }),
   log = errorLog,
   now = () => performance.now(),
 }) {
@@ -56,35 +79,138 @@ export function createPhotoEffect({
     });
   }
 
+  function readRgba(canvas) {
+    const context = canvas.getContext('2d', { alpha: false });
+    if (!context) throw new Error('2d context unavailable');
+    return context.getImageData(0, 0, canvas.width, canvas.height).data;
+  }
+
+  /**
+   * 감열지 결과: 마스크 → (a) 인쇄 데이터(래스터 비트·1비트 PNG), (b) 화면용 캔버스(종이색·잉크색).
+   * PNG 압축만 비동기다. 그 사이 회차가 취소되면 화면용 캔버스를 만들지 않고 예외.
+   */
+  async function thermalResult(mask, Pw, Ph, signal) {
+    const raster = packPrintBits(mask, Pw, Ph);
+    const png = await encodeOneBitPng(mask, Pw, Ph, deflate);
+    signal?.throwIfAborted();
+    const header = readPngHeader(png);
+    const canvas = newCanvas(Pw, Ph, (context) => {
+      context.putImageData(createImageData(maskToRgba(mask, display.paper, display.ink), Pw, Ph), 0, 0);
+    });
+    const print = Object.freeze({
+      width: Pw, height: Ph, bytesPerRow: raster.bytesPerRow, bits: raster.bits, png: createBlob(png),
+      pngBytes: png.length, pngBitDepth: header?.bitDepth ?? null, pngColorType: header?.colorType ?? null,
+      blackRatio: raster.black / (Pw * Ph),
+    });
+    return { canvas, type: 'image/png', print };
+  }
+
+  function describePrint(print) {
+    return {
+      width: print.width, height: print.height, bytesPerRow: print.bytesPerRow, rasterBytes: print.bits.length,
+      pngBytes: print.pngBytes, pngBitDepth: print.pngBitDepth, pngColorType: print.pngColorType, blackRatio: print.blackRatio,
+    };
+  }
+
+  // 효과를 그리지 못했을 때: 원본 사진에 같은 출력 단계를 CPU로 (감열지면 인쇄 데이터도). 실패하면 원본 컬러 사진
+  async function rawResult(canvas, settings, reason, t0, signal) {
+    log.warn('effect-capture', `photo effect not applied -> raw photo (${reason})`);
+    fellBack += 1;
+    const mode = settings.outputMode ?? 'off';
+    try {
+      if (mode === 'thermal') {
+        const size = resultSizeFor(canvas.width, canvas.height);
+        const { width: Pw, height: Ph } = printSizeFor(settings.paperDots, size.width, size.height);
+        const gray = reduceToPrintGray(readRgba(canvas), canvas.width, canvas.height, Pw, Ph, settings);
+        const out = await thermalResult(dither(gray, Pw, Ph, settings.dither), Pw, Ph, signal);
+        last = { status: 'raw', mode, reason, width: Pw, height: Ph, dither: settings.dither, print: describePrint(out.print), ms: now() - t0 };
+        return out;
+      }
+      if (mode === 'gray') {
+        const raw = rawAtResultSize(canvas);
+        try {
+          const context = raw.getContext('2d', { alpha: false });
+          const image = context.getImageData(0, 0, raw.width, raw.height);
+          grayLevelsInPlace(image.data, settings);
+          context.putImageData(image, 0, 0);
+        } catch (error) {
+          if (raw !== canvas) free(raw);
+          throw error;
+        }
+        last = { status: 'raw', mode, reason, width: raw.width, height: raw.height, ms: now() - t0 };
+        return raw;
+      }
+    } catch (error) {
+      signal?.throwIfAborted();
+      reason = `${reason}; ${mode} output on raw photo failed: ${error?.message ?? error}`;
+      log.warn('effect-capture', `output stage failed -> raw color photo (${reason})`);
+    }
+    const raw = rawAtResultSize(canvas);
+    last = { status: 'raw', mode: 'off', reason, width: raw.width, height: raw.height, ms: now() - t0 };
+    return raw;
+  }
+
   /**
    * @param {HTMLCanvasElement} canvas capture.js가 잡은 원본 사진 (보이는 9:16 영역, 원본 해상도, 반전)
-   * @returns {HTMLCanvasElement} 효과 사진(새 캔버스) 또는 원본 사진. 새 캔버스는 capture.js가 정리한다
+   * @returns {Promise<HTMLCanvasElement | { canvas: HTMLCanvasElement, type: string, print: object }>}
+   *   효과 사진(새 캔버스)·원본 사진, 또는 감열지면 { 화면용 캔버스, 형식 'image/png', 인쇄 데이터 }. 새 캔버스는 capture.js가 정리한다
    */
-  function apply(canvas, { signal } = {}) {
+  async function apply(canvas, { signal } = {}) {
     signal?.throwIfAborted();
     if (!preview.isEnabled()) {
       last = { status: 'disabled' };
       return canvas;
     }
     const t0 = now();
+    let still;
     try {
-      const still = preview.renderStill();
-      const output = newCanvas(still.width, still.height, (context) => {
-        context.putImageData(createImageData(still.pixels, still.width, still.height), 0, 0);
-      });
+      still = preview.renderStill(); // 동기 (셔터 순간 화면의 그림)
+    } catch (error) {
+      return rawResult(canvas, preview.getSettings(), error?.message ?? String(error), t0, signal);
+    }
+    const base = { seed: still.seed, tick: still.tick, sameAsPreview: still.sameAsPreview, renderMs: still.ms }; // renderMs: 동기 구간(셔터 순간)
+    if (still.mode !== 'thermal') {
+      let output;
+      try {
+        output = newCanvas(still.width, still.height, (context) => {
+          context.putImageData(createImageData(still.pixels, still.width, still.height), 0, 0);
+        });
+      } catch (error) {
+        return rawResult(canvas, still.settings, error?.message ?? String(error), t0, signal);
+      }
       applied += 1;
-      last = {
-        status: 'applied', width: still.width, height: still.height, seed: still.seed, tick: still.tick,
-        sameAsPreview: still.sameAsPreview, ms: now() - t0,
-      };
+      last = { status: 'applied', mode: still.mode, width: still.width, height: still.height, ...base, ms: now() - t0 };
       log.clear('effect-capture');
       return output;
+    }
+
+    // 감열지: 화면에 보이던 점 그림(GPU 디더면 GPU가 만든 마스크)이 정본이다
+    const { mask, gray, printWidth: Pw, printHeight: Ph } = still;
+    const method = still.settings.dither;
+    let check = 'cpu dither';
+    if (isGpuDither(method) && gray) { // GPU 문턱값 디더 = CPU 같은 식인지 (비트 단위). 다르면 화면에 보이던 GPU 쪽을 쓴다
+      const cpu = ditherThreshold(gray, Pw, Ph, thresholdMap(method));
+      let diff = 0;
+      for (let i = 0; i < cpu.length; i += 1) if (cpu[i] !== mask[i]) diff += 1;
+      check = diff === 0 ? 'gpu=cpu' : `GPU != CPU (${diff} dots)`;
+      if (diff > 0) log.warn('effect-capture', `thermal ${method}: GPU and CPU dither differ in ${diff} dots (using GPU)`);
+    }
+    try {
+      const out = await thermalResult(mask, Pw, Ph, signal);
+      applied += 1;
+      last = {
+        status: 'applied', mode: 'thermal', width: Pw, height: Ph, ...base, dither: method, check, print: describePrint(out.print),
+        ms: now() - t0,
+      };
+      log.clear('effect-capture');
+      return out;
     } catch (error) {
-      const reason = error?.message ?? String(error);
-      log.warn('effect-capture', `photo effect not applied -> raw photo (${reason})`);
+      signal?.throwIfAborted();
+      const reason = `thermal output failed: ${error?.message ?? error}`;
+      log.warn('effect-capture', `photo effect not applied -> raw color photo (${reason})`);
       fellBack += 1;
       const raw = rawAtResultSize(canvas);
-      last = { status: 'raw', reason, width: raw.width, height: raw.height, ms: now() - t0 };
+      last = { status: 'raw', mode: 'off', reason, width: raw.width, height: raw.height, ms: now() - t0 };
       return raw;
     }
   }

@@ -14,6 +14,7 @@ function fakeCanvas() {
   const listeners = new Map();
   return {
     hidden: true,
+    style: { imageRendering: '' },
     addEventListener: (type, fn) => listeners.set(type, fn),
     removeEventListener: (type) => listeners.delete(type),
     fire(type) {
@@ -222,7 +223,8 @@ describe('createEffectPreview', () => {
     const still = t.preview.renderStill();
     const call = t.renderer.calls.at(-1);
     assert.equal(call.source, null, '소스를 다시 올리지 않는다 = 미리보기가 그린 프레임');
-    assert.equal(call.output, 'pixels');
+    assert.equal(call.output, 'print', '기본 출력 모드는 감열지 (6-1)');
+    assert.equal(still.mode, 'thermal');
     assert.equal(call.seed, shown.seed);
     assert.equal(call.settings, shown.settings);
     assert.deepEqual([call.width, call.height], [1080, 1920]);
@@ -230,6 +232,30 @@ describe('createEffectPreview', () => {
     assert.equal(still.sameAsPreview, true);
     assert.equal(still.seed, shown.seed);
     assert.deepEqual([still.width, still.height], [1080, 1920]);
+  });
+
+  it('출력 모드: 감열지면 캔버스를 최근접 확대(pixelated), 결과는 print. 끔·회색조면 브라우저 기본 확대, 결과는 pixels (6-1)', () => {
+    const t = setup();
+    t.preview.start();
+    t.run(100);
+    assert.equal(t.canvas.style.imageRendering, 'pixelated');
+    for (const mode of ['off', 'gray']) {
+      t.preview.setSettings({ outputMode: mode });
+      t.run(50);
+      assert.equal(t.renderer.calls.at(-1).settings.outputMode, mode);
+      assert.equal(t.canvas.style.imageRendering, '');
+      const still = t.preview.renderStill();
+      assert.equal(t.renderer.calls.at(-1).output, 'pixels');
+      assert.equal(still.mode, mode);
+    }
+    t.preview.setSettings({ outputMode: 'thermal', dither: 'atkinson', paperDots: 384 });
+    t.run(50);
+    const shown = t.renderer.calls.at(-1);
+    assert.deepEqual([shown.settings.dither, shown.settings.paperDots], ['atkinson', 384]);
+    assert.equal(t.canvas.style.imageRendering, 'pixelated');
+    const still = t.preview.renderStill();
+    assert.equal(t.renderer.calls.at(-1).output, 'print');
+    assert.equal(still.settings, shown.settings, '결과는 화면에 보이던 그림의 설정 그대로');
   });
 
   it('renderStill: 영상 크기가 바뀌었으면 지금 프레임으로 새로 그린다', () => {

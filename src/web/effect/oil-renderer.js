@@ -4,15 +4,19 @@
 //   (원본 tex·pass·allocate·upload·renderDrawing·paintStrokes 중 oil2f 경로를 옮겼다. 셰이더는 oil-shaders.js)
 // 기법: Hertzmann 1998 (층 칠하기·보완 층). 패스 구조는 docs/SYSTEM.md 6절 "사진 효과(유화 · 획)".
 //
-// 패스: 색 보정 → 구조 텐서 → 가로·세로 흐림 → 흐름장 → 밑칠 → 붓 층 3개 → 보완 층 → 합성 → 출력 단계(그대로 통과) → 캔버스
-// 이미지·프레임을 밖으로 내보내거나 저장하지 않는다. 캔버스에 그리기만 한다.
+// 패스: 색 보정 → 구조 텐서 → 가로·세로 흐림 → 흐름장 → 밑칠 → 붓 층 3개 → 보완 층 → 합성 → 출력 단계 → 캔버스
+// 출력 단계 (6-1, settings.outputMode): 'off' 그대로, 'gray' 회색조·레벨, 'thermal' 회색조·레벨 → 인쇄 해상도로 면적 평균
+//   → 1비트 디더(문턱값은 GPU, 오차 확산은 화소를 읽어 CPU) → 캔버스(인쇄 해상도, 종이색·잉크색). 화면은 CSS로 최근접 확대.
+// 이미지·프레임을 밖으로 내보내거나 저장하지 않는다. 캔버스에 그리거나 결과 사진용 화소를 돌려주기만 한다.
 //
 // GPU 자원은 만드는 즉시 owned에 넣는다. 만들다 실패하면(텍스처·프레임버퍼·셰이더) 그때까지 만든 것을 지우고,
 // dispose()는 owned 전체를 지운다 (5단계 검수 2·3). 그림마다 GL 오류·컨텍스트 손실을 확인해 실패를 성공으로 넘기지 않는다 (검수 1).
 
 import { createStrokeBuilder, resolveOilDrawing } from '../core/oil-paint.js';
+import { ditherErrorDiffusion, isGpuDither, printSizeFor, thresholdMap } from '../core/thermal.js';
 import {
-  FS_BLUR, FS_COMPOSE, FS_GRADE, FS_OUTPUT, FS_SST, FS_STROKE, FS_TFM, FS_UNDER, VS, VS_STROKE,
+  FS_BLUR, FS_COMPOSE, FS_GRADE, FS_OUTPUT, FS_SST, FS_STROKE, FS_TFM, FS_THERMAL_DITHER, FS_THERMAL_REDUCE, FS_THERMAL_SHOW,
+  FS_UNDER, VS, VS_STROKE,
 } from './oil-shaders.js';
 
 /** 만들기·그리기 실패 원인 (D 화면에 그대로 보인다) */
@@ -39,11 +43,17 @@ const CONTEXT_ATTRIBUTES = Object.freeze({
   alpha: false, depth: false, stencil: false, antialias: false, premultipliedAlpha: true, preserveDrawingBuffer: false,
 });
 
+// 감열지 화면 표시 색 기본값 (보통 config.thermalDisplay를 넘겨받는다)
+const DEFAULT_DISPLAY = Object.freeze({ paper: [255, 255, 255], ink: [0, 0, 0] });
+
 /**
- * @param {{ canvas: HTMLCanvasElement | OffscreenCanvas, contextAttributes?: WebGLContextAttributes }} options
- *   canvas의 크기는 render()가 그리는 해상도로 맞춘다.
+ * @param {{ canvas: HTMLCanvasElement | OffscreenCanvas, contextAttributes?: WebGLContextAttributes,
+ *   display?: { paper: number[], ink: number[] } }} options
+ *   canvas의 크기는 render()가 그리는 해상도(감열지면 인쇄 해상도)로 맞춘다. display: 감열지 화면의 종이색·잉크색 (화면 전용)
  */
-export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUTES }) {
+export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUTES, display = DEFAULT_DISPLAY }) {
+  const paperColor = display.paper.map((v) => v / 255);
+  const inkColor = display.ink.map((v) => v / 255);
   const gl = canvas.getContext('webgl2', contextAttributes);
   if (!gl) throw new EffectError(EffectFault.WEBGL_UNAVAILABLE, 'getContext("webgl2") returned null');
   if (!gl.getExtension('EXT_color_buffer_float')) {
@@ -85,6 +95,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
     PR = {
       grade: compile(FS_GRADE), sst: compile(FS_SST), blur: compile(FS_BLUR), tfm: compile(FS_TFM),
       stroke: compile(FS_STROKE, VS_STROKE), under: compile(FS_UNDER), compose: compile(FS_COMPOSE), output: compile(FS_OUTPUT),
+      reduce: compile(FS_THERMAL_REDUCE), dither: compile(FS_THERMAL_DITHER), show: compile(FS_THERMAL_SHOW),
     };
 
     // 소스 텍스처: 영상 프레임을 그림마다 올린다 (크기는 texImage2D가 정한다)
@@ -102,9 +113,16 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
   const targets = new Map();
   const MAX_TARGET_SETS = 2;
   let T = null; // 지금 그리는 해상도의 묶음
+  // 감열지 인쇄 해상도마다 묶음 (용지 폭을 바꾸면 새 묶음). 최근 것 2개만 둔다
+  const printTargets = new Map();
+  const thresholdTextures = new Map(); // 점 방식 → 문턱 지도 텍스처 (R8, 처음 쓸 때 만든다)
+  let errorWork = null; // 오차 확산 작업 버퍼 (그림마다 새로 만들지 않게)
   let disposed = false;
   const queries = []; // GPU 시간 측정 중인 질의 (결과가 나오면 꺼낸다)
-  const stats = { draws: 0, cpuMs: 0, gpuMs: null, strokes: 0, width: 0, height: 0, pxScale: 0, timer: Boolean(timer) };
+  const stats = {
+    draws: 0, cpuMs: 0, gpuMs: null, strokes: 0, width: 0, height: 0, pxScale: 0, timer: Boolean(timer),
+    outputMode: 'off', dither: '', printWidth: 0, printHeight: 0, readMs: null, ditherMs: null,
+  };
 
   function track(set, object) {
     set.add(object);
@@ -261,6 +279,132 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
     }
   }
 
+  // 화소를 올려 읽기만 하는 1채널 텍스처 (프레임버퍼 없음). 문턱 지도·CPU 디더 마스크
+  function byteTexture(w, h, data = null) {
+    const t = track(owned.textures, gl.createTexture());
+    try {
+      gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R8, w, h);
+      setFilter(gl.NEAREST, gl.NEAREST);
+      if (data) uploadBytes(t, w, h, data);
+      return { t, w, h };
+    } catch (error) {
+      release('textures', t);
+      throw error;
+    }
+  }
+
+  function uploadBytes(t, w, h, data) {
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RED, gl.UNSIGNED_BYTE, data);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+  }
+
+  function thresholdTexture(method) {
+    let entry = thresholdTextures.get(method);
+    if (!entry) {
+      const { size, thresholds } = thresholdMap(method);
+      entry = byteTexture(size, size, thresholds);
+      thresholdTextures.set(method, entry);
+    }
+    return entry;
+  }
+
+  const PRINT_KEYS = ['gray', 'bits', 'mask'];
+
+  function freePrintTargets(set) {
+    for (const key of PRINT_KEYS) {
+      if (!set[key]) continue;
+      release('textures', set[key].t);
+      release('framebuffers', set[key].fb);
+      set[key] = null;
+    }
+  }
+
+  // 인쇄 해상도 묶음: gray (Pw/4)×Ph 4점씩 묶은 회색, bits 같은 크기의 결과 사진용 디더 0/1, mask Pw×Ph CPU 디더 마스크(R8).
+  // bits·mask는 처음 쓸 때 만든다. 만들다 실패하면 그 텍스처만 지운다(tex·byteTexture)
+  function usePrintTargets(Pw, Ph) {
+    const key = `${Pw}x${Ph}`;
+    let set = printTargets.get(key);
+    if (set) {
+      printTargets.delete(key); // 최근 사용 순서로
+    } else {
+      set = { w: Pw, h: Ph, gray: tex(Pw / 4, Ph, { nearest: true }), bits: null, mask: null };
+      while (printTargets.size >= MAX_TARGET_SETS) {
+        const [oldKey, oldSet] = printTargets.entries().next().value;
+        freePrintTargets(oldSet);
+        printTargets.delete(oldKey);
+      }
+    }
+    printTargets.set(key, set);
+    return set;
+  }
+
+  // 4점씩 묶은 대상(Pw/4 × Ph)을 읽어 위 줄부터로 뒤집는다. 한 줄 = Pw바이트이고 바이트 순서가 곧 점 순서다
+  function readRows(target, Pw, Ph) {
+    const raw = new Uint8Array(Pw * Ph);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, target.fb);
+    gl.readPixels(0, 0, target.w, target.h, gl.RGBA, gl.UNSIGNED_BYTE, raw);
+    const out = new Uint8Array(Pw * Ph);
+    for (let y = 0; y < Ph; y += 1) out.set(raw.subarray((Ph - 1 - y) * Pw, (Ph - y) * Pw), y * Pw);
+    return out;
+  }
+
+  function levelUniforms(settings) {
+    return { uBrightness: settings.brightness ?? 0, uContrast: settings.contrast ?? 1, uGamma: settings.gamma ?? 1 };
+  }
+
+  function resizeCanvas(w, h) {
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+  }
+
+  /**
+   * 감열지 출력 단계. composed(그리는 해상도) → 인쇄 해상도 Pw×Ph.
+   * canvas: 화면 캔버스를 인쇄 해상도로 맞춰 종이색·잉크색 점을 그린다 (오차 확산이면 회색을 읽어 CPU로 디더한 뒤 올린다).
+   * print: 화면은 건드리지 않고 gray·mask(위 줄부터, 1바이트/점)를 돌려준다. 문턱값 디더면 mask는 GPU가 만든 것을 읽는다.
+   */
+  function thermalStage(settings, width, height, output) {
+    const method = settings.dither;
+    const { width: Pw, height: Ph } = printSizeFor(settings.paperDots, width, height);
+    const P = usePrintTargets(Pw, Ph);
+    pass(PR.reduce, P.gray, { uImage: T.composed }, { uScale: [width / Pw, height / Ph], ...levelUniforms(settings) });
+    const result = { printWidth: Pw, printHeight: Ph, readMs: null, ditherMs: null, gray: null, mask: null };
+    const gpu = isGpuDither(method);
+    const colors = { uPaper: paperColor, uInk: inkColor };
+    if (output === 'canvas' && gpu) {
+      resizeCanvas(Pw, Ph);
+      pass(PR.dither, null, { uGray: P.gray, uThr: thresholdTexture(method) }, { uPack: 0, ...colors });
+      return result;
+    }
+    // 오차 확산(미리보기·결과) 또는 결과 사진: 회색을 읽는다 (동기)
+    const r0 = performance.now();
+    result.gray = readRows(P.gray, Pw, Ph);
+    result.readMs = performance.now() - r0;
+    if (gpu) { // 결과 사진: 화면과 같은 GPU 디더를 그대로 읽는다
+      if (!P.bits) P.bits = tex(Pw / 4, Ph, { nearest: true });
+      pass(PR.dither, P.bits, { uGray: P.gray, uThr: thresholdTexture(method) }, { uPack: 1, ...colors });
+      result.mask = readRows(P.bits, Pw, Ph).map((v) => (v > 127 ? 1 : 0));
+      return result;
+    }
+    const d0 = performance.now();
+    if (!errorWork || errorWork.length < Pw * Ph) errorWork = new Float32Array(Pw * Ph);
+    result.mask = ditherErrorDiffusion(result.gray, Pw, Ph, method, errorWork);
+    result.ditherMs = performance.now() - d0;
+    if (output === 'canvas') {
+      if (!P.mask) P.mask = byteTexture(Pw, Ph);
+      const bytes = new Uint8Array(Pw * Ph);
+      for (let i = 0; i < bytes.length; i += 1) bytes[i] = result.mask[i] ? 255 : 0;
+      uploadBytes(P.mask.t, Pw, Ph, bytes);
+      resizeCanvas(Pw, Ph);
+      pass(PR.show, null, { uMask: P.mask }, colors);
+    }
+    return result;
+  }
+
   // 원본 pass(): 전체 화면 삼각형 하나. target이 null이면 캔버스
   function pass(prog, target, texs, uni) {
     gl.useProgram(prog.p);
@@ -279,8 +423,10 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
     gl.uniform2f(U(prog, 'uTexel'), 1 / w, 1 / h);
     for (const [name, v] of Object.entries(uni || {})) {
       const loc = U(prog, name);
-      if (Array.isArray(v)) gl.uniform2fv(loc, v);
-      else gl.uniform1f(loc, v);
+      if (Array.isArray(v)) {
+        if (v.length === 3) gl.uniform3fv(loc, v);
+        else gl.uniform2fv(loc, v);
+      } else gl.uniform1f(loc, v);
     }
     gl.bindVertexArray(vao);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -383,9 +529,12 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
    *   sourceOffset?: [number, number], sourceScale?: [number, number], referenceShortSide?: number }} options
    *   width·height: 그리는 해상도. sourceOffset·sourceScale: 출력 uv(왼쪽 아래 원점, 0~1) → 소스 텍스처 uv
    *   (위아래를 뒤집어 올리므로 텍스처 uv도 왼쪽 아래 원점). 기본값은 소스 전체 그대로.
-   *   output: 'canvas'(화면 캔버스, 크기를 맞춘다) 또는 'pixels'(화면 밖에 그려 RGBA 화소를 위 줄부터 돌려준다.
-   *   화면 캔버스는 건드리지 않는다. 결과 사진용)
-   * @returns {{ strokes: number, cpuMs: number, pixels?: Uint8ClampedArray }}
+   *   output: 'canvas'(화면 캔버스, 크기를 맞춘다), 'pixels'(화면 밖에 그려 RGBA 화소를 위 줄부터 돌려준다.
+   *   화면 캔버스는 건드리지 않는다. 결과 사진용, 출력 모드 off·gray), 'print'(감열지 결과 사진용: 인쇄 해상도의
+   *   gray·mask를 위 줄부터 돌려준다. 화면 캔버스는 건드리지 않는다)
+   *   출력 단계는 settings의 outputMode·dither·brightness·contrast·gamma·paperDots를 따른다 (outputMode가 없으면 'off')
+   * @returns {{ strokes: number, cpuMs: number, pixels?: Uint8ClampedArray,
+   *   gray?: Uint8Array, mask?: Uint8Array, printWidth?: number, printHeight?: number }}
    */
   function render(source, {
     settings, width, height, seed, sourceOffset = [0, 0], sourceScale = [1, 1], referenceShortSide, output = 'canvas',
@@ -393,11 +542,12 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
     if (disposed) throw new Error('renderer disposed');
     if (gl.isContextLost()) throw new EffectError(EffectFault.CONTEXT_LOST, 'context is lost');
     const t0 = performance.now();
-    useTargets(width, height);
-    if (output === 'canvas' && (canvas.width !== width || canvas.height !== height)) {
-      canvas.width = width;
-      canvas.height = height;
+    const mode = settings.outputMode ?? 'off';
+    if ((output === 'print') !== (mode === 'thermal') && output !== 'canvas') {
+      throw new Error(`output ${output} does not fit outputMode ${mode} (thermal -> print, off/gray -> pixels)`);
     }
+    useTargets(width, height);
+    if (output === 'canvas' && mode !== 'thermal') resizeCanvas(width, height);
     const D = resolveOilDrawing(settings, { width, height, referenceShortSide });
     let query = null;
     if (timer && output === 'canvas') { // GPU 시간은 미리보기 그림만 잰다
@@ -409,6 +559,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
     }
     let count = 0;
     let pixels;
+    let thermal = null;
     try {
       clearGlErrors();
       if (source !== null) upload(source);
@@ -419,15 +570,19 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
       pass(PR.tfm, T.tfm, { uTex: T.sst });
       count = paintStrokes(D, seed);
       pass(PR.compose, T.composed, { uPaint: T.paint, uHgt: T.hgt }, { uStr: D.strength, uRelief: D.relief, uPxScale: D.pxScale });
-      if (output === 'pixels') {
+      const outputUniforms = { uGray: mode === 'gray' ? 1 : 0, ...levelUniforms(settings) };
+      if (mode === 'thermal') {
+        thermal = thermalStage(settings, width, height, output);
+        checkGl(output === 'canvas' ? 'preview render' : 'photo render'); // 화소 읽기까지 끝난 뒤
+      } else if (output === 'pixels') {
         if (!T.out) T.out = tex(width, height, { nearest: true });
-        pass(PR.output, T.out, { uImage: T.composed }, { uFlipY: 1 });
+        pass(PR.output, T.out, { uImage: T.composed }, { uFlipY: 1, ...outputUniforms });
         pixels = new Uint8ClampedArray(width * height * 4);
         gl.bindFramebuffer(gl.FRAMEBUFFER, T.out.fb);
         gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
         checkGl('photo render'); // 화소 읽기까지 끝난 뒤. 잃었거나 오류면 빈 화소일 수 있다
       } else {
-        pass(PR.output, null, { uImage: T.composed }, { uFlipY: 0 });
+        pass(PR.output, null, { uImage: T.composed }, { uFlipY: 0, ...outputUniforms });
         checkGl('preview render');
       }
     } finally {
@@ -441,7 +596,17 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
       }
     }
     const cpuMs = performance.now() - t0;
-    if (output === 'canvas') Object.assign(stats, { draws: stats.draws + 1, cpuMs, strokes: count, width, height, pxScale: D.pxScale });
+    if (output === 'canvas') {
+      Object.assign(stats, {
+        draws: stats.draws + 1, cpuMs, strokes: count, width, height, pxScale: D.pxScale, outputMode: mode,
+        dither: mode === 'thermal' ? settings.dither : '', printWidth: thermal?.printWidth ?? 0, printHeight: thermal?.printHeight ?? 0,
+        readMs: thermal?.readMs ?? null, ditherMs: thermal?.ditherMs ?? null,
+      });
+    }
+    if (output === 'print') {
+      const { gray, mask, printWidth, printHeight } = thermal;
+      return { strokes: count, cpuMs, gray, mask, printWidth, printHeight };
+    }
     return { strokes: count, cpuMs, pixels };
   }
 
@@ -452,6 +617,9 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
     deleteAll(); // 대상 묶음·프로그램·버퍼·VAO·소스 텍스처 모두 (검수 2: 예전에는 프로그램을 지우지 못했다)
     queries.length = 0;
     targets.clear();
+    printTargets.clear();
+    thresholdTextures.clear();
+    errorWork = null;
     T = null;
   }
 

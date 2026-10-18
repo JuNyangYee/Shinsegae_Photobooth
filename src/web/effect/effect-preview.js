@@ -6,6 +6,9 @@
 // 좌우 반전·크롭: 미리보기(<video>, object-fit: cover, CSS scaleX(-1))와 같은 영역을 같은 방향으로 그린다.
 // 반전은 효과 입력을 읽을 때 한 번만 하고 캔버스에는 CSS 반전을 걸지 않는다(이중 반전 방지).
 // 효과는 반전된 그림에 칠한다 (획 방향이 좌우 대칭이 아니므로, 결과 사진과 같은 그림이 되게).
+//
+// 출력 단계 (6-1): 감열지 모드면 캔버스가 인쇄 해상도(576x1024 등)의 점 그림이고, CSS image-rendering: pixelated로
+// 9:16 영역에 최근접 확대해 점이 또렷하게 보인다. 결과 사진(renderStill)도 같은 점 그림이다.
 
 import { config } from '../config/config.js';
 import { normalizeEffectSettings } from '../config/effect-settings.js';
@@ -42,13 +45,13 @@ export function computeEffectView({ videoWidth, videoHeight, stageAspect, mirror
 
 /**
  * @param {{ canvas: HTMLCanvasElement, video: HTMLVideoElement, camera: { isReady: () => boolean },
- *   stageAspect: number, mirror: boolean, settings?: object,
+ *   stageAspect: number, mirror: boolean, settings?: object, display?: { paper: number[], ink: number[] },
  *   createRenderer?: typeof createOilRenderer, raf?: Function, cancelRaf?: Function, now?: () => number,
  *   log?: { warn: Function, clear: Function }, onChange?: () => void }} options
  *   settings: config.effect 형식 (enabled 포함). onChange: 상태가 바뀔 때 (D 화면 갱신용)
  */
 export function createEffectPreview({
-  canvas, video, camera, stageAspect, mirror, settings: initialSettings = config.effect,
+  canvas, video, camera, stageAspect, mirror, settings: initialSettings = config.effect, display = config.thermalDisplay,
   createRenderer = createOilRenderer,
   raf = (fn) => requestAnimationFrame(fn), cancelRaf = (id) => cancelAnimationFrame(id),
   now = () => performance.now(), log = errorLog, onChange = () => {},
@@ -87,7 +90,7 @@ export function createEffectPreview({
 
   function createNow() {
     try {
-      renderer = createRenderer({ canvas });
+      renderer = createRenderer({ canvas, display });
       log.clear('effect');
       return true;
     } catch (error) {
@@ -143,6 +146,8 @@ export function createEffectPreview({
       lastDrawing = { tick, seed, settings, view, videoWidth: video.videoWidth, videoHeight: video.videoHeight, at: t };
       dirty = false;
       renderFailures = 0;
+      // 감열지: 인쇄 해상도 캔버스를 최근접으로 확대해 점을 또렷하게 (컬러·회색조는 브라우저 기본 확대)
+      if (canvas.style) canvas.style.imageRendering = settings.outputMode === 'thermal' ? 'pixelated' : '';
       cpuAvg = cpuAvg === null ? cpuMs : cpuAvg * 0.9 + cpuMs * 0.1;
       drawTimes.push(t);
       while (drawTimes.length && t - drawTimes[0] >= 1000) drawTimes.shift();
@@ -167,8 +172,10 @@ export function createEffectPreview({
    * 결과 사진: 지금 화면에 보이는 그림과 같은 카메라 프레임·그림 번호·seed·설정으로, 결과 크기(짧은 변 1080)에 화면 밖으로 그린다.
    * 동기로 끝난다. 미리보기가 다음 그림을 그리기 전(같은 작업 안)에 불러야 같은 프레임이다 (capture.js가 그렇게 부른다).
    * 보이는 그림이 없으면(카메라 준비 직후) 지금 프레임으로 그린다. 효과를 쓸 수 없으면 EffectError.
-   * @returns {{ pixels: Uint8ClampedArray, width: number, height: number, seed: number, tick: number,
-   *   sameAsPreview: boolean, ms: number }}
+   * 출력 모드는 그 그림의 설정을 따른다: off·gray면 pixels(결과 크기 RGBA), thermal이면 인쇄 해상도의 gray·mask (6-1).
+   * @returns {{ mode: string, settings: object, width: number, height: number, seed: number, tick: number,
+   *   sameAsPreview: boolean, ms: number, pixels?: Uint8ClampedArray,
+   *   gray?: Uint8Array, mask?: Uint8Array, printWidth?: number, printHeight?: number }}
    */
   function renderStill() {
     if (!renderer || (status !== EffectStatus.RUNNING && status !== EffectStatus.WAITING_CAMERA)) {
@@ -186,11 +193,16 @@ export function createEffectPreview({
       drawing = { tick, seed: seedForTick(tick), settings, view: v };
     }
     const { view: v } = drawing;
-    const { pixels } = renderer.render(reuse ? null : video, {
+    const mode = drawing.settings.outputMode ?? 'off';
+    const out = renderer.render(reuse ? null : video, {
       settings: drawing.settings, width: v.resultWidth, height: v.resultHeight, seed: drawing.seed,
-      sourceOffset: v.sourceOffset, sourceScale: v.sourceScale, output: 'pixels',
+      sourceOffset: v.sourceOffset, sourceScale: v.sourceScale, output: mode === 'thermal' ? 'print' : 'pixels',
     });
-    return { pixels, width: v.resultWidth, height: v.resultHeight, seed: drawing.seed, tick: drawing.tick, sameAsPreview: reuse, ms: now() - t0 };
+    return {
+      mode, settings: drawing.settings, width: v.resultWidth, height: v.resultHeight, seed: drawing.seed, tick: drawing.tick,
+      sameAsPreview: reuse, ms: now() - t0, pixels: out.pixels,
+      gray: out.gray, mask: out.mask, printWidth: out.printWidth, printHeight: out.printHeight,
+    };
   }
 
   return {
@@ -250,6 +262,13 @@ export function createEffectPreview({
         gpuTimer: s?.timer ?? false,
         strokes: s?.strokes ?? 0,
         renderer: renderer?.renderer?.() ?? '',
+        // 출력 단계 (6-1): 지금 설정과 마지막 그림의 인쇄 해상도·화소 읽기·CPU 디더 시간 (문턱값 디더면 읽지 않아 null)
+        outputMode: settings.outputMode,
+        dither: settings.dither,
+        printWidth: s?.printWidth ?? 0,
+        printHeight: s?.printHeight ?? 0,
+        readMs: s?.readMs ?? null,
+        ditherMs: s?.ditherMs ?? null,
       };
     },
   };
