@@ -1,12 +1,12 @@
 # SYSTEM — 기술 구조와 제약
 
-> 실제로 만든 부분은 "구현됨"으로, 아직 만들지 않은 계획은 "가안"으로 표시한다. 구현 범위는 1단계(정적 서버, 9:16 반전 미리보기, 카메라 상태·자동 회복), 2-1(MediaPipe 로컬 라이브러리 배치), 2-2(얼굴 감지와 인식 상태), 2-3(운영자용 인식 범위 조절), 3-1(촬영 상태 기계와 키보드 수동 시작 한 사이클), 3-2(인식 결과로 자동 시작·이탈 취소), 3-3(3단계 검수 반영), 4-1(감지기 안정성·장애 안내), 4-2(현장 실행 스크립트), 4-3(조절값 파일 저장·자동 촬영 일시정지), 4-4(브라우저 확인 도구·장시간 실측), 4-5(4단계 검수 반영), 5-1(사진 효과 "유화 · 획" 이식과 실시간 미리보기), 5-2(촬영 결과에 효과, 효과 조절 화면 `E`, 효과 조절값 파일)까지다. 감열지용 흑백 단계와 인쇄는 아직 없다.
+> 실제로 만든 부분은 "구현됨"으로, 아직 만들지 않은 계획은 "가안"으로 표시한다. 구현 범위는 1단계(정적 서버, 9:16 반전 미리보기, 카메라 상태·자동 회복), 2-1(MediaPipe 로컬 라이브러리 배치), 2-2(얼굴 감지와 인식 상태), 2-3(운영자용 인식 범위 조절), 3-1(촬영 상태 기계와 키보드 수동 시작 한 사이클), 3-2(인식 결과로 자동 시작·이탈 취소), 3-3(3단계 검수 반영), 4-1(감지기 안정성·장애 안내), 4-2(현장 실행 스크립트), 4-3(조절값 파일 저장·자동 촬영 일시정지), 4-4(브라우저 확인 도구·장시간 실측), 4-5(4단계 검수 반영), 5-1(사진 효과 "유화 · 획" 이식과 실시간 미리보기), 5-2(촬영 결과에 효과, 효과 조절 화면 `E`, 효과 조절값 파일), 6-2(관람객 화면 디자인)까지다. 감열지용 흑백 단계와 인쇄는 이 브랜치에 아직 없다.
 
 **목차**
 
 1. 전체 구성 — 구성도, 참고 구조, 폴더, 정적 서버, 조절값 파일 API, CSP, 스크립트 인코딩, 현장 실행 스크립트, 브라우저 확인 도구
 2. 코드 책임 구분 — 폴더 규칙, 반복 오류 로그 제한
-3. 카메라와 영상 — OBS, 화면 배치, 좌우 반전, 권한, 카메라 상태와 자동 회복
+3. 카메라와 영상 — OBS, 화면 배치, 관람객 화면(6-2), 좌우 반전, 권한, 카메라 상태와 자동 회복
 4. 촬영 상태 — 촬영 한 사이클, 실패와 취소 경계, 운영자 단축키, 자동 시작과 이탈 취소, 출력 연동 참고
 5. 촬영 시작 인식 — 얼굴 감지와 인식 상태, 감지기 상태와 장애 안내, 인식 범위 조절, 다인원, 성능, MediaPipe 로컬 라이브러리
 6. 사진 처리 — 캡처와 결과 이미지, 사진 효과(유화 · 획)
@@ -66,13 +66,19 @@ bin/
   server/serve.ps1          정적 서버, 조절값 파일 API (구현됨)
 src/web/                    (구현됨) 폴더 규칙은 2절 "폴더 규칙"
   index.html                진입점 (`/`)
-  main.js                   화면 조립, 인식 상태 임시 표시, 촬영 사이클 화면·단축키, 개발용 정보·감지 박스 겹쳐 그리기(D 키), 효과 미리보기 연결
-  style.css                 페이지 스타일
+  main.js                   화면 조립, 관람객 화면에 보일 것 정하기(안내 규칙·인식 표시·쿨타임), 단축키, 개발용 정보·감지 박스 겹쳐 그리기(D 키), 효과 미리보기 연결
+  style.css                 페이지 스타일 (서체, 관람객 화면, 운영자 화면)
+  assets/                   (6-2) 관람객 화면 서체·이미지. 3절 "관람객 화면"
+    fonts/                  GowunBatang-Bold.woff, GowunDodum-Regular.woff, OFL-GowunBatang.txt, OFL-GowunDodum.txt (ThrowSnow에서 복사)
+    paper.webp              종이 결 (ThrowSnow에서 복사)
+    garland-top.svg         위쪽 솔가지 가랜드·리본, garland-bottom.svg 아래쪽 가랜드
+    icon-*.svg              안내 아이콘 (발자국, 별, 방울)
   config/
     config.js               바꿀 수 있는 값 (반전, 화면 비율, 카메라, 회복 시간, 감지기, 인식 판정, 촬영 시간, 사진 효과, 결과 이미지 형식)
     presence-settings.js    판정 설정 검증·정규화·저장 형식, 영역 이동·크기 조절 계산 (순수 함수)
     settings-file.js        조절값 파일 API 클라이언트, 시작할 때 불러오기 순서(인식: 파일 → localStorage 옮기기 → 기본값, 효과: 파일 → 기본값)
     effect-settings.js      사진 효과 설정 범위·정규화, 조절값 저장 형식 (순수 함수, 5-1·5-2)
+    guest-text.js           관람객 화면 문구 모음 (6-2, 확정 문구 외 가안)
   core/
     session.js              촬영 한 사이클 상태 기계 (상태 전이·타이머·회차, 시작·취소·초기화 입구)
     auto-start.js           인식 상태 → 상태 기계 연결 (자동 시작 레벨 판정 순수 함수, 이탈 취소)
@@ -97,6 +103,7 @@ src/web/                    (구현됨) 폴더 규칙은 2절 "폴더 규칙"
     presence-tuning.js      운영자용 인식 범위 조절 화면 (R 키), 저장은 조절값 파일로
     region-drag.js          인식 영역 마우스 끌기 (이동·크기 조절, 끌기 종료 조건)
     effect-tuning.js        운영자용 사진 효과 조절 화면 (E 키, 5-2), 저장은 효과 조절값 파일로
+    guest-screen.js         관람객 화면 표현 (6-2): 3·2·1 숫자·원형 진행, 플래시, 결과 출력물 카드·남은 시간, 안내 문구, 인식 빛
 test/                       Node 테스트 (개발 PC 전용, `npm test`). 하위 폴더는 src/web과 같은 이름, 주 대상 모듈 위치를 따른다
   core-deps.test.mjs        core 의존 규칙 검사 (2절 "폴더 규칙")
   helpers.mjs               테스트 공용 흉내 (가짜 시계·타이머, 인식 상태, 캔버스·Object URL). npm test가 직접 실행하지 않는다
@@ -127,6 +134,7 @@ test/                       Node 테스트 (개발 PC 전용, `npm test`). 하�
     presence-tuning.test.mjs  조절 화면 저장 중 닫기 (최소한의 가짜 DOM)
     region-drag.test.mjs    영역 끌기 종료 조건 (EventTarget으로 흉내)
     effect-tuning.test.mjs  효과 조절 화면 즉시 반영·저장·되돌리기·저장 중 닫기
+    guest-screen.test.mjs   관람객 화면 표현: 카운트다운·원형 진행, 플래시, 결과 카드·남은 시간, 안내 문구 (6-2)
   tools/
     browser-check-lib.test.mjs  확인 도구의 조절값 파일 백업·복원, CDP 제한 시간·끊김
 lib/mediapipe/              MediaPipe 런타임·모델 (구현됨, 커밋 대상. 직접 고치지 않고 스크립트로 갱신)
@@ -152,7 +160,7 @@ package-lock.json
 - 그래서 파일을 제공하기 전에 요청한 쪽 주소(`RemoteEndPoint.Address`)가 루프백(IPv4 `127.0.0.0/8`, IPv6 `::1`, IPv4-mapped 포함)인지 확인하고, 아니면 403으로 거절한다. 같은 PC의 브라우저만 쓸 수 있다.
 - 경로 매핑: `/` → `src/web/index.html`, `/lib/*` → 저장소 `lib/`(폴더가 없으면 404), `/local-api/*` → 아래 "조절값 파일 API", 나머지 → `src/web/`.
 - 경로 탈출 차단: URL 디코딩 후 역슬래시·`:`·제어 문자·와일드카드 문자, `.`으로 시작하거나 `.`·공백으로 끝나는 경로 조각(`..`, 숨김 파일 포함)을 400으로 거절한다. 마지막으로 실제 경로가 루트 안에 있는지 다시 확인한다(벗어나면 403). 루트를 벗어나는 일부 URL은 http.sys가 스크립트보다 먼저 403으로 막는다.
-- MIME: html, js, mjs, css, json, svg, png, jpg/jpeg, webp, woff2, wasm, tflite, task. 그 외는 `application/octet-stream`.
+- MIME: html, js, mjs, css, json, svg, png, jpg/jpeg, webp, woff(6-2), woff2, wasm, tflite, task. 그 외는 `application/octet-stream`.
 - 모든 응답에 `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`. 정적 파일은 GET·HEAD만 허용(그 외 405).
 - Ctrl+C로 종료한다. 요청 대기를 짧게 끊어 기다리므로 Ctrl+C가 바로 반영되고 리스너를 닫는다.
 - 요청은 한 번에 하나씩 처리한다(단일 루프). 한 요청이 실패해도 500으로 답하고 다음 요청을 받는다.
@@ -208,7 +216,8 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 - `connect-src 'self'`: `fetch`·XHR·WebSocket은 `localhost`로만 갈 수 있다. 통계 전송은 브라우저가 보내기 전에 막는다.
 - `script-src 'self' 'wasm-unsafe-eval'`: MediaPipe WASM 컴파일에 `wasm-unsafe-eval`이 필요하다. `unsafe-eval`·`unsafe-inline`은 넣지 않았다(필요 없음을 확인).
 - `img-src 'self' blob:`: 결과 사진은 메모리 안의 Object URL(`blob:http://localhost:.../...`)로 `<img>`에 보인다. CSP의 `'self'`는 `blob:` 주소를 포함하지 않아, 없으면 결과 사진이 막힌다(3-1 검증에서 `img-src blob` 위반과 `naturalWidth 0`을 확인). `blob:`은 같은 페이지가 만든 메모리 자료만 가리키므로 외부 전송이 아니다. `data:`는 넣지 않았다(3-1, 2026-10-15).
-- 나머지(`style`·`media`·`worker` 등)는 `default-src 'self'`를 따른다. 카메라 영상(`srcObject`), CSSOM으로 바꾸는 CSS 변수, 캔버스는 영향을 받지 않는다.
+- 나머지(`style`·`font`·`media`·`worker` 등)는 `default-src 'self'`를 따른다. 카메라 영상(`srcObject`), CSSOM으로 바꾸는 CSS 변수, Web Animations, 캔버스는 영향을 받지 않는다.
+- 관람객 화면(6-2)의 서체·이미지는 모두 `src/web/assets/`의 같은 출처 파일이라 정책을 넓히지 않았다. 인라인 `<style>`·`style=""`는 쓰지 않고 `style.css`와 JS(Web Animations, CSSOM)만 쓴다.
 - 차단 때문에 콘솔에 `Connecting to 'https://odml.pa.googleapis.com/v1/log' violates the following Content Security Policy directive` 오류가 감지기마다 한 번(생성 후 약 60초) 찍힌다. 무해하다. 한 번 실패하면 그 감지기의 통계 로거가 멈추므로 반복되지 않는다.
 - 새 기능이 외부 자원이나 다른 출처를 써야 하면 이 정책을 함께 고친다. 넓히지 않는 것이 원칙이다.
 
@@ -336,12 +345,12 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 
 | 시나리오 | 확인 |
 |---|---|
-| 페이지 로드 | 카메라 `ready`, 감지기 `running, health ok`와 delegate 표시, 조절값 불러오기 끝남, 안내 없음 |
+| 페이지 로드 | 카메라 `ready`, 감지기 `running, health ok`와 delegate 표시, 조절값 불러오기 끝남, 안내 없음. 서체 두 개(`Gowun Batang`·`Gowun Dodum`)가 `loaded`이고 받은 `/assets/` 파일이 모두 200 (6-2) |
 | `S` 수동 한 사이클 | 카운트다운 → 결과 → 쿨타임 → 대기, `completed` +1, 사진 자원(Object URL·캔버스·대기 작업) 0. 결과 상태에서 결과 `<img>`가 보이고(숨김 아님, 크기 0 아님) `naturalWidth`·`naturalHeight`가 D `capture` 줄의 캡처 크기와 같다(4단계 검수 8) |
 | 조절값 API | 페이지 안 `fetch`로 `GET` → `PUT` → `GET` 같은 내용, `X-Photobooth` 없는 `PUT` 403. 원본은 위 "조절값 파일 복원"으로 되돌린다. 그사이 몇 초 동안은 시험 값이 들어 있으므로, 현장 서버가 같은 저장소에서 도는 PC에서는 돌리지 않는다 |
 | 감지기 생성 실패 정리 | 페이지에서 `createFaceDetector`를 모델 대신 LICENSE 파일(크기·SHA-256은 맞춤)로 3번 불러 실제 MediaPipe 그래프 시작에서 실패시킨다. 60초 타이머·로더 스크립트 수가 늘지 않고, 앱의 감지기는 `ok` 그대로 (4단계 검수 6의 실제 브라우저 확인) |
 | 권한 거절 → 허용 | 거절 상태로 열면 카메라 `permission-denied`와 "직원에게 문의해 주세요", 허용하면 권한 `change` 이벤트로 바로 다시 연결해 `ready`(개발 PC 약 0.3초), 안내 사라짐 |
-| 모델 차단 | 모델 요청 404 → 감지기 `retrying / model-unavailable`, "준비 중입니다", 인식 표시 숨김, 그 상태에서 `S` 한 사이클과 자원 0 |
+| 모델 차단 | 모델 요청 404 → 감지기 `retrying / model-unavailable`, "준비 중입니다", 인식 표시(`#stage.is-present`)·대기 안내(`#guide`) 숨김, 그 상태에서 `S` 한 사이클과 자원 0 |
 | 사진 효과 미리보기 (5-1) | D `effect`가 `running`, 효과 캔버스가 보이고 `<video>`와 같은 자리·크기, CSS 반전 없음. 초당 그림 수 = `fps`(±1). `WEBGL_lose_context`로 컨텍스트를 잃게 하면 `context-lost`·캔버스 숨김·카메라 `ready`·영상 재생 중, 되살리면 다시 `running` |
 | 촬영 결과에 효과 (5-2) | 효과 캔버스에 새 그림이 그려질 때마다 화소를 복사해 두고(최근 8장, 페이지 메모리), 카운트다운이 끝나는 순간을 기록한 뒤 `S`. 결과가 1080×1920이고 D `photo-fx`가 `applied … same drawing as preview`. 결과 사진과 각 그림을 10×10 블록 평균으로 비교해, 셔터 직전 그림과의 차이가 1.5/255 미만이고 다른 그림과의 차이가 그 두 배보다 크다 |
 | 효과 WebGL2 생성 실패 (5-1) | 페이지 스크립트보다 먼저 효과 캔버스의 `getContext('webgl2')`만 `null`을 돌려주게 하고 연다 → `fallback (webgl2-unavailable…)`, 캔버스 숨김, 안내 문구 없음, 카메라·감지기 정상, `S` 한 사이클과 자원 0, 결과는 원본 사진(`RAW PHOTO`) |
@@ -371,12 +380,12 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 |---|---|
 | 카메라 | OBS 가상카메라 장치 선택, 스트림 시작·종료, 첫 프레임 준비 확인, 단절 감지 |
 | 얼굴 감지 (구현됨) | `face-detector.js`: 사전 확인(WebGL·모델), MediaPipe 생성·실패 정리·감지·종료만. 영상 기준 정규화 박스·점수만 돌려주고 MediaPipe 자료형을 내보내지 않음. `detector-keeper.js`: 재생성과 감지기 상태 |
-| 관람객 안내 (구현됨, 4-1) | `guidance.js`: 카메라·감지기 상태 → "준비 중"/"직원 문의" 판정. `main.js`가 화면에 보인다 |
+| 관람객 안내 (구현됨, 4-1) | `guidance.js`: 카메라·감지기 상태 → "준비 중"/"직원 문의" 판정. `main.js`가 정하고 `guest-screen.js`가 보인다 |
 | 인식 판정 (구현됨) | `presence.js`: 좌표 변환·인정 조건·시간 안정화 순수 함수. `presence-monitor.js`: 감지 루프, "인식됨 / 인식 안됨"과 감지기 상태(`{ health, cause, since }`)만 밖에 알림 |
 | 촬영 시작 입력 (구현됨) | 키보드(`main.js`)와 인식 상태(`auto-start.js`)가 `session.request('start' \| 'cancel' \| 'reset')` 한 입구로 요청만 보낸다. 시작할 수 있는지는 상태 기계가 정한다. `auto-start.js`는 "인식됨 / 인식 안됨"(`isPresent`·`subscribe`)만 받는다 |
 | 촬영 진행 (구현됨) | `session.js`: 상태 전환, 카운트다운·결과·쿨타임 타이머, 회차 식별자, 취소·강제 초기화, 결과 종료 시계 시작 지점. DOM·카메라를 모르고 시계·타이머·사진 함수를 주입받는다 |
 | 이미지 (구현됨) | `capture.js`: 보이는 9:16 영역을 원본 해상도로 잘라 반전 캡처, 사진 효과 단계(`photo-effect.js`, 5-2), JPEG 인코딩, Object URL 생성·정리, 남은 자원 수 |
-| 결과 화면 (구현됨) | `main.js`: 카운트다운 숫자, 플래시, 결과 사진, 쿨타임 문구. 결과가 끝나면 `<img>`의 `src`를 먼저 지운 뒤 상태 기계가 Object URL을 정리한다 |
+| 관람객 화면 (구현됨, 6-2) | `main.js`: 무엇을 보일지(안내 규칙, 인식 표시·대기 안내 조건, 쿨타임). `ui/guest-screen.js`: 어떻게 보일지(카운트다운 숫자·원형 진행, 플래시, 결과 출력물 카드·남은 시간, 안내 카드, 인식 빛). 문구는 `config/guest-text.js`. 결과가 끝나면 `<img>`의 `src`를 먼저 지운 뒤 상태 기계가 Object URL을 정리한다(같은 알림 안에서 동기) |
 | 사진 효과 (구현됨, 5-1·5-2) | `oil-paint.js`(core): 획 목록·해상도 비례·tick·결과 크기. `oil-renderer.js`: WebGL2 패스. `effect-preview.js`: 카메라 영상 → 효과 캔버스, 장애 시 원본 미리보기, 결과용 같은 그림. `photo-effect.js`: 결과 사진 효과·실패 시 원본. `effect-tuning.js`(ui): `E` 조절 화면. 카메라·감지·촬영 상태는 모르고 `camera.isReady()`와 `<video>`만 받는다 (6절) |
 
 - 감지 모델의 세부 출력(좌표, 신뢰도 등)이 촬영 진행 코드나 화면 전체로 퍼지지 않게 한다. 좌표·점수는 `presence-monitor.js`의 `getDebugSnapshot()`(D 개발용 화면 전용)으로만 꺼낸다.
@@ -393,13 +402,14 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 | `core/` | DOM·카메라·캔버스·MediaPipe·네트워크에 의존하지 않는 계산·상태 | `core`, `config`의 순수한 파일 |
 | `camera/` | 카메라 스트림, 카메라 상태 감시, 캔버스 캡처 | `camera`, `core`, `config` |
 | `vision/` | MediaPipe 감지기 생성·재생성, 감지 루프 | `vision`, `core`, `config` |
-| `ui/` | 운영자용 DOM 화면 | `ui`, `core`, `config` |
+| `ui/` | DOM 화면 표현: 관람객 화면(6-2)과 운영자용 조절 화면 | `ui`, `core`, `config` |
+| `assets/` | 서체·이미지 (JS 없음, 6-2). 다른 프로젝트에서 가져온 파일은 라이선스 파일과 함께 둔다 | — |
 | `effect/` | 사진 효과 WebGL 렌더(셰이더·프로그램·텍스처)와 실시간 미리보기 (5-1) | `effect`, `core`, `config` |
 
 - **`core` 규칙(검사함):** `core`의 파일과 거기서 전이적으로 닿는 파일은 `core/`·`config/` 안에 있어야 하고, 브라우저 전역(`document`, `window`, `navigator`, `location`, `localStorage`, `fetch`, `WebSocket`, 캔버스·이미지·미디어 생성자, `requestAnimationFrame` 등)을 쓰지 않는다. 동적 `import()`도 문자열 경로만 허용한다. 타이머·`performance`·`Date`·`console`·`URL`은 Node에도 있어 허용한다. 전역 객체 `globalThis`·`window`·`self`는 대괄호·구조분해·괄호·별칭 등 어느 형태로든 쓰면 위반이다. 예외는 하나뿐이다: 매개변수 기본값 `timers = globalThis`(`core/session.js`의 타이머 주입)는 그 이름을 `setTimeout`·`clearTimeout`·`setInterval`·`clearInterval` 호출로만 쓸 때 허용한다. `test/core-deps.test.mjs`가 검사한다.
   - 검사기는 경계를 지키는 안전장치이고 완전한 JS 파서가 아니다. 파일 안에서 선언된 이름(매개변수, `let`·`const`·`var`, 함수·클래스 이름, 구조분해, `catch`, import)은 전역으로 보지 않는데, 범위를 추적하지 않아 한 파일에 지역 `location`과 전역 `location`이 함께 있으면 전역 쪽을 놓친다. `/`는 직전 토큰으로 정규식·나눗셈을 가르고, 애매하면 나눗셈으로 본다(코드를 건너뛰지 않는 쪽).
 - `config/settings-file.js`는 기본 `fetch`가 `globalThis.fetch`라 순수하지 않다. 그래서 `config`는 폴더 전체가 순수하지 않고, `core`에서 부르면 위의 검사가 실패한다.
-- 지금 실제 의존: `ui` → `config`, `camera`·`vision` → `core`, `effect` → `core`·`config`, `config`와 `core`는 바깥 폴더를 부르지 않는다. 같은 폴더 안 의존도 있다(`camera-monitor` → `camera`, `presence-monitor` → `detector-keeper`·`face-detector`, `presence-tuning` → `region-drag`, `settings-file` → `presence-settings`, `auto-start` → `session` → `log-limit`, `effect-preview` → `oil-renderer` → `oil-shaders`). `camera`·`vision`·`ui`·`effect`끼리는 서로 부르지 않고 `main.js`가 잇는다(효과 미리보기는 `camera`의 `isReady`와 `<video>`를 주입받는다).
+- 지금 실제 의존: `ui` → `config`·`core`(`guest-screen` → `core/session`의 상태 이름), `camera`·`vision` → `core`, `effect` → `core`·`config`, `config`와 `core`는 바깥 폴더를 부르지 않는다. 같은 폴더 안 의존도 있다(`camera-monitor` → `camera`, `presence-monitor` → `detector-keeper`·`face-detector`, `presence-tuning` → `region-drag`, `settings-file` → `presence-settings`, `auto-start` → `session` → `log-limit`, `effect-preview` → `oil-renderer` → `oil-shaders`). `camera`·`vision`·`ui`·`effect`끼리는 서로 부르지 않고 `main.js`가 잇는다(효과 미리보기는 `camera`의 `isReady`와 `<video>`를 주입받는다).
 - 표의 "불러와도 되는 것" 중 자동으로 검사하는 것은 `core` 행뿐이다. 다른 행은 규칙으로 지킨다.
 - 저장소 루트의 `config/`(운영자 조절값 파일 `presence.local.json`, Git 제외)와 `src/web/config/`(설정 코드)는 다른 폴더다.
 - 테스트는 `test/` 아래 소스와 같은 이름의 폴더에, 주 대상 모듈 위치를 따라 둔다. 테스트 폴더는 소스 위치를 비추므로 1개짜리라도 둔다(`test/camera/`, `test/tools/`).
@@ -436,6 +446,59 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 - 비율 값은 `config/config.js`의 `aspectRatio`에서 CSS 변수로 넘긴다.
 - 개발용 정보는 `D` 키로 토글하며 기본 숨김이다. 관람객 화면에는 노출하지 않는다.
 - **사진 효과 미리보기 (5-1):** 효과 캔버스(`#effect`)가 `<video>` 바로 위에서 9:16 영역 전체를 덮는다. 보이는 영역은 `<video>`의 cover 크롭과 같다. 효과를 쓸 수 없으면 캔버스를 숨겨 `<video>`가 그대로 보인다(6절 "사진 효과(유화 · 획)").
+- 9:16 영역 밖(가로 모니터의 좌우 등)은 검정으로 두고 꾸미지 않는다. 9:16 영역 바탕은 솔잎 그린(`--pine-deep`)이다(영상이 없을 때 보인다).
+
+### 관람객 화면 (구현됨, 6-2)
+
+사용자 요청(2026-10-19): "기초적인 느낌"을 벗고 크리스마스의 따뜻한 톤으로 깔끔하게. 세부 모양·문구·수치는 모두 가안이다. 디자인 결정의 이유와 상태별 화면 설명은 `docs/logs/2026-10-19-02-stage6-guest-ui.md`.
+
+**전제:** 미리보기와 결과 사진은 앞으로 흰 감열지 위의 검은 점(흑백) 이미지가 된다(6-1). 그래서 글자는 늘 불투명한 종이 카드·원판 위에 두고, 색(크림·딥 레드·골드·솔잎 그린)은 장식과 카드에만 쓴다.
+
+**구성 (DOM 순서 = 위로 쌓이는 순서, `index.html`)**
+
+| 요소 | 내용 |
+|---|---|
+| `#result-view` | 결과 화면: 제목, 출력물 카드(`#result-card` 안 `#result` 사진), 안내, 남은 시간 막대, 돌아가기 안내. 솔잎 그린 바탕 |
+| `#status-veil` | 준비 중·직원 문의 때 영상을 덮는 솔잎 그린 막 (장식 프레임은 그 위에 보인다) |
+| `.frame` | 장식 프레임: 가장자리 딥 레드 띠(안쪽 금선, 둥근 모서리), 위 솔가지 가랜드·리본, 아래 가랜드, 인식 빛(`.frame-glow`) |
+| `#guide` | 대기 안내 "발자국 위에 서 주세요" (크림 종이 알약, 발자국 아이콘, 천천히 떠오름) |
+| `#countdown` | 3·2·1: 딥 레드 원판·크림 숫자(고운바탕), 금빛 원형 진행, 안내 알약 |
+| `#notice` | 쿨타임 문구 (솔잎 그린 알약, 별 아이콘) |
+| `#flash` | 촬영 순간 따뜻한 흰빛 |
+| `#pause-badge` | 운영자 표시 (6-3 범위, 그대로) |
+| `#status` | 준비 중·직원 문의 카드 (첫 줄은 제목처럼 크게, 위에 금빛 방울) |
+
+**상태별 화면**
+
+| 상태 | 보이는 것 |
+|---|---|
+| 대기 | 미리보기 + 장식 프레임 + 아래쪽 대기 안내. 카메라·감지기가 정상일 때만 |
+| 인식 | 인식되면 테두리 금선이 굵어지고 안쪽이 따뜻하게 밝아진다(0.6초 전환). 대기·카운트다운·쿨타임 중 인식 상태를 따르고, 결과 화면·안내 문구 중에는 끈다. `config.showPresenceIndicator`가 `false`면 빛을 쓰지 않고 대기 안내만 보인다 |
+| 카운트다운 | 원판이 커지며 나타나고, 숫자마다 1초 동안 커지며 나타났다 끝 무렵 작아지며 사라진다. 원형 진행은 `countdownSeconds` 동안 한 바퀴를 채운다. 원판 중심은 9:16 영역 높이의 약 52%(원판 아래 안내 알약까지 묶어 가운데보다 조금 아래). 대기 안내 대신 "화면을 보며 웃어 주세요" |
+| 촬영 순간 | 따뜻한 흰빛(`#fff8ec`)이 약 50ms에 투명도 0.7까지 올랐다가 0.32초에 사라진다(예전: 흰색 0.9에서 0.4초) |
+| 결과 | 출력물 카드가 위에서 내려와 2° 기울어진 채 놓인다(0.7초). 흰 종이·그림자·금빛 테이프. 제목 "특별한 사진이 완성됐어요", 안내 "출력된 사진을 받아 가세요", 남은 시간 막대(종료 시각까지 줄어듦), "잠시 후 처음 화면으로 돌아가요" |
+| 결과 (종료 시계 멈춤) | 지금은 생기지 않는다. 인쇄를 연동해 출력 중 종료 시계를 멈추면(`endsAt` = `null`) 막대를 숨기고 "사진이 출력되고 있어요"를 보인다. 시계가 시작되면 막대가 돈다 |
+| 쿨타임 | 대기 안내 자리에 "다음 촬영을 준비하고 있어요" |
+| 준비 중·직원 문의 | 솔잎 그린 막 위 크림 카드, 첫 줄 "준비 중입니다."는 고운바탕 딥 레드. 준비 중이면 방울이 흔들리고 직원 문의면 멈춘다. 문구와 30초 전환 규칙은 그대로(확정) |
+
+**규칙**
+
+- **해상도 독립:** 관람객 화면의 길이·글자 크기는 모두 `cqw`(9:16 영역 폭의 1%, `.stage`의 `container-type: inline-size`)로 쓴다. px 상한·하한(`clamp`)을 두지 않아 1080×1920과 2160×3840에서 같은 비율이다(확인: 세 창 크기에서 글자 요소의 위치·크기·글자 크기 비율 차이 0.05% 이하, 로그 2026-10-19-02).
+- **움직임은 `transform`·`opacity`만:** 원형 진행은 두 반원을 `rotate`로 돌리고, 남은 시간 막대는 `scaleX`, 인식 빛은 `opacity` 전환이다. 큰 블러·필터 애니메이션은 쓰지 않는다. 그림자 블러는 움직이지 않는 요소에만 둔다. 결과 사진은 `decoding="async"`로 디코딩이 화면 갱신을 막지 않게 한다.
+- **문구:** 관람객 문구는 모두 `src/web/config/guest-text.js` 한 곳에 있다. "준비 중"·"직원 문의" 두 문구는 확정이고 확인 도구가 이 글자로 상태를 읽는다. 나머지는 가안이다.
+- **서체:** 제목·숫자는 고운바탕 Bold(`Gowun Batang`), 본문은 고운돋움(`Gowun Dodum`). ThrowSnow와 같은 파일이다. KS X 1001 완성형 2,350자 + 영숫자·기호로 줄인 woff(합 약 680KB)라, 문구를 바꿀 때 그 밖의 글자는 시스템 서체로 보인다. 숨겨진 화면에서 처음 쓰여도 바로 보이도록 `index.html`에서 미리 받는다(`<link rel="preload">`).
+- **색 (CSS 변수, `style.css` `:root`):** `--cream` `#f3e4d6`·`--pine` `#2f5f52`(ThrowSnow와 같은 값), `--paper` `#fbf7ef`, `--ink` `#3a2418`, `--red-deep` `#9b1c26`, `--gold` `#d9a441`, `--gold-light` `#f6d58a`, `--pine-deep` `#1d3f35`. 종이 결은 `--paper-grain`(`assets/paper.webp`).
+
+**에셋 출처와 라이선스**
+
+| 파일 | 출처 | 라이선스 |
+|---|---|---|
+| `assets/fonts/GowunBatang-Bold.woff`, `GowunDodum-Regular.woff` | 같은 행사의 다른 웹 체험 ThrowSnow(`003_ThrowSnow`, 커밋 `78175c4`)의 `public/common/assets/fonts/`에서 바이트 그대로 복사. 원본은 Gowun Batang·Gowun Dodum 프로젝트(yangheeryu)이고 ThrowSnow가 부분 집합으로 줄였다 | SIL Open Font License 1.1. `assets/fonts/OFL-GowunBatang.txt`·`OFL-GowunDodum.txt`(같이 복사) |
+| `assets/paper.webp` | ThrowSnow `public/common/assets/paper.webp` (그 프로젝트가 만든 종이 결, 256×256 반투명) | 같은 팀 제작물 |
+| `assets/garland-*.svg`, `assets/icon-*.svg` | 이 작업에서 만듦(6-2). 솔잎 한 묶음 기호(`<symbol id="tuft">`)를 `<use>`로 배치한 것이라 손으로 고칠 수 있다 | — |
+
+- ThrowSnow 쪽 파일은 읽기만 했다. ThrowSnow가 서체·종이 결을 바꾸면 이 저장소에 다시 복사해야 같은 모양이 된다.
+- ThrowSnow의 `fonts.css`·`ribbon.css`는 가져오지 않았다. 서체 선언은 `style.css` 맨 위에 새로 썼고(경로가 다름), 리본 모양은 이 화면(세로 키오스크)에 맞게 SVG로 그렸다.
 
 ### 좌우 반전 (확정)
 
@@ -496,11 +559,11 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 
 | 상태 (`SessionState`) | 화면 |
 |---|---|
-| `idle` 대기 | 미리보기, 인식 표시 |
-| `countdown` 카운트다운 | 미리보기 위 큰 숫자 3·2·1 |
-| `capturing` 촬영·결과 준비 | 흰 화면 플래시(0.4초에 걸쳐 사라짐). 실측 약 30~50ms 뒤 결과로 넘어간다 |
-| `result` 결과 표시 | 9:16 영역 전체에 결과 사진. 인식 표시와 카메라 상태 문구는 사진 위에 띄우지 않는다 |
-| `cooldown` 쿨타임 | 미리보기로 돌아오고 위쪽에 "다음 촬영을 준비 중입니다." (가안). 카메라가 준비되지 않았으면 이 문구 대신 카메라 상태 문구 |
+| `idle` 대기 | 미리보기, 장식 프레임, 대기 안내, 인식 빛 (3절 "관람객 화면") |
+| `countdown` 카운트다운 | 미리보기 위 원판 숫자 3·2·1과 원형 진행, 안내 알약 |
+| `capturing` 촬영·결과 준비 | 따뜻한 흰빛 플래시(최대 0.7, 0.32초). 실측 약 30~50ms 뒤 결과로 넘어간다 |
+| `result` 결과 표시 | 결과 사진을 출력물 카드로, 안내와 남은 시간 막대. 인식 빛과 카메라 상태 문구는 띄우지 않는다 |
+| `cooldown` 쿨타임 | 미리보기로 돌아오고 아래쪽에 "다음 촬영을 준비하고 있어요" (가안, 6-2에서 "다음 촬영을 준비 중입니다."에서 바꿈). 카메라가 준비되지 않았으면 이 문구 대신 카메라 상태 문구 |
 
 | 상황 | 처리 |
 |---|---|
@@ -592,7 +655,7 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 - **강제 초기화(`X`) 뒤:** 대기로 들어오며 평가하므로, 사람이 서 있으면 바로 자동으로 다시 시작한다. `X`는 촬영 중지 수단이 아니다. 자동 촬영을 멈추려면 `P`를 누른다.
 - **조절값 불러오기 (4-3):** 시작할 때 조절값 파일을 다 불러올 때까지(최대 약 3초) 자동 시작을 막는다. 그 사이 감지 루프는 기본값으로 돌지만, 불러온 값을 넣는 순간 기준이 바뀌어 인식 상태를 처음부터 다시 잰다. 그래서 기본값으로 잠깐 인식됐다가 시작되는 일이 없다.
 - **D 화면:** `session` 줄에 회차 출처(`by presence`·`by key`), `auto` 줄에 마지막 판정 이유, 마지막 자동 시작·취소 시각과 계기(예: `entered idle (completed)`, `presence: absent`, `tuning-closed`)를 보인다. 계기 기록은 시작이 받아들여진 뒤 남으므로, 시작 직후 한 번은 이전 값이 보이고 다음 갱신(0.5초)에 바뀐다.
-- 관람객 화면은 바꾸지 않았다. 대기 중 안내 문구는 넣지 않았다.
+- 3-2에서는 관람객 화면을 바꾸지 않았다. 대기 안내와 인식 표시는 6-2에서 다시 디자인했다(3절 "관람객 화면"). "곧 촬영해요" 같은 인식 문구는 두지 않았다. 인식되면 자동 시작이 바로 카운트다운으로 넘어가 문구가 한순간만 보이기 때문이다.
 
 ### 출력 연동 시 참고 흐름 (이후 범위)
 
@@ -715,7 +778,7 @@ camera-monitor (ready·페이지 표시) ──▶ presence-monitor 감지 루�
   - 하나라도 쓸 수 없으면 "준비 중입니다. 잠시만 기다려 주세요."를 보인다.
   - 쓸 수 없는 상태가 `cameraRecovery.staffNoticeMs`(30초) 이상 이어지거나, 스스로 풀리기 어려운 상태(카메라 `unsupported`·`permission-denied`, 감지기 `fault`)면 "준비 중입니다. 직원에게 문의해 주세요."로 바꾼다.
   - 이어진 시간은 둘 중 하나라도 쓸 수 없게 된 때부터 잰다. 카메라가 돌아왔는데 감지기가 아직 없으면, 처음부터 다시 재지 않고 이어서 잰다. 둘 다 정상이 되면 처음으로 돌아간다.
-  - 감지기를 쓸 수 없으면 인식 상태 임시 표시("인식됨/인식 안됨")를 숨긴다. 쿨타임 문구도 안내 문구가 없을 때만 보인다.
+  - 감지기를 쓸 수 없으면 인식 표시(테두리 빛)와 대기 안내를 숨긴다(6-2 전에는 "인식됨/인식 안됨" 임시 표시). 쿨타임 문구도 안내 문구가 없을 때만 보인다.
 - **`S` 수동 촬영은 감지기 장애 중에도 된다.** 상태 기계는 카메라 준비만 본다. 회차가 진행되는 동안(카운트다운·촬영·결과)은 안내 문구를 숨기고, 대기로 돌아오면 다시 보인다. 카메라가 끊기면 카운트다운은 바로 취소되므로, 이때 숨는 것은 감지기 쪽 안내뿐이다.
 - **`D` 화면:**
   - `detector : <루프 상태>, health <상태> / <원인> (<원인 설명>)`
@@ -732,7 +795,7 @@ camera-monitor (ready·페이지 표시) ──▶ presence-monitor 감지 루�
 
 **화면**
 
-- 인식 상태 임시 표시: 9:16 영역 아래쪽 가운데에 "인식됨"(초록 배경)·"인식 안됨". 카메라가 준비되지 않았으면 숨긴다(이때는 "준비 중" 문구). `config.showPresenceIndicator`로 끈다. 최종 디자인 전 기본 UI다(가안).
+- 인식 표시 (6-2): 인식되면 9:16 영역 테두리가 따뜻하게 밝아진다(`#stage.is-present`). 카메라·감지기를 쓸 수 없거나 결과 화면이면 끈다. `config.showPresenceIndicator`로 끈다. 2-2~5단계의 "인식됨"(초록)·"인식 안됨" 글자 표시는 없앴다(3절 "관람객 화면").
 - `D` 화면에 추가된 정보: 감지기 상태와 오류, delegate(실패한 delegate 이유), 감지 시간(마지막·평균)과 그리기 시간, 실제 감지 빈도, 감지 입력 크기, 감지된 얼굴 수와 인정된 얼굴 수, 판정과 안정화 진행(`-> present 343/500ms`), 현재 기준값(조절 화면에서 바꾼 값 포함), 기준값 출처(`settings : file`·`migrated`·`localStorage`·`defaults (이유)`·`saved`·`loading`, 저장하지 않은 변경이 있으면 `+ unsaved changes`, 4-3. 아래 "반영과 저장")와 저장 전까지는 불러올 때 고친 내용, 얼굴별 점수·높이·중심과 제외 이유(`region`·`small`·`large`·`score`), 감지 오류 횟수.
 - `D` 화면을 켜면 9:16 영역 위에 인식 영역(노란 점선)과 감지 박스를 겹쳐 그린다. 인정된 얼굴은 초록, 제외된 얼굴은 빨강이며, 박스 위에 점수, 중심에 점을 찍는다.
 
@@ -785,7 +848,7 @@ camera-monitor (ready·페이지 표시) ──▶ presence-monitor 감지 루�
   - 조절 패널(화면 아래, "패널 위·아래" 버튼으로 위로 옮길 수 있음)
   - 9:16 영역 위의 편집 사각형
   - 감지 박스(인정 초록, 제외 빨강)와 얼굴 크기 가이드(영역 가운데에 최소 파랑, 최대 보라 정사각형)
-- 닫으면 패널·편집 사각형·겹쳐 그리기가 모두 숨겨진다. `D`가 켜져 있으면 `D` 정보와 그 겹쳐 그리기만 남는다. 둘 다 꺼져 있으면 관람객 화면에 흔적이 없다. 인식 상태 임시 표시(`showPresenceIndicator`)는 조절 화면과 무관하게 원래대로 보인다.
+- 닫으면 패널·편집 사각형·겹쳐 그리기가 모두 숨겨진다. `D`가 켜져 있으면 `D` 정보와 그 겹쳐 그리기만 남는다. 둘 다 꺼져 있으면 관람객 화면에 흔적이 없다. 인식 표시(`showPresenceIndicator`, 테두리 빛)와 대기 안내는 조절 화면과 무관하게 원래대로 보인다.
 
 **조절 항목과 범위** (`config/presence-settings.js`의 `presenceLimits`)
 
