@@ -178,3 +178,21 @@ describe('effect-tuning (E)', () => {
     assert.equal(t.running().dither, 'atkinson');
   });
 });
+
+describe('effect-tuning: 저장 상태 표시 (6-3)', () => {
+  it('저장 실패는 다시 저장해 성공하거나 값을 바꿀 때까지 실패로 보인다', async () => {
+    const t = current = setup();
+    t.tuning.toggle();
+    t.slide('fps', 12);
+    assert.equal(t.panel.dataset.save, 'dirty');
+    t.click('save');
+    assert.equal(t.panel.dataset.save, 'saving');
+    t.saves[0].reject(new Error('HTTP 500'));
+    await flush();
+    assert.equal(t.panel.dataset.save, 'failed');
+    t.click('save');
+    t.saves[1].resolve();
+    await flush();
+    assert.equal(t.panel.dataset.save, 'saved');
+  });
+});

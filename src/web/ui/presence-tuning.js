@@ -10,6 +10,7 @@ import {
 } from '../config/presence-settings.js';
 import { createRegionDrag } from './region-drag.js';
 import { SettingsSource } from '../config/settings-file.js';
+import { saveStateOf, showSaveState } from './save-state.js';
 
 // 슬라이더 항목: [설정 키, 범위, 표시 소수 자릿수, 단위]
 const SLIDERS = [
@@ -50,6 +51,7 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, i
   let savedSource = loaded.source;
   let savedNote = loaded.note;
   let saving = false;
+  let saveFailed = false; // 마지막 저장이 실패함 (값을 다시 바꾸거나 저장에 성공하면 풀린다)
   // 저장 중에 닫기를 요청하면 저장이 끝난 뒤 닫는다 (4단계 검수 4). 닫을 때는 늘 마지막으로 파일에 저장된 값으로 맞추므로
   // 저장이 성공하든 실패하든 "실행 중인 판정값 = 파일 값"이 유지된다.
   let closeAfterSave = false;
@@ -59,9 +61,14 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, i
   monitor.setSettings(current);
 
   function apply(next) {
+    saveFailed = false;
     current = normalizePresenceSettings(next, defaults).settings;
     monitor.setSettings(current);
     render();
+  }
+
+  function renderSaveState() {
+    showSaveState(panel, stateText, saveStateOf({ saving, failed: saveFailed, dirty: !samePresenceSettings(current, saved) }));
   }
 
   function showMessage(text) {
@@ -76,15 +83,13 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, i
       width: `${region.width * 100}%`,
       height: `${region.height * 100}%`,
     });
-    regionText.textContent = `영역 x ${region.x.toFixed(3)}  y ${region.y.toFixed(3)}`
-      + `  폭 ${region.width.toFixed(3)}  높이 ${region.height.toFixed(3)}  (화면에서 끌어 옮기고, 모서리·변으로 크기 조절)`;
+    // 끌어 옮기는 방법은 패널 도움말에 있다 (6-3). 여기는 값만
+    regionText.textContent = `x ${region.x.toFixed(3)} · y ${region.y.toFixed(3)} · 폭 ${region.width.toFixed(3)} · 높이 ${region.height.toFixed(3)}`;
     for (const [key, { input, output, digits, unit }] of sliders) {
       input.value = String(current[key]);
       output.textContent = `${current[key].toFixed(digits)}${unit}`;
     }
-    const dirty = !samePresenceSettings(current, saved);
-    stateText.textContent = dirty ? '저장하지 않은 변경이 있습니다 (닫으면 취소됩니다)' : '저장된 값과 같습니다';
-    stateText.classList.toggle('is-dirty', dirty);
+    renderSaveState();
     jsonText.value = serializePresenceSettings(current);
   }
 
@@ -161,21 +166,25 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, i
       const target = clone(current);
       const button = event.target.closest('button');
       button.disabled = true;
+      renderSaveState();
       showMessage('저장 중...');
       try {
         await saveSettings(target);
         saved = target;
         savedSource = SettingsSource.SAVED;
         savedNote = '';
+        saveFailed = false;
         render();
         showMessage(samePresenceSettings(current, saved) ? '파일에 저장했습니다.' : '파일에 저장했습니다. 저장 중에 바뀐 값은 아직 저장되지 않았습니다.');
       } catch (error) {
+        saveFailed = true;
         // 저장되지 않은 상태를 그대로 둔다 (닫으면 마지막 저장값으로 돌아간다).
         render();
         showMessage(`저장하지 못했습니다: ${error?.message ?? error}`);
       } finally {
         saving = false;
         button.disabled = false;
+        renderSaveState();
         if (closeAfterSave) {
           closeAfterSave = false;
           setOpen(false);

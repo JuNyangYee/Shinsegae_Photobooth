@@ -13,6 +13,7 @@ import {
   sameEffectSettings,
 } from '../config/effect-settings.js';
 import { SettingsSource } from '../config/settings-file.js';
+import { saveStateOf, showSaveState } from './save-state.js';
 
 // 슬라이더 항목: [조절값 키, 범위, 표시 소수 자릿수]. 범위는 원본 갤러리 슬라이더와 같다 (effect-settings.js)
 const SLIDERS = [
@@ -67,6 +68,7 @@ export function createEffectTuning({ panel, preview, defaults, initial, saveSett
   let savedSource = loaded.source;
   let savedNote = loaded.note;
   let saving = false;
+  let saveFailed = false; // 마지막 저장이 실패함 (값을 다시 바꾸거나 저장에 성공하면 풀린다)
   let closeAfterSave = false;
   let current = saved;
   let open = false;
@@ -74,9 +76,14 @@ export function createEffectTuning({ panel, preview, defaults, initial, saveSett
   preview.setSettings(current);
 
   function apply(next) {
+    saveFailed = false;
     current = next;
     preview.setSettings(current);
     render();
+  }
+
+  function renderSaveState() {
+    showSaveState(panel, stateText, saveStateOf({ saving, failed: saveFailed, dirty: !sameEffectSettings(current, saved) }));
   }
 
   function showMessage(text) {
@@ -97,9 +104,7 @@ export function createEffectTuning({ panel, preview, defaults, initial, saveSett
       select.disabled = THERMAL_KEYS.has(key) && values.outputMode !== 'thermal';
       if (output) output.textContent = key === 'paperDots' ? `${values.paperDots}점` : '';
     }
-    const dirty = !sameEffectSettings(current, saved);
-    stateText.textContent = dirty ? '저장하지 않은 변경이 있습니다 (닫으면 취소됩니다)' : '저장된 값과 같습니다';
-    stateText.classList.toggle('is-dirty', dirty);
+    renderSaveState();
   }
 
   function renderLive() {
@@ -170,20 +175,24 @@ export function createEffectTuning({ panel, preview, defaults, initial, saveSett
       const target = current;
       const button = event.target.closest('button');
       button.disabled = true;
+      renderSaveState();
       showMessage('저장 중...');
       try {
         await saveSettings(target);
         saved = target;
         savedSource = SettingsSource.SAVED;
         savedNote = '';
+        saveFailed = false;
         render();
         showMessage(sameEffectSettings(current, saved) ? '파일에 저장했습니다.' : '파일에 저장했습니다. 저장 중에 바뀐 값은 아직 저장되지 않았습니다.');
       } catch (error) {
+        saveFailed = true;
         render();
         showMessage(`저장하지 못했습니다: ${error?.message ?? error}`);
       } finally {
         saving = false;
         button.disabled = false;
+        renderSaveState();
         if (closeAfterSave) {
           closeAfterSave = false;
           setOpen(false);

@@ -48,7 +48,7 @@ function setup() {
   });
   const saveButton = { dataset: { action: 'save' }, disabled: false };
   return {
-    tuning, saves, saveButton,
+    tuning, saves, saveButton, panel,
     running: () => applied.at(-1),
     message: () => element('[data-message]').textContent,
     slide(key, value) {
@@ -116,5 +116,26 @@ describe('presence-tuning: 저장 중 닫기 (4단계 검수 4)', () => {
     t.tuning.close();
     assert.equal(t.tuning.isOpen(), false);
     assert.equal(t.running().minScore, 0.7);
+  });
+});
+
+describe('presence-tuning: 저장 상태 표시 (6-3)', () => {
+  it('저장됨 → 저장 안 된 변경 → 저장 중 → 실패 → (다시 바꾸면) 저장 안 된 변경 → 저장됨', async () => {
+    const t = current = setup();
+    t.tuning.toggle();
+    assert.equal(t.panel.dataset.save, 'saved');
+    t.slide('minScore', 0.8);
+    assert.equal(t.panel.dataset.save, 'dirty');
+    t.clickSave();
+    assert.equal(t.panel.dataset.save, 'saving');
+    t.saves[0].reject(new Error('HTTP 500'));
+    await flush();
+    assert.equal(t.panel.dataset.save, 'failed');
+    t.slide('minScore', 0.75);
+    assert.equal(t.panel.dataset.save, 'dirty');
+    t.clickSave();
+    t.saves[1].resolve();
+    await flush();
+    assert.equal(t.panel.dataset.save, 'saved');
   });
 });
