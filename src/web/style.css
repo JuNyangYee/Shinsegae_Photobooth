@@ -89,21 +89,6 @@ body {
   display: none;
 }
 
-/* 개발용 정보 (D 키). 관람객 화면에는 기본으로 숨긴다. */
-.dev-info {
-  position: fixed;
-  top: 8px;
-  left: 8px;
-  z-index: 10;
-  margin: 0;
-  padding: 8px 12px;
-  color: #0f0;
-  background: rgba(0, 0, 0, 0.75);
-  font: 14px / 1.5 Consolas, monospace;
-  white-space: pre;
-  pointer-events: none;
-}
-
 /* ---- 관람객 화면 (6-2, ui/guest-screen.js). 미리보기·결과 사진은 흰 감열지 위의 검은 점이 되므로,
    글자는 늘 불투명한 종이·리본 위에 둔다. 움직임은 transform·opacity만 쓴다. ---- */
 
@@ -466,9 +451,104 @@ body {
   pointer-events: none;
 }
 
-/* ---- 운영자용 인식 범위 조절 (R 키). 관람객 화면에는 숨긴다. ---- */
+/* ---- 운영자 화면 (6-3): R·E 조절 패널, D 개발 정보, P 표시, 조절 영역. 관람객용이 아니다.
+   관람객 화면과 같은 서체·색을 쓰되 차분한 종이 카드로 만든다. 9:16 영역 밖(body)에 고정되는 패널은 vmin 기준 글자 크기
+   하나(--op-size)에 em으로 맞춰 1080×1920·2160×3840·가로 화면에서 같은 비율로 보인다. 움직임은 없다(미리보기 성능). ---- */
+:root {
+  --op-size: clamp(13px, 1.45vmin, 34px);
+  --op-dev-size: clamp(11px, 1.12vmin, 26px);
+  --op-mono: Consolas, 'Cascadia Mono', monospace;
+  --op-ok: #2f6f57;
+  --op-warn: #9a6210;
+  --op-error: #b3202c;
+  --op-muted: rgba(58, 36, 24, 0.62);
+  --op-line: rgba(58, 36, 24, 0.16);
+  --op-field: #fffdf8;
+  /* 가로 화면에서 9:16 영역 옆에 남는 폭 (패널이 미리보기를 가리지 않게 옆으로 비킨다) */
+  --op-side: calc((100vw - 100vh * var(--stage-ratio-w) / var(--stage-ratio-h)) / 2);
+}
 
-/* 9:16 영역 위의 편집 층. 영역 사각형과 핸들만 마우스를 받는다. */
+/* 개발용 정보 (D 키): 구역별 표 (ui/dev-panel.js). 글자는 확인 도구가 읽으므로 내용은 main.js 그대로다 */
+.dev-info {
+  position: fixed;
+  top: 0.8em;
+  left: 0.8em;
+  z-index: 10;
+  box-sizing: border-box;
+  width: min(58em, calc(100vw - 1.6em));
+  max-height: calc(100vh - 1.6em);
+  overflow: hidden;
+  padding: 0.3em 0.9em 0.7em;
+  border-radius: 0.7em;
+  background: url('assets/paper.webp') 0 0 / 22em, rgba(251, 247, 239, 0.96);
+  box-shadow: 0 0.5em 1.6em rgba(20, 10, 5, 0.4), inset 0 0 0 0.12em var(--gold);
+  color: var(--ink);
+  font: 400 var(--op-dev-size) / 1.38 var(--op-mono);
+  pointer-events: none;
+}
+
+.dev-section::before {
+  content: attr(data-title);
+  display: block;
+  margin: 0.55em 0 0.2em;
+  padding-bottom: 0.1em;
+  border-bottom: 1px solid var(--op-line);
+  color: var(--red-deep);
+  font: 700 1.12em / 1.3 var(--font-title);
+}
+
+.dev-row {
+  display: grid;
+  grid-template-columns: 8.4em minmax(0, 1fr);
+  column-gap: 0.3em;
+  padding: 0.04em 0.4em;
+  border-left: 0.24em solid transparent;
+}
+
+.dev-key {
+  overflow: hidden;
+  color: var(--op-muted);
+  white-space: pre;
+}
+
+.dev-val {
+  overflow-wrap: anywhere;
+}
+
+.dev-row.is-ok { border-left-color: var(--op-ok); }
+.dev-row.is-ok .dev-val { color: var(--op-ok); }
+.dev-row.is-warn { border-left-color: var(--gold); background: rgba(217, 164, 65, 0.16); }
+.dev-row.is-warn .dev-val { color: var(--op-warn); }
+.dev-row.is-error { border-left-color: var(--op-error); background: rgba(179, 32, 44, 0.1); }
+.dev-row.is-error .dev-val { color: var(--op-error); }
+
+/* 운영자 표시: 자동 촬영 일시정지(P). 관람객이 봐도 거슬리지 않게 오른쪽 위에 작은 종이 알약 (가안) */
+.pause-badge {
+  position: absolute;
+  top: 2.4cqw;
+  right: 2.4cqw;
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  margin: 0;
+  padding: 0.35em 0.85em 0.35em 0.65em;
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--red-deep);
+  box-shadow: 0 0.2em 0.6em rgba(0, 0, 0, 0.3), inset 0 0 0 0.12em var(--gold);
+  font: 400 1.7cqw / 1.2 var(--font-body);
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+.pause-badge::before {
+  content: '';
+  width: 0.62em;
+  height: 0.78em;
+  background: linear-gradient(90deg, currentColor 0 34%, transparent 34% 66%, currentColor 66%);
+}
+
+/* 인식 범위 조절(R) 중 9:16 영역 위의 편집 층. 영역 사각형과 핸들만 마우스를 받는다 */
 .tuning-layer {
   position: absolute;
   inset: 0;
@@ -476,141 +556,381 @@ body {
   pointer-events: none;
 }
 
+/* 흑백 점 미리보기 위에서도 보이게 금빛 선에 어두운 테두리 */
 .tuning-region {
   position: absolute;
   box-sizing: border-box;
-  border: 3px solid rgba(255, 220, 0, 0.95);
-  background: rgba(255, 220, 0, 0.08);
+  border: 0.45cqw solid var(--gold-light);
+  border-radius: 0.6cqw;
+  background: rgba(246, 213, 138, 0.1);
+  box-shadow: 0 0 0 0.3cqw rgba(30, 18, 10, 0.8), inset 0 0 0 0.3cqw rgba(30, 18, 10, 0.8);
   cursor: move;
   pointer-events: auto;
   touch-action: none;
 }
 
 .tuning-region.is-dragging {
-  background: rgba(255, 220, 0, 0.16);
+  background: rgba(246, 213, 138, 0.22);
 }
 
-/* 핸들은 사각형 안쪽에 두어 9:16 가장자리에 붙어도 잡을 수 있게 한다. */
+.tuning-region::after {
+  content: '인식 영역';
+  position: absolute;
+  top: 4.4cqw;
+  left: 50%;
+  translate: -50% 0;
+  padding: 0.25em 0.8em;
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--red-deep);
+  box-shadow: inset 0 0 0 0.12em var(--gold);
+  font: 400 2.2cqw / 1.2 var(--font-body);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* 핸들은 사각형 안쪽에 두어 9:16 가장자리에 붙어도 잡을 수 있게 한다 */
 .tuning-handle {
   position: absolute;
-  width: 28px;
-  height: 28px;
   box-sizing: border-box;
-  border: 2px solid #000;
-  background: rgb(255, 220, 0);
+  width: 3.4cqw;
+  height: 3.4cqw;
+  border: 0.45cqw solid var(--red-deep);
+  border-radius: 50%;
+  background: var(--cream);
+  box-shadow: 0 0 0 0.25cqw rgba(30, 18, 10, 0.6);
 }
 
 .tuning-handle[data-handle="nw"] { left: 0; top: 0; cursor: nwse-resize; }
 .tuning-handle[data-handle="se"] { right: 0; bottom: 0; cursor: nwse-resize; }
 .tuning-handle[data-handle="ne"] { right: 0; top: 0; cursor: nesw-resize; }
 .tuning-handle[data-handle="sw"] { left: 0; bottom: 0; cursor: nesw-resize; }
-.tuning-handle[data-handle="n"] { left: calc(50% - 14px); top: 0; cursor: ns-resize; }
-.tuning-handle[data-handle="s"] { left: calc(50% - 14px); bottom: 0; cursor: ns-resize; }
-.tuning-handle[data-handle="e"] { right: 0; top: calc(50% - 14px); cursor: ew-resize; }
-.tuning-handle[data-handle="w"] { left: 0; top: calc(50% - 14px); cursor: ew-resize; }
+.tuning-handle[data-handle="n"] { left: calc(50% - 1.7cqw); top: 0; cursor: ns-resize; }
+.tuning-handle[data-handle="s"] { left: calc(50% - 1.7cqw); bottom: 0; cursor: ns-resize; }
+.tuning-handle[data-handle="e"] { right: 0; top: calc(50% - 1.7cqw); cursor: ew-resize; }
+.tuning-handle[data-handle="w"] { left: 0; top: calc(50% - 1.7cqw); cursor: ew-resize; }
 
-.tuning-panel {
+/* 조절 패널(R·E): 크림 종이 카드, 딥 레드 제목. 아래(기본)·위로 옮길 수 있다(위·아래 버튼, data-dock).
+   얼굴을 덜 가리게 세로 화면에서는 높이를 화면의 절반 남짓으로 제한하고 안쪽만 넘긴다 */
+.op-panel {
   position: fixed;
   left: 50%;
-  bottom: 12px;
+  bottom: 1em;
   z-index: 20;
   transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
   box-sizing: border-box;
-  width: min(760px, 96vw);
-  max-height: 60vh;
-  overflow: auto;
-  padding: 12px 16px;
-  border-radius: 8px;
-  color: #fff;
-  background: rgba(20, 20, 20, 0.88);
-  font: 15px / 1.5 system-ui, sans-serif;
+  width: min(44em, calc(100vw - 2em));
+  max-height: min(50vh, calc(100vh - 2em));
+  overflow: hidden;
+  border-radius: 0.9em;
+  background: url('assets/paper.webp') 0 0 / 22em, var(--paper);
+  box-shadow: 0 0.6em 2em rgba(20, 10, 5, 0.45), inset 0 0 0 0.12em var(--gold);
+  color: var(--ink);
+  font: 400 var(--op-size) / 1.45 var(--font-body);
 }
 
-.tuning-panel[data-dock="top"] {
-  top: 12px;
+.op-panel[data-dock="top"] {
+  top: 1em;
   bottom: auto;
 }
 
-.tuning-panel p {
-  margin: 4px 0;
+/* 가로 화면: 9:16 영역 옆 빈 곳에 세운다 (기본 오른쪽, 위·아래 버튼을 누르면 왼쪽) */
+@media (min-aspect-ratio: 1 / 1) {
+  .op-panel {
+    top: 1em;
+    right: 1em;
+    bottom: auto;
+    left: auto;
+    transform: none;
+    width: clamp(24em, calc(var(--op-side) - 2em), 40em);
+    max-height: calc(100vh - 2em);
+  }
+
+  .op-panel[data-dock="top"] {
+    right: auto;
+    left: 1em;
+  }
+
+  .dev-info {
+    width: clamp(26em, calc(var(--op-side) - 1.6em), 58em);
+  }
 }
 
-.tuning-header {
+.op-panel p {
+  margin: 0;
+}
+
+.op-header {
   display: flex;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: 1em;
+  padding: 0.85em 1.1em 0.6em;
+  border-bottom: 1px solid var(--op-line);
 }
 
-.tuning-header span,
-.tuning-note,
-.tuning-row small {
-  color: #bbb;
-  font-size: 13px;
+.op-title {
+  margin: 0;
+  color: var(--red-deep);
+  font: 700 1.35em / 1.2 var(--font-title);
 }
 
-.tuning-live {
-  font-weight: 600;
-  color: #f88;
+.op-keys {
+  margin-top: 0.2em;
+  color: var(--op-muted);
+  font-size: 0.8em;
 }
 
-.tuning-live.is-present {
-  color: #6f6;
-}
-
-.tuning-row {
-  display: grid;
-  grid-template-columns: 16em 1fr 5.5em;
-  align-items: center;
-  gap: 12px;
-  margin: 6px 0;
-}
-
-.tuning-row output {
-  font-family: Consolas, monospace;
-  text-align: right;
-}
-
-.tuning-advanced,
-.tuning-json {
-  margin: 6px 0;
-}
-
-.tuning-buttons {
+.op-header-buttons {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 10px 0 4px;
+  flex: none;
+  gap: 0.4em;
 }
 
-.tuning-buttons button,
-.tuning-json button {
-  padding: 6px 12px;
-  font: inherit;
+/* 실시간 상태 한 줄 (인식 상태·미리보기 해상도·초당 그림 등) */
+.op-live {
+  margin: 0.6em 1.1em 0;
+  padding: 0.4em 0.8em;
+  border-radius: 0.5em;
+  background: rgba(47, 95, 82, 0.1);
+  color: var(--pine-deep);
+  font-size: 0.86em;
+  font-variant-numeric: tabular-nums;
+}
+
+.op-live.is-present {
+  background: rgba(47, 111, 87, 0.2);
+  color: var(--op-ok);
+}
+
+.op-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 1.1em 0.6em;
+}
+
+/* 묶음: 제목은 딥 레드 고운바탕, 묶음 사이에 가는 선 */
+.op-group {
+  margin: 0.6em 0 0;
+  padding: 0;
+  border: 0;
+  border-top: 1px solid var(--op-line);
+}
+
+.op-group > legend,
+.op-group > summary {
+  float: left;
+  width: 100%;
+  padding: 0.55em 0 0.1em;
+  color: var(--red-deep);
+  font: 700 1.02em / 1.3 var(--font-title);
+}
+
+.op-group > summary {
+  float: none;
   cursor: pointer;
 }
 
-.tuning-state.is-dirty {
-  color: #fc6;
+.op-group > legend + *,
+.op-group > summary + * {
+  clear: both;
 }
 
-.tuning-json textarea {
+.op-group legend small,
+.op-group summary small {
+  margin-left: 0.5em;
+  color: var(--op-muted);
+  font: 400 0.78em / 1 var(--font-body);
+}
+
+.op-help {
+  margin: 0.2em 0 0.3em;
+  color: var(--op-muted);
+  font-size: 0.82em;
+}
+
+.op-readout {
+  margin-bottom: 0.4em;
+  font: 0.92em / 1.4 var(--op-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 한 줄: [이름·도움말] [슬라이더·선택] [값 단위] — 숫자는 오른쪽 정렬·고정폭 */
+.op-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) 6.4em;
+  align-items: center;
+  gap: 0.3em 1em;
+  padding: 0.42em 0;
+}
+
+.op-row + .op-row {
+  border-top: 1px dashed var(--op-line);
+}
+
+.op-row:has(:disabled) {
+  opacity: 0.45;
+}
+
+.op-label {
+  display: block;
+  font-size: 0.98em;
+  line-height: 1.3;
+}
+
+.op-label small {
+  display: block;
+  margin-top: 0.1em;
+  color: var(--op-muted);
+  font-size: 0.78em;
+  line-height: 1.35;
+}
+
+.op-swatch {
+  display: inline-block;
+  width: 0.8em;
+  height: 0.8em;
+  margin-right: 0.4em;
+  border-radius: 0.18em;
+  box-shadow: inset 0 0 0 0.1em rgba(30, 18, 10, 0.6);
+  vertical-align: -0.05em;
+}
+
+.op-swatch.is-min { background: #7fd1b9; } /* main.js OVERLAY.minGuide */
+.op-swatch.is-max { background: #f29aa0; } /* main.js OVERLAY.maxGuide */
+
+.op-row input[type="range"] {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--red-deep);
+}
+
+.op-row select {
+  width: 100%;
+  padding: 0.25em 0.4em;
+  border: 1px solid rgba(58, 36, 24, 0.3);
+  border-radius: 0.4em;
+  background: var(--op-field);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.92em;
+}
+
+.op-value {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 0.3em;
+  font: 600 1em / 1.2 var(--op-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.op-value output {
+  text-align: right;
+}
+
+.op-unit {
+  min-width: 2.2em;
+  color: var(--op-muted);
+  font: 400 0.78em / 1 var(--font-body);
+}
+
+.op-json textarea {
   display: block;
   box-sizing: border-box;
   width: 100%;
-  margin: 6px 0;
-  font: 13px / 1.4 Consolas, monospace;
+  margin: 0.4em 0;
+  padding: 0.4em;
+  border: 1px solid rgba(58, 36, 24, 0.3);
+  border-radius: 0.4em;
+  background: var(--op-field);
+  color: var(--ink);
+  font: 0.8em / 1.4 var(--op-mono);
 }
 
-/* 운영자 표시: 자동 촬영 일시정지(P). 관람객 시선을 끌지 않게 9:16 영역 오른쪽 위에 작게 둔다 (가안). */
-.pause-badge {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  margin: 0;
-  padding: 0.2em 0.6em;
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.55);
-  color: #ffd54a;
-  font: 600 clamp(10px, 1.6cqw, 18px) / 1.4 system-ui, sans-serif;
-  pointer-events: none;
+/* 아래: 저장 상태(data-save) · 버튼 · 알림. 넘기는 동안에도 늘 보인다 */
+.op-footer {
+  padding: 0.65em 1.1em 0.85em;
+  border-top: 1px solid var(--op-line);
+  background: rgba(251, 247, 239, 0.9);
+}
+
+.op-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
+  margin-bottom: 0.55em !important;
+  padding: 0.2em 0.75em;
+  border-radius: 999px;
+  font-size: 0.85em;
+}
+
+.op-state::before {
+  content: '';
+  width: 0.55em;
+  height: 0.55em;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+[data-save="saved"] .op-state { background: rgba(47, 111, 87, 0.12); color: var(--op-ok); }
+[data-save="dirty"] .op-state { background: rgba(217, 164, 65, 0.2); color: var(--op-warn); }
+[data-save="saving"] .op-state { background: rgba(217, 164, 65, 0.12); color: var(--op-warn); }
+[data-save="failed"] .op-state { background: rgba(179, 32, 44, 0.12); color: var(--op-error); }
+
+.op-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5em;
+}
+
+.op-panel button {
+  padding: 0.42em 1em;
+  border: 1px solid rgba(58, 36, 24, 0.28);
+  border-radius: 0.5em;
+  background: var(--op-field);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.92em;
+  cursor: pointer;
+}
+
+.op-panel button:hover {
+  border-color: var(--red-deep);
+}
+
+.op-panel button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.op-header-buttons button {
+  padding: 0.28em 0.7em;
+  font-size: 0.82em;
+}
+
+.op-panel button.is-primary {
+  border-color: var(--red-deep);
+  background: var(--red-deep);
+  color: var(--cream);
+}
+
+/* 저장할 것이 없으면 저장 버튼을 차분하게 (누를 수는 있다) */
+[data-save="saved"] button.is-primary {
+  background: var(--op-field);
+  color: var(--red-deep);
+}
+
+.op-message {
+  min-height: 1.3em;
+  margin-top: 0.5em !important;
+  color: var(--op-muted);
+  font-size: 0.85em;
+}
+
+[data-save="failed"] .op-message {
+  color: var(--op-error);
 }

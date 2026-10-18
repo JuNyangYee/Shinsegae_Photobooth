@@ -13,6 +13,7 @@ import { effectTunables, serializeEffectSettings } from './config/effect-setting
 import { EffectStatus, createEffectPreview } from './effect/effect-preview.js';
 import { createPhotoEffect } from './effect/photo-effect.js';
 import { createEffectTuning } from './ui/effect-tuning.js';
+import { renderDevPanel } from './ui/dev-panel.js';
 import { guestText } from './config/guest-text.js';
 import { createGuestScreen } from './ui/guest-screen.js';
 
@@ -223,7 +224,7 @@ function renderDevInfo() {
   const settings = video.srcObject?.getVideoTracks()[0]?.getSettings() ?? {};
   const ready = state.status === CameraStatus.READY;
   const notReadyFor = state.notReadySince !== null ? `${((performance.now() - state.notReadySince) / 1000).toFixed(0)}s` : '-';
-  const lines = [
+  const cameraLines = [
     `status     : ${state.status}${state.connecting ? ' (connecting)' : ''}`,
     `reason     : ${state.reason || '-'}${state.errorName ? ` / ${state.errorName}` : ''}`,
     `attempts   : ${state.attempts} total, ${state.failures} failed since ready, last ${formatTime(state.lastAttemptAt)}`,
@@ -238,14 +239,14 @@ function renderDevInfo() {
       + ` (${Math.round(rect.width * dpr)}x${Math.round(rect.height * dpr)} device px, dpr ${dpr})`,
     `viewport   : ${window.innerWidth}x${window.innerHeight}`,
     `mirror     : ${config.mirror}`,
-    '',
-    ...presenceDevLines(),
-    '',
-    ...effectDevLines(),
-    '',
-    ...sessionDevLines(),
   ];
-  devInfo.textContent = lines.join('\n');
+  // 구역별 표 (ui/dev-panel.js). 글자는 예전과 같다(구역 사이 빈 줄) — 확인 도구가 줄 머리말로 읽는다
+  renderDevPanel(devInfo, [
+    ['카메라', cameraLines],
+    ['인식', presenceDevLines()],
+    ['효과 · 출력', effectDevLines()],
+    ['촬영', sessionDevLines()],
+  ]);
 }
 
 function presenceDevLines() {
@@ -366,6 +367,16 @@ function sessionDevLines() {
   ];
 }
 
+// 겹쳐 그리기 색 (6-3, 관람객 화면 색 계열). 흑백 점 미리보기 위에서도 보이게 선마다 어두운 테두리를 먼저 그린다
+const OVERLAY = Object.freeze({
+  region: '#f6d58a', // 인식 영역 (금빛)
+  maxGuide: '#f29aa0', // 최대 얼굴 크기 가이드 (분홍)
+  minGuide: '#7fd1b9', // 최소 얼굴 크기 가이드 (청록)
+  accepted: '#5fd39a', // 인정된 얼굴
+  rejected: '#ff6b6b', // 제외된 얼굴
+  outline: 'rgba(30, 18, 10, 0.85)',
+});
+
 // 감지 박스와 인식 영역을 9:16 영역 위에 겹쳐 그린다. 인정된 얼굴은 초록, 제외된 얼굴은 빨강.
 // 판정 좌표가 이미 관람객 화면 기준(반전 후)이므로 그대로 그린다.
 // 조절 화면이 열려 있으면 영역은 편집 사각형이 대신 보이고, 얼굴 크기 기준 가이드를 영역 가운데에 그린다.
@@ -382,9 +393,16 @@ function drawDevOverlay() {
   const ctx = devOverlay.getContext('2d');
   ctx.clearRect(0, 0, width, height);
   const d = presence.getDebugSnapshot();
-  const line = Math.max(2, Math.round(2 * dpr));
-  ctx.lineWidth = line;
-  ctx.font = `${Math.round(14 * dpr)}px Consolas, monospace`;
+  const line = Math.max(2, Math.round(width * 0.003)); // 9:16 영역 폭에 비례 (1080 → 3px)
+  ctx.font = `${Math.round(width * 0.022)}px Consolas, monospace`;
+  const strokeBox = (x, y, w, h, color) => {
+    ctx.lineWidth = line * 2.2;
+    ctx.strokeStyle = OVERLAY.outline;
+    ctx.strokeRect(x, y, w, h);
+    ctx.lineWidth = line;
+    ctx.strokeStyle = color;
+    ctx.strokeRect(x, y, w, h);
+  };
 
   const { region } = d.settings;
   ctx.setLineDash([line * 4, line * 3]);
@@ -392,26 +410,27 @@ function drawDevOverlay() {
     // 얼굴 박스는 거의 정사각형이므로 한 변 = 기준 높이 x 9:16 영역 높이(px)인 정사각형으로 보인다.
     const cx = (region.x + region.width / 2) * width;
     const cy = (region.y + region.height / 2) * height;
-    for (const [size, color] of [[d.settings.maxFaceHeight, 'rgb(200, 90, 255)'], [d.settings.minFaceHeight, 'rgb(60, 170, 255)']]) {
+    for (const [size, color] of [[d.settings.maxFaceHeight, OVERLAY.maxGuide], [d.settings.minFaceHeight, OVERLAY.minGuide]]) {
       const side = size * height;
-      ctx.strokeStyle = color;
-      ctx.strokeRect(cx - side / 2, cy - side / 2, side, side);
+      strokeBox(cx - side / 2, cy - side / 2, side, side, color);
     }
   } else {
-    ctx.strokeStyle = 'rgba(255, 220, 0, 0.9)';
-    ctx.strokeRect(region.x * width, region.y * height, region.width * width, region.height * height);
+    strokeBox(region.x * width, region.y * height, region.width * width, region.height * height, OVERLAY.region);
   }
   ctx.setLineDash([]);
 
   for (const face of d.faces) {
-    const color = face.accepted ? 'rgb(0, 230, 90)' : 'rgb(255, 60, 60)';
+    const color = face.accepted ? OVERLAY.accepted : OVERLAY.rejected;
     const x = face.box.x * width;
     const y = face.box.y * height;
-    ctx.strokeStyle = color;
-    ctx.strokeRect(x, y, face.box.width * width, face.box.height * height);
+    strokeBox(x, y, face.box.width * width, face.box.height * height, color);
     ctx.fillStyle = color;
     ctx.fillRect(face.center.x * width - line * 2, face.center.y * height - line * 2, line * 4, line * 4);
-    ctx.fillText(face.score.toFixed(2), x, Math.max(y - line * 2, 14 * dpr));
+    const ty = Math.max(y - line * 3, width * 0.03);
+    ctx.lineWidth = line * 2;
+    ctx.strokeStyle = OVERLAY.outline;
+    ctx.strokeText(face.score.toFixed(2), x, ty);
+    ctx.fillText(face.score.toFixed(2), x, ty);
   }
 }
 

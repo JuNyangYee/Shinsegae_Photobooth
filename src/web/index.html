@@ -73,160 +73,195 @@
         <span class="tuning-handle" data-handle="w"></span>
       </div>
     </div>
-    <!-- 운영자 표시: 자동 촬영 일시정지(P) 중 (config.showPauseIndicator로 끈다) -->
+    <!-- 운영자 표시: 자동 촬영 일시정지(P) 중 (config.showPauseIndicator로 끈다). 관람객 눈에 덜 띄게 작게 -->
     <p id="pause-badge" class="pause-badge" hidden></p>
     <!-- 준비 중·직원 문의 안내 (관람객 화면). 확인 도구가 #status 글자로 안내를 읽는다. 바탕 막은 위 #status-veil -->
     <p id="status" class="status" hidden></p>
   </main>
-  <pre id="dev-info" class="dev-info" hidden></pre>
+  <!-- ---- 운영자 화면 (6-3). 관람객용이 아니다. 스타일은 style.css "운영자 화면" ---- -->
+  <!-- 개발 정보 (D 키): 구역별 표. 줄 내용은 main.js, 표 모양은 ui/dev-panel.js -->
+  <section id="dev-info" class="dev-info" aria-label="개발 정보" hidden></section>
 
   <!-- 운영자용 인식 범위 조절 (R 키로 열고 닫는다. Esc로도 닫는다.) -->
-  <section id="tuning-panel" class="tuning-panel" data-dock="bottom" hidden>
-    <header class="tuning-header">
-      <strong>인식 범위 조절</strong>
-      <span>R·Esc: 닫기 (저장하지 않은 변경은 취소)</span>
+  <section id="tuning-panel" class="tuning-panel op-panel" data-dock="bottom" data-save="saved" aria-label="인식 범위 조절" hidden>
+    <header class="op-header">
+      <div class="op-heading">
+        <h2 class="op-title">인식 범위 조절</h2>
+        <p class="op-keys">R·Esc 닫기 · 저장하지 않은 변경은 닫을 때 취소</p>
+      </div>
+      <div class="op-header-buttons">
+        <button type="button" data-action="dock" title="패널을 위·아래로 옮긴다">위·아래</button>
+        <button type="button" data-action="close">닫기</button>
+      </div>
     </header>
-    <p class="tuning-live" data-live></p>
-    <p class="tuning-note" data-region-text></p>
-    <label class="tuning-row">
-      <span>최소 얼굴 크기 <small>(화면 높이 대비, 파란 가이드)</small></span>
-      <input type="range" data-key="minFaceHeight">
-      <output data-key="minFaceHeight"></output>
-    </label>
-    <label class="tuning-row">
-      <span>최대 얼굴 크기 <small>(화면 높이 대비, 보라 가이드)</small></span>
-      <input type="range" data-key="maxFaceHeight">
-      <output data-key="maxFaceHeight"></output>
-    </label>
-    <label class="tuning-row">
-      <span>최소 신뢰도</span>
-      <input type="range" data-key="minScore">
-      <output data-key="minScore"></output>
-    </label>
-    <details class="tuning-advanced">
-      <summary>고급: 판정 시간</summary>
-      <label class="tuning-row">
-        <span>인식됨까지 유지 시간</span>
-        <input type="range" data-key="presentHoldMs">
-        <output data-key="presentHoldMs"></output>
-      </label>
-      <label class="tuning-row">
-        <span>인식 안됨까지 유예 시간</span>
-        <input type="range" data-key="absentGraceMs">
-        <output data-key="absentGraceMs"></output>
-      </label>
-    </details>
-    <div class="tuning-buttons">
-      <button type="button" data-action="save">저장</button>
-      <button type="button" data-action="revert">취소 (저장된 값으로)</button>
-      <button type="button" data-action="defaults">기본값으로</button>
-      <button type="button" data-action="dock">패널 위·아래</button>
-      <button type="button" data-action="close">닫기</button>
+    <p class="op-live tuning-live" data-live></p>
+    <div class="op-body">
+      <fieldset class="op-group">
+        <legend>영역</legend>
+        <p class="op-help">화면의 금빛 사각형을 끌어 옮기고, 모서리·변으로 크기를 바꾼다. 얼굴 중심이 이 안에 있어야 인정한다.</p>
+        <p class="op-readout" data-region-text></p>
+      </fieldset>
+      <fieldset class="op-group">
+        <legend>얼굴 크기 <small>화면 높이 대비</small></legend>
+        <label class="op-row">
+          <span class="op-label"><i class="op-swatch is-min"></i>최소 얼굴 크기<small>청록 가이드보다 작으면 멀리 있는 것으로 보고 뺀다</small></span>
+          <input type="range" data-key="minFaceHeight">
+          <span class="op-value"><output data-key="minFaceHeight"></output><span class="op-unit">비율</span></span>
+        </label>
+        <label class="op-row">
+          <span class="op-label"><i class="op-swatch is-max"></i>최대 얼굴 크기<small>분홍 가이드보다 크면 잘못 잡은 것으로 보고 뺀다</small></span>
+          <input type="range" data-key="maxFaceHeight">
+          <span class="op-value"><output data-key="maxFaceHeight"></output><span class="op-unit">비율</span></span>
+        </label>
+      </fieldset>
+      <fieldset class="op-group">
+        <legend>신뢰도</legend>
+        <label class="op-row">
+          <span class="op-label">최소 신뢰도<small>얼굴 감지 점수가 이보다 낮으면 뺀다</small></span>
+          <input type="range" data-key="minScore">
+          <span class="op-value"><output data-key="minScore"></output><span class="op-unit">점수</span></span>
+        </label>
+      </fieldset>
+      <details class="op-group op-advanced">
+        <summary>고급: 판정 시간</summary>
+        <label class="op-row">
+          <span class="op-label">인식됨까지 유지 시간<small>이만큼 계속 보여야 인식됨 (자동 촬영 시작)</small></span>
+          <input type="range" data-key="presentHoldMs">
+          <span class="op-value"><output data-key="presentHoldMs"></output></span>
+        </label>
+        <label class="op-row">
+          <span class="op-label">인식 안됨까지 유예 시간<small>이만큼 계속 안 보여야 인식 안됨 (카운트다운 취소)</small></span>
+          <input type="range" data-key="absentGraceMs">
+          <span class="op-value"><output data-key="absentGraceMs"></output></span>
+        </label>
+      </details>
+      <details class="op-group op-json">
+        <summary>현재값 JSON (복사용)</summary>
+        <textarea data-json readonly rows="10" spellcheck="false"></textarea>
+        <button type="button" data-action="copy">복사</button>
+      </details>
     </div>
-    <p class="tuning-state" data-state></p>
-    <p class="tuning-message" data-message></p>
-    <details class="tuning-json">
-      <summary>현재값 JSON (복사용)</summary>
-      <textarea data-json readonly rows="12" spellcheck="false"></textarea>
-      <button type="button" data-action="copy">복사</button>
-    </details>
+    <footer class="op-footer">
+      <p class="op-state" data-state></p>
+      <div class="op-buttons">
+        <button type="button" class="is-primary" data-action="save">저장</button>
+        <button type="button" data-action="revert">취소 (저장된 값으로)</button>
+        <button type="button" data-action="defaults">기본값으로</button>
+      </div>
+      <p class="op-message" data-message></p>
+    </footer>
   </section>
 
   <!-- 운영자용 사진 효과 조절 (E 키로 열고 닫는다. Esc로도 닫는다.) -->
-  <section id="effect-panel" class="tuning-panel" data-dock="bottom" hidden>
-    <header class="tuning-header">
-      <strong>사진 효과 조절 (유화 · 획 → 출력)</strong>
-      <span>E·Esc: 닫기 (저장하지 않은 변경은 취소)</span>
+  <section id="effect-panel" class="tuning-panel op-panel" data-dock="bottom" data-save="saved" aria-label="사진 효과 조절" hidden>
+    <header class="op-header">
+      <div class="op-heading">
+        <h2 class="op-title">사진 효과 조절</h2>
+        <p class="op-keys">E·Esc 닫기 · 저장하지 않은 변경은 닫을 때 취소</p>
+      </div>
+      <div class="op-header-buttons">
+        <button type="button" data-action="dock" title="패널을 위·아래로 옮긴다">위·아래</button>
+        <button type="button" data-action="close">닫기</button>
+      </div>
     </header>
-    <p class="tuning-note" data-live></p>
-    <label class="tuning-row">
-      <span>강도 <small>(요철·광택·결)</small></span>
-      <input type="range" data-key="strength">
-      <output data-key="strength"></output>
-    </label>
-    <label class="tuning-row">
-      <span>붓 크기 <small>(획 굵기·간격·길이 배율)</small></span>
-      <input type="range" data-key="size">
-      <output data-key="size"></output>
-    </label>
-    <label class="tuning-row">
-      <span>획 다시 그리기 <small>(그림마다 새로 칠하는 비율)</small></span>
-      <input type="range" data-key="boil">
-      <output data-key="boil"></output>
-    </label>
-    <label class="tuning-row">
-      <span>초당 그림 <small>(스톱모션 느낌)</small></span>
-      <input type="range" data-key="fps">
-      <output data-key="fps"></output>
-    </label>
-    <label class="tuning-row">
-      <span>색 보정</span>
-      <input type="range" data-key="grade">
-      <output data-key="grade"></output>
-    </label>
-    <label class="tuning-row">
-      <span>세부 보존 문턱 <small>(낮을수록 세부를 더 살림)</small></span>
-      <input type="range" data-key="refineThreshold">
-      <output data-key="refineThreshold"></output>
-    </label>
-    <label class="tuning-row">
-      <span>미리보기 처리 해상도 <small>(결과 대비. 느리면 초당 그림부터 낮춘다)</small></span>
-      <input type="range" data-key="previewScale">
-      <output data-key="previewScale"></output>
-    </label>
-    <!-- 출력 단계 (6-1): 유화 뒤 감열지 흑백. 기능만 넣었다 (디자인은 6-3) -->
-    <p class="tuning-note">출력 (화면에 보이는 것이 곧 출력물)</p>
-    <label class="tuning-row">
-      <span>출력 모드</span>
-      <select data-key="outputMode">
-        <option value="thermal">감열지 (1비트 점)</option>
-        <option value="gray">회색조</option>
-        <option value="off">끔 (컬러 유화)</option>
-      </select>
-      <output data-key="outputMode"></output>
-    </label>
-    <label class="tuning-row">
-      <span>점 방식 <small>(감열지)</small></span>
-      <select data-key="dither">
-        <option value="blue-noise">블루 노이즈 (GPU)</option>
-        <option value="bayer">Bayer 순서 디더 (GPU)</option>
-        <option value="atkinson">Atkinson 오차 확산 (CPU)</option>
-        <option value="floyd-steinberg">Floyd–Steinberg 오차 확산 (CPU)</option>
-      </select>
-      <output data-key="dither"></output>
-    </label>
-    <label class="tuning-row">
-      <span>용지 폭 <small>(감열지, 203dpi)</small></span>
-      <select data-key="paperDots">
-        <option value="576">80mm · 576점</option>
-        <option value="384">58mm · 384점</option>
-      </select>
-      <output data-key="paperDots"></output>
-    </label>
-    <label class="tuning-row">
-      <span>밝기 <small>(회색조·감열지)</small></span>
-      <input type="range" data-key="brightness">
-      <output data-key="brightness"></output>
-    </label>
-    <label class="tuning-row">
-      <span>대비 <small>(회색조·감열지)</small></span>
-      <input type="range" data-key="contrast">
-      <output data-key="contrast"></output>
-    </label>
-    <label class="tuning-row">
-      <span>감마 <small>(1보다 크면 중간 밝기를 밝게)</small></span>
-      <input type="range" data-key="gamma">
-      <output data-key="gamma"></output>
-    </label>
-    <div class="tuning-buttons">
-      <button type="button" data-action="save">저장</button>
-      <button type="button" data-action="revert">취소 (저장된 값으로)</button>
-      <button type="button" data-action="defaults">기본값으로</button>
-      <button type="button" data-action="dock">패널 위·아래</button>
-      <button type="button" data-action="close">닫기</button>
+    <p class="op-live" data-live></p>
+    <div class="op-body">
+      <fieldset class="op-group">
+        <legend>효과 <small>유화 · 획</small></legend>
+        <label class="op-row">
+          <span class="op-label">강도<small>요철·광택·캔버스 결의 세기</small></span>
+          <input type="range" data-key="strength">
+          <span class="op-value"><output data-key="strength"></output><span class="op-unit">세기</span></span>
+        </label>
+        <label class="op-row">
+          <span class="op-label">붓 크기<small>획 굵기·간격·길이에 곱한다</small></span>
+          <input type="range" data-key="size">
+          <span class="op-value"><output data-key="size"></output><span class="op-unit">배</span></span>
+        </label>
+        <label class="op-row">
+          <span class="op-label">획 다시 그리기<small>그림마다 새로 칠하는 획 (0 고정 ~ 1 전부)</small></span>
+          <input type="range" data-key="boil">
+          <span class="op-value"><output data-key="boil"></output><span class="op-unit">비율</span></span>
+        </label>
+        <label class="op-row">
+          <span class="op-label">색 보정<small>따뜻한 색 보정을 섞는 정도</small></span>
+          <input type="range" data-key="grade">
+          <span class="op-value"><output data-key="grade"></output><span class="op-unit">비율</span></span>
+        </label>
+        <label class="op-row">
+          <span class="op-label">세부 보존 문턱<small>낮을수록 얼굴 등 세부를 더 살린다</small></span>
+          <input type="range" data-key="refineThreshold">
+          <span class="op-value"><output data-key="refineThreshold"></output><span class="op-unit">거리</span></span>
+        </label>
+      </fieldset>
+      <fieldset class="op-group">
+        <legend>출력 단계 <small>화면에 보이는 것이 곧 출력물</small></legend>
+        <label class="op-row">
+          <span class="op-label">출력 모드<small>감열지 = 흰 종이에 검은 점(1비트)</small></span>
+          <select data-key="outputMode">
+            <option value="thermal">감열지 (1비트 점)</option>
+            <option value="gray">회색조</option>
+            <option value="off">끔 (컬러 유화)</option>
+          </select>
+          <span class="op-value"><output data-key="outputMode"></output></span>
+        </label>
+        <label class="op-row">
+          <span class="op-label">점 방식<small>블루 노이즈 권장. 오차 확산(CPU)은 지글거리고 무겁다</small></span>
+          <select data-key="dither">
+            <option value="blue-noise">블루 노이즈 (GPU)</option>
+            <option value="bayer">Bayer 순서 디더 (GPU)</option>
+            <option value="atkinson">Atkinson 오차 확산 (CPU)</option>
+            <option value="floyd-steinberg">Floyd–Steinberg 오차 확산 (CPU)</option>
+          </select>
+          <span class="op-value"><output data-key="dither"></output></span>
+        </label>
+        <label class="op-row">
+          <span class="op-label">용지 폭<small>203dpi 감열지의 가로 점 수</small></span>
+          <select data-key="paperDots">
+            <option value="576">80mm · 576점</option>
+            <option value="384">58mm · 384점</option>
+          </select>
+          <span class="op-value"><output data-key="paperDots"></output></span>
+        </label>
+        <label class="op-row">
+          <span class="op-label">밝기<small>회색조에 더한다 (회색조·감열지)</small></span>
+          <input type="range" data-key="brightness">
+          <span class="op-value"><output data-key="brightness"></output><span class="op-unit">±</span></span>
+        </label>
+        <label class="op-row">
+          <span class="op-label">대비<small>0.5를 중심으로 늘린다 (회색조·감열지)</small></span>
+          <input type="range" data-key="contrast">
+          <span class="op-value"><output data-key="contrast"></output><span class="op-unit">배</span></span>
+        </label>
+        <label class="op-row">
+          <span class="op-label">감마<small>1보다 크면 중간 밝기가 밝아진다</small></span>
+          <input type="range" data-key="gamma">
+          <span class="op-value"><output data-key="gamma"></output><span class="op-unit">γ</span></span>
+        </label>
+      </fieldset>
+      <fieldset class="op-group">
+        <legend>미리보기 <small>느리면 초당 그림부터 낮춘다</small></legend>
+        <label class="op-row">
+          <span class="op-label">초당 그림<small>1초에 새로 그리는 그림 (스톱모션 느낌)</small></span>
+          <input type="range" data-key="fps">
+          <span class="op-value"><output data-key="fps"></output><span class="op-unit">장/초</span></span>
+        </label>
+        <label class="op-row">
+          <span class="op-label">처리 해상도<small>결과 크기 대비. 낮추면 미리보기가 결과보다 부드럽다</small></span>
+          <input type="range" data-key="previewScale">
+          <span class="op-value"><output data-key="previewScale"></output><span class="op-unit">배</span></span>
+        </label>
+      </fieldset>
     </div>
-    <p class="tuning-state" data-state></p>
-    <p class="tuning-message" data-message></p>
+    <footer class="op-footer">
+      <p class="op-state" data-state></p>
+      <div class="op-buttons">
+        <button type="button" class="is-primary" data-action="save">저장</button>
+        <button type="button" data-action="revert">취소 (저장된 값으로)</button>
+        <button type="button" data-action="defaults">기본값으로</button>
+      </div>
+      <p class="op-message" data-message></p>
+    </footer>
   </section>
 </body>
 </html>
