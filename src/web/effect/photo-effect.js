@@ -11,7 +11,8 @@
 // - off: 컬러 유화 (결과 크기, JPEG는 capture.js 기본 형식)
 // - gray: 회색조·레벨 (결과 크기, JPEG)
 // - thermal: (a) 인쇄용 1비트 데이터가 정본이다: 인쇄 해상도(576x1024 등)의 래스터 비트(1 = 검은 점)와 1비트 PNG.
-//   (b) 화면 표시용은 (a)의 마스크를 종이색·잉크색으로 칠한 같은 크기의 PNG다(화면은 CSS로 최근접 확대). 미리보기 캔버스와 같은 화소다.
+//   (b) 화면 표시용은 (a)의 마스크를 결과 크기(1080x1920)로 확대해(정수배 최근접 + 경계 1화소만 섞음) 종이색·잉크색으로 칠한
+//   PNG다. 미리보기 캔버스(FS_THERMAL_SHOW)와 같은 정수식이라 화소가 같다. 확대는 화면 표시에만 쓰고 (a)는 그대로다.
 // 효과를 그리지 못하면 원본 사진에 같은 출력 단계를 CPU로 적용한다(감열지면 인쇄 데이터도 만든다).
 // 출력 단계 자체가 실패하면 원본 컬러 사진(결과 크기, JPEG)으로 대신한다.
 
@@ -19,9 +20,12 @@ import { config } from '../config/config.js';
 import { errorLog } from '../core/log-limit.js';
 import { resultSizeFor } from '../core/oil-paint.js';
 import {
-  dither, ditherThreshold, encodeOneBitPng, grayLevelsInPlace, isGpuDither, maskToRgba, packPrintBits, printSizeFor,
-  readPngHeader, reduceToPrintGray, thresholdMap,
+  dither, ditherThreshold, encodeOneBitPng, grayLevelsInPlace, isGpuDither, packPrintBits, printSizeFor,
+  readPngHeader, reduceToPrintGray, thresholdMap, upscaleSharp,
 } from '../core/thermal.js';
+
+// 화면용 확대를 한 번에 몇 줄씩 할지 (1080 폭이면 한 묶음 약 2ms)
+const UPSCALE_BAND = 240;
 
 /** zlib 형식 압축 (PNG IDAT). 브라우저 내장 CompressionStream, 외부 전송 없음 */
 export async function deflateZlib(raw) {
@@ -42,6 +46,7 @@ export function createPhotoEffect({
   display = config.thermalDisplay,
   deflate = deflateZlib,
   createBlob = (bytes) => new Blob([bytes], { type: 'image/png' }),
+  yieldTask = () => new Promise((resolve) => { setTimeout(resolve, 0); }),
   log = errorLog,
   now = () => performance.now(),
 }) {
@@ -86,16 +91,25 @@ export function createPhotoEffect({
   }
 
   /**
-   * 감열지 결과: 마스크 → (a) 인쇄 데이터(래스터 비트·1비트 PNG), (b) 화면용 캔버스(종이색·잉크색).
-   * PNG 압축만 비동기다. 그 사이 회차가 취소되면 화면용 캔버스를 만들지 않고 예외.
+   * 감열지 결과: 마스크 → (a) 인쇄 데이터(래스터 비트·1비트 PNG), (b) 화면용 캔버스(결과 크기 Dw×Dh로 확대, 종이색·잉크색).
+   * PNG 압축은 비동기이고, 화면 크기 확대는 줄 묶음(UPSCALE_BAND)마다 작업을 양보한다(촬영 순간 화면이 끊기지 않게).
+   * 그 사이 회차가 취소되면 화면용 캔버스를 만들지 않고 예외.
    */
-  async function thermalResult(mask, Pw, Ph, signal) {
+  async function thermalResult(mask, Pw, Ph, Dw, Dh, signal) {
     const raster = packPrintBits(mask, Pw, Ph);
     const png = await encodeOneBitPng(mask, Pw, Ph, deflate);
     signal?.throwIfAborted();
     const header = readPngHeader(png);
-    const canvas = newCanvas(Pw, Ph, (context) => {
-      context.putImageData(createImageData(maskToRgba(mask, display.paper, display.ink), Pw, Ph), 0, 0);
+    const rgba = new Uint8ClampedArray(Dw * Dh * 4);
+    for (let r = 0; r < Dh; r += UPSCALE_BAND) {
+      await yieldTask();
+      signal?.throwIfAborted();
+      upscaleSharp(mask, Pw, Ph, Dw, Dh, display.paper, display.ink, { rows: [r, Math.min(Dh, r + UPSCALE_BAND)], out: rgba });
+    }
+    await yieldTask();
+    signal?.throwIfAborted();
+    const canvas = newCanvas(Dw, Dh, (context) => {
+      context.putImageData(createImageData(rgba, Dw, Dh), 0, 0);
     });
     const print = Object.freeze({
       width: Pw, height: Ph, bytesPerRow: raster.bytesPerRow, bits: raster.bits, png: createBlob(png),
@@ -122,7 +136,7 @@ export function createPhotoEffect({
         const size = resultSizeFor(canvas.width, canvas.height);
         const { width: Pw, height: Ph } = printSizeFor(settings.paperDots, size.width, size.height);
         const gray = reduceToPrintGray(readRgba(canvas), canvas.width, canvas.height, Pw, Ph, settings);
-        const out = await thermalResult(dither(gray, Pw, Ph, settings.dither), Pw, Ph, signal);
+        const out = await thermalResult(dither(gray, Pw, Ph, settings.dither), Pw, Ph, size.width, size.height, signal);
         last = { status: 'raw', mode, reason, width: Pw, height: Ph, dither: settings.dither, print: describePrint(out.print), ms: now() - t0 };
         return out;
       }
@@ -196,10 +210,11 @@ export function createPhotoEffect({
       if (diff > 0) log.warn('effect-capture', `thermal ${method}: GPU and CPU dither differ in ${diff} dots (using GPU)`);
     }
     try {
-      const out = await thermalResult(mask, Pw, Ph, signal);
+      const out = await thermalResult(mask, Pw, Ph, still.width, still.height, signal);
       applied += 1;
       last = {
-        status: 'applied', mode: 'thermal', width: Pw, height: Ph, ...base, dither: method, check, print: describePrint(out.print),
+        status: 'applied', mode: 'thermal', width: Pw, height: Ph, display: `${still.width}x${still.height}`, ...base, dither: method, check,
+        print: describePrint(out.print),
         ms: now() - t0,
       };
       log.clear('effect-capture');

@@ -7,8 +7,8 @@
 // 반전은 효과 입력을 읽을 때 한 번만 하고 캔버스에는 CSS 반전을 걸지 않는다(이중 반전 방지).
 // 효과는 반전된 그림에 칠한다 (획 방향이 좌우 대칭이 아니므로, 결과 사진과 같은 그림이 되게).
 //
-// 출력 단계 (6-1): 감열지 모드면 캔버스가 인쇄 해상도(576x1024 등)의 점 그림이고, CSS image-rendering: pixelated로
-// 9:16 영역에 최근접 확대해 점이 또렷하게 보인다. 결과 사진(renderStill)도 같은 점 그림이다.
+// 출력 단계 (6-1): 감열지 모드면 인쇄 해상도(576x1024 등)의 점 그림을 결과 크기(1080x1920) 캔버스에 확대해 그린다
+// (정수배 최근접 + 경계 1화소만 섞음, 렌더러 FS_THERMAL_SHOW). 결과 사진의 화면용 이미지도 같은 크기·같은 화소다.
 
 import { config } from '../config/config.js';
 import { normalizeEffectSettings } from '../config/effect-settings.js';
@@ -140,14 +140,13 @@ export function createEffectPreview({
     try {
       const { cpuMs } = renderer.render(video, {
         settings, width: view.width, height: view.height, seed, sourceOffset: view.sourceOffset, sourceScale: view.sourceScale,
+        displayWidth: view.resultWidth, displayHeight: view.resultHeight, // 감열지 화면은 결과 크기 (결과 사진 화면용과 같게)
       });
       lastTick = tick;
       lastSeed = seed;
       lastDrawing = { tick, seed, settings, view, videoWidth: video.videoWidth, videoHeight: video.videoHeight, at: t };
       dirty = false;
       renderFailures = 0;
-      // 감열지: 인쇄 해상도 캔버스를 최근접으로 확대해 점을 또렷하게 (컬러·회색조는 브라우저 기본 확대)
-      if (canvas.style) canvas.style.imageRendering = settings.outputMode === 'thermal' ? 'pixelated' : '';
       cpuAvg = cpuAvg === null ? cpuMs : cpuAvg * 0.9 + cpuMs * 0.1;
       drawTimes.push(t);
       while (drawTimes.length && t - drawTimes[0] >= 1000) drawTimes.shift();

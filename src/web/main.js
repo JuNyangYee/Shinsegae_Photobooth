@@ -223,8 +223,6 @@ function renderSession(s) {
   if (url !== shownPhotoUrl) {
     if (url) resultImage.src = url;
     else resultImage.removeAttribute('src');
-    // 감열지 결과는 인쇄 해상도(576x1024 등) 점 그림이라 미리보기처럼 최근접으로 확대한다 (6-1)
-    resultImage.style.imageRendering = url && s.photo.print ? 'pixelated' : '';
     shownPhotoUrl = url;
   }
   resultImage.hidden = url === null;

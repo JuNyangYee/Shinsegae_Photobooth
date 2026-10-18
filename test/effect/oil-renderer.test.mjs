@@ -193,13 +193,13 @@ describe('oil-renderer: 감열지 출력 단계 (6-1, 가짜 WebGL2)', () => {
     assert.deepEqual([fake.canvas.width, fake.canvas.height], [0, 0], '결과는 화면 캔버스를 건드리지 않는다');
   });
 
-  it('미리보기: 문턱값 디더는 화소를 읽지 않고 캔버스를 인쇄 해상도로, 오차 확산은 회색을 읽어 CPU 디더 뒤 마스크를 올린다', () => {
+  it('미리보기: 문턱값 디더는 화소를 읽지 않고, 오차 확산은 회색을 읽어 CPU 디더 뒤 마스크를 올린다. 캔버스는 화면 크기', () => {
     const fake = createFakeWebGL2();
     const renderer = createOilRenderer({ canvas: fake.canvas });
     const reads = fillReads(fake, () => 200);
-    renderer.render({}, { ...small, settings: thermal({ dither: 'blue-noise' }) });
+    renderer.render({}, { ...small, settings: thermal({ dither: 'blue-noise' }), displayWidth: 270, displayHeight: 480 });
     assert.equal(reads.length, 0);
-    assert.deepEqual([fake.canvas.width, fake.canvas.height], [P.w, P.h]);
+    assert.deepEqual([fake.canvas.width, fake.canvas.height], [270, 480]);
     assert.equal(renderer.getStats().readMs, null);
     renderer.render({}, { ...small, settings: thermal({ dither: 'atkinson' }) });
     assert.deepEqual(reads, [[P.w / 4, P.h]]);
@@ -299,11 +299,11 @@ describe('촬영 결과 감열지 경로 (실제 미리보기·렌더러·결과
 
   it('효과 사진: 화면용 PNG(인쇄 해상도) + 1비트 인쇄 데이터, GPU 디더와 CPU 같은 식이 비트 단위로 같다', async () => {
     const t = setup();
-    // 미리보기 54x96 x 0.25 = 그리는 해상도 1080x1920 x 0.25 = 270x480 → 용지 128점: 128 x round(128 x 480 / 270) = 128x228
-    assert.deepEqual([t.canvas.width, t.canvas.height, t.canvas.style.imageRendering], [128, 228, 'pixelated']);
+    // 그리는 해상도 1080x1920 x 0.25 = 270x480 → 용지 128점: 128 x round(128 x 480 / 270) = 128x228. 화면은 결과 크기 1080x1920
+    assert.deepEqual([t.canvas.width, t.canvas.height], [1080, 1920]);
     const out = await t.photo.apply(t.raw);
     assert.equal(out.type, 'image/png');
-    assert.deepEqual([out.canvas.width, out.canvas.height], [128, 228]);
+    assert.deepEqual([out.canvas.width, out.canvas.height], [1080, 1920], '화면용 이미지(b)는 결과 크기로 확대');
     assert.deepEqual([out.print.width, out.print.height, out.print.bytesPerRow, out.print.bits.length], [128, 228, 16, 16 * 228]);
     assert.deepEqual([out.print.pngBitDepth, out.print.pngColorType], [1, 0]);
     const { last } = t.photo.getStats();

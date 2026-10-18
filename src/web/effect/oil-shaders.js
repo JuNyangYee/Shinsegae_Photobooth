@@ -245,11 +245,11 @@ void main(){
 
 // 감열지 2 (문턱값 디더, GPU): 8비트 회색 g와 8비트 문턱 t(core/thermal.js thresholdMap)를 정수로 비교해 g >= t면 흰 점.
 // 문턱 지도는 위 줄부터 올리므로 점 좌표도 위 원점(y = Ph-1-행)으로 읽는다. CPU ditherThreshold와 비트 단위로 같다.
-// uPack 1: 결과 사진용으로 4점씩 묶어 0/1 (출력 (Pw/4)×Ph), 0: 화면 캔버스(Pw×Ph)에 종이색·잉크색
+// 출력은 회색과 같은 묶음((Pw/4)×Ph, 4점씩, 0/1, GL 방향). 결과 사진은 이것을 읽고, 화면은 FS_THERMAL_SHOW로 확대한다
 export const FS_THERMAL_DITHER = `#version 300 es
 precision highp float; precision highp int;
 out vec4 o;
-uniform sampler2D uGray, uThr; uniform float uPack; uniform vec3 uPaper, uInk;
+uniform sampler2D uGray, uThr;
 float white(int x, int yGL){
   int h = textureSize(uGray, 0).y;
   ivec2 n = textureSize(uThr, 0);
@@ -260,17 +260,36 @@ float white(int x, int yGL){
 }
 void main(){
   ivec2 f = ivec2(gl_FragCoord.xy);
-  if (uPack > .5) o = vec4(white(f.x*4, f.y), white(f.x*4 + 1, f.y), white(f.x*4 + 2, f.y), white(f.x*4 + 3, f.y));
-  else o = vec4(mix(uInk, uPaper, white(f.x, f.y)), 1.);
+  o = vec4(white(f.x*4, f.y), white(f.x*4 + 1, f.y), white(f.x*4 + 2, f.y), white(f.x*4 + 3, f.y));
 }`;
 
-// 감열지 3 (오차 확산, CPU에서 디더한 마스크): R8 Pw×Ph(위 줄부터, 0 검정 / 255 흰색) → 화면 캔버스에 종이색·잉크색
+// 감열지 3 (화면 표시): 마스크 묶음((Pw/4)×Ph, 4점씩, GL 방향. GPU 디더 결과 또는 CPU 디더 마스크를 올린 것)
+// → 화면 캔버스(uRes = 결과 크기, 예: 1080×1920)에 종이색·잉크색. 정수배 최근접 + 경계 1화소만 넓이 비율로 섞는다
+// (core/thermal.js sharpAxis·upscaleSharp와 같은 정수식이라 결과 사진의 화면용 이미지와 화소가 같다). 화면 표시 전용
 export const FS_THERMAL_SHOW = `#version 300 es
 precision highp float; precision highp int;
 out vec4 o;
-uniform sampler2D uMask; uniform vec3 uPaper, uInk;
+uniform sampler2D uMask; uniform vec3 uPaper, uInk; uniform vec2 uRes; // 색은 0~255
+int dotAt(int x, int y){
+  vec4 v = texelFetch(uMask, ivec2(x >> 2, y), 0);
+  return dot(v, vec4(equal(ivec4(x & 3), ivec4(0, 1, 2, 3)))) > .5 ? 1 : 0;
+}
+ivec2 axis(int o, int D, int P){ // (점 경계 b, 오른쪽 점의 비율 0..256)
+  int T = (2*o + 1)*P;
+  int b = (T + D)/(2*D);
+  int num = max(0, T - 2*D*b + P);
+  return ivec2(b, min(256, (256*num + P)/(2*P)));
+}
 void main(){
   ivec2 f = ivec2(gl_FragCoord.xy);
-  float w = texelFetch(uMask, ivec2(f.x, textureSize(uMask, 0).y - 1 - f.y), 0).r;
-  o = vec4(mix(uInk, uPaper, step(.5, w)), 1.);
+  ivec2 n = textureSize(uMask, 0);
+  int pw = n.x*4, ph = n.y;
+  ivec2 ax = axis(f.x, int(uRes.x), pw), ay = axis(f.y, int(uRes.y), ph);
+  int x0 = clamp(ax.x - 1, 0, pw - 1), x1 = clamp(ax.x, 0, pw - 1);
+  int y0 = clamp(ay.x - 1, 0, ph - 1), y1 = clamp(ay.x, 0, ph - 1);
+  int lo = dotAt(x0, y0)*(256 - ax.y) + dotAt(x1, y0)*ax.y;
+  int hi = dotAt(x0, y1)*(256 - ax.y) + dotAt(x1, y1)*ax.y;
+  int v = lo*(256 - ay.y) + hi*ay.y;
+  ivec3 c = (ivec3(uInk)*(65536 - v) + ivec3(uPaper)*v + 32768) >> 16;
+  o = vec4(vec3(c)/255., 1.);
 }`;

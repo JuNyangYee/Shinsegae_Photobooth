@@ -131,7 +131,7 @@ describe('createPhotoEffect: 출력 모드 (6-1)', () => {
     const t = setup({ still: thermalStill(), settings: thermalSettings });
     const out = await t.effect.apply(fakeCanvas(1080, 1920));
     assert.equal(out.type, 'image/png');
-    assert.deepEqual([out.canvas.width, out.canvas.height], [Pw, Ph]);
+    assert.deepEqual([out.canvas.width, out.canvas.height], [1080, 1920], '화면용은 결과 크기로 확대');
     const { print } = out;
     assert.deepEqual([print.width, print.height, print.bytesPerRow, print.pngBitDepth, print.pngColorType], [Pw, Ph, 2, 1, 0]);
     // 첫 줄: 0·255 줄무늬 → 짝수 점 검정 → 래스터 1010 1010 = 0xaa
@@ -144,10 +144,10 @@ describe('createPhotoEffect: 출력 모드 (6-1)', () => {
       assert.equal(rows[y * 3], 0);
       for (let b = 0; b < 2; b += 1) assert.equal(rows[y * 3 + 1 + b], ~print.bits[y * 2 + b] & 0xff);
     }
-    // 화면용: 마스크 그대로 종이색·잉크색
+    // 화면용: 마스크를 확대해 종이색·잉크색 (upscaleSharp). 왼쪽 위 화소는 첫 점(검정) 안이라 잉크색
     const put = out.canvas.ops.find((op) => op[0] === 'put')[1];
-    assert.deepEqual([...put.pixels.slice(0, 8)], [10, 20, 30, 255, 250, 240, 230, 255]);
-    assert.equal(put.pixels.length, Pw * Ph * 4);
+    assert.deepEqual([...put.pixels.slice(0, 4)], [10, 20, 30, 255]);
+    assert.deepEqual([put.w, put.h, put.pixels.length], [1080, 1920, 1080 * 1920 * 4]);
     const { last } = t.effect.getStats();
     assert.deepEqual([last.status, last.mode, last.check, last.dither], ['applied', 'thermal', 'gpu=cpu', 'bayer']);
     assert.equal(last.print.rasterBytes, 8);
