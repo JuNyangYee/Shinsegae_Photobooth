@@ -50,6 +50,12 @@ function setup({ initialSettings = normalizeEffectSettings(defaults, defaults).s
     message: () => element('[data-message]').textContent,
     output: (key) => element(`output[data-key="${key}"]`).textContent,
     input: (key) => element(`input[data-key="${key}"]`),
+    select: (key) => element(`select[data-key="${key}"]`),
+    choose(key, value) {
+      const select = element(`select[data-key="${key}"]`);
+      select.value = String(value);
+      select.fire('change');
+    },
     slide(key, value) {
       const input = element(`input[data-key="${key}"]`);
       input.value = String(value);
@@ -141,5 +147,34 @@ describe('effect-tuning (E)', () => {
     t.click('revert');
     assert.equal(t.running().fps, 10);
     assert.equal(t.tuning.describeSettingsSource(), 'file');
+  });
+
+  it('출력 단계 (6-1): 모드·점 방식·용지 폭은 선택 상자, 밝기·대비·감마는 슬라이더로 바로 반영, 저장에 들어간다', async () => {
+    const t = current = setup();
+    t.tuning.toggle();
+    assert.equal(t.select('outputMode').value, 'thermal', '기본값은 감열지');
+    assert.equal(t.select('paperDots').value, '576');
+    assert.deepEqual([t.input('gamma').min, t.input('gamma').max, t.input('brightness').min], ['0.4', '2.5', '-0.5']);
+    t.choose('dither', 'atkinson');
+    t.choose('paperDots', 384);
+    t.slide('gamma', 1.6);
+    t.slide('contrast', 1.25);
+    assert.deepEqual([t.running().dither, t.running().paperDots, t.running().gamma, t.running().contrast], ['atkinson', 384, 1.6, 1.25]);
+    assert.equal(t.output('paperDots'), '384점');
+    // 회색조: 점 방식·용지 폭은 쓰지 않아 막고, 레벨은 그대로 쓴다. 끔(컬러): 레벨도 막는다
+    t.choose('outputMode', 'gray');
+    assert.equal(t.running().outputMode, 'gray');
+    assert.deepEqual([t.select('dither').disabled, t.select('paperDots').disabled, t.input('gamma').disabled], [true, true, false]);
+    t.choose('outputMode', 'off');
+    assert.deepEqual([t.input('gamma').disabled, t.input('brightness').disabled, t.input('fps').disabled], [true, true, false]);
+    t.choose('outputMode', 'thermal');
+    assert.equal(t.select('dither').disabled, false);
+    t.click('save');
+    const saved = t.saves[0].settings;
+    assert.deepEqual([saved.outputMode, saved.dither, saved.paperDots, saved.gamma], ['thermal', 'atkinson', 384, 1.6]);
+    t.saves[0].resolve();
+    await flush();
+    t.tuning.close();
+    assert.equal(t.running().dither, 'atkinson');
   });
 });

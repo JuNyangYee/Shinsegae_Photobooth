@@ -97,7 +97,7 @@
   <!-- 운영자용 사진 효과 조절 (E 키로 열고 닫는다. Esc로도 닫는다.) -->
   <section id="effect-panel" class="tuning-panel" data-dock="bottom" hidden>
     <header class="tuning-header">
-      <strong>사진 효과 조절 (유화 · 획)</strong>
+      <strong>사진 효과 조절 (유화 · 획 → 출력)</strong>
       <span>E·Esc: 닫기 (저장하지 않은 변경은 취소)</span>
     </header>
     <p class="tuning-note" data-live></p>
@@ -135,6 +135,50 @@
       <span>미리보기 처리 해상도 <small>(결과 대비. 느리면 초당 그림부터 낮춘다)</small></span>
       <input type="range" data-key="previewScale">
       <output data-key="previewScale"></output>
+    </label>
+    <!-- 출력 단계 (6-1): 유화 뒤 감열지 흑백. 기능만 넣었다 (디자인은 6-3) -->
+    <p class="tuning-note">출력 (화면에 보이는 것이 곧 출력물)</p>
+    <label class="tuning-row">
+      <span>출력 모드</span>
+      <select data-key="outputMode">
+        <option value="thermal">감열지 (1비트 점)</option>
+        <option value="gray">회색조</option>
+        <option value="off">끔 (컬러 유화)</option>
+      </select>
+      <output data-key="outputMode"></output>
+    </label>
+    <label class="tuning-row">
+      <span>점 방식 <small>(감열지)</small></span>
+      <select data-key="dither">
+        <option value="blue-noise">블루 노이즈 (GPU)</option>
+        <option value="bayer">Bayer 순서 디더 (GPU)</option>
+        <option value="atkinson">Atkinson 오차 확산 (CPU)</option>
+        <option value="floyd-steinberg">Floyd–Steinberg 오차 확산 (CPU)</option>
+      </select>
+      <output data-key="dither"></output>
+    </label>
+    <label class="tuning-row">
+      <span>용지 폭 <small>(감열지, 203dpi)</small></span>
+      <select data-key="paperDots">
+        <option value="576">80mm · 576점</option>
+        <option value="384">58mm · 384점</option>
+      </select>
+      <output data-key="paperDots"></output>
+    </label>
+    <label class="tuning-row">
+      <span>밝기 <small>(회색조·감열지)</small></span>
+      <input type="range" data-key="brightness">
+      <output data-key="brightness"></output>
+    </label>
+    <label class="tuning-row">
+      <span>대비 <small>(회색조·감열지)</small></span>
+      <input type="range" data-key="contrast">
+      <output data-key="contrast"></output>
+    </label>
+    <label class="tuning-row">
+      <span>감마 <small>(1보다 크면 중간 밝기를 밝게)</small></span>
+      <input type="range" data-key="gamma">
+      <output data-key="gamma"></output>
     </label>
     <div class="tuning-buttons">
       <button type="button" data-action="save">저장</button>

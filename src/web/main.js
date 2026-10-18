@@ -223,6 +223,8 @@ function renderSession(s) {
   if (url !== shownPhotoUrl) {
     if (url) resultImage.src = url;
     else resultImage.removeAttribute('src');
+    // 감열지 결과는 인쇄 해상도(576x1024 등) 점 그림이라 미리보기처럼 최근접으로 확대한다 (6-1)
+    resultImage.style.imageRendering = url && s.photo.print ? 'pixelated' : '';
     shownPhotoUrl = url;
   }
   resultImage.hidden = url === null;
@@ -329,30 +331,45 @@ function effectDevLines() {
   const losses = e.contextLosses ? `, context lost ${e.contextLosses}x` : '';
   const t = effectTunables(effect.getSettings());
   const values = `  values   : strength ${t.strength} size ${t.size} boil ${t.boil} fps ${t.fps} grade ${t.grade}`
-    + ` refine ${t.refineThreshold ?? '-'} scale ${t.previewScale}`
+    + ` refine ${t.refineThreshold ?? '-'} scale ${t.previewScale} | output ${t.outputMode} ${t.dither} paper ${t.paperDots}`
+    + ` brightness ${t.brightness} contrast ${t.contrast} gamma ${t.gamma}`
     + ` (${effectTuning ? effectTuning.describeSettingsSource() : 'loading'}, ${config.effectSettingsFile.url})`;
+  // 출력 단계 (6-1): 감열지면 인쇄 해상도, 점 방식, 화소 읽기·CPU 디더 시간(오차 확산만)
+  const output = e.outputMode === 'thermal'
+    ? `thermal ${e.printWidth}x${e.printHeight} ${e.dither}, read ${ms(e.readMs)}, dither ${ms(e.ditherMs)}`
+    : e.outputMode;
   const p = photoEffect.getStats();
   let photo = '-';
+  const mode = p.last?.mode && p.last.mode !== 'off' ? `${p.last.mode} ` : '';
   if (p.last?.status === 'applied') {
-    photo = `applied ${p.last.width}x${p.last.height} seed ${p.last.seed} tick ${p.last.tick}`
-      + ` (${p.last.sameAsPreview ? 'same drawing as preview' : 'new drawing'}), ${ms(p.last.ms)}`;
+    photo = `applied ${mode}${p.last.width}x${p.last.height}${p.last.dither ? ` ${p.last.dither}` : ''}`
+      + ` seed ${p.last.seed} tick ${p.last.tick}`
+      + ` (${p.last.sameAsPreview ? 'same drawing as preview' : 'new drawing'}${p.last.check ? `, ${p.last.check}` : ''}),`
+      + ` render ${ms(p.last.renderMs)}, total ${ms(p.last.ms)}`;
   } else if (p.last?.status === 'raw') {
-    photo = `RAW PHOTO ${p.last.width}x${p.last.height} (${p.last.reason})`;
+    photo = `RAW PHOTO ${mode}${p.last.width}x${p.last.height} (${p.last.reason})`;
   } else if (p.last) {
     photo = p.last.status;
   }
   const photoLine = `photo-fx   : ${photo} (applied ${p.applied}, raw ${p.fellBack})`;
-  if (e.status === EffectStatus.DISABLED) return ['effect     : disabled (config.effect.enabled) -> camera preview', photoLine];
+  const pr = p.last?.print;
+  const printLine = `print      : ${pr
+    ? `${pr.width}x${pr.height} 1-bit, raster ${pr.bytesPerRow}B/row ${pr.rasterBytes}B, png ${pr.pngBytes}B`
+      + ` (IHDR depth ${pr.pngBitDepth} color ${pr.pngColorType}), black ${(pr.blackRatio * 100).toFixed(1)}%`
+    : '-'}`;
+  if (e.status === EffectStatus.DISABLED) return ['effect     : disabled (config.effect.enabled) -> camera preview', photoLine, printLine];
   if (e.status === EffectStatus.FALLBACK || e.status === EffectStatus.CONTEXT_LOST) {
-    return [`effect     : ${e.status} (${e.fault || '-'}) -> camera preview${losses}`, values, photoLine];
+    return [`effect     : ${e.status} (${e.fault || '-'}) -> camera preview${losses}`, values, photoLine, printLine];
   }
   return [
     `effect     : ${e.status}${e.shown ? '' : ' (hidden)'}, ${e.width}x${e.height} (preview x${e.previewScale}, px scale ${e.pxScale.toFixed(3)}),`
       + ` fps ${e.fps} -> ${e.drawingsPerSecond} drawings/s, boil ${e.boil}, seed ${e.seed ?? '-'}${losses}`,
     `  time     : cpu ${ms(e.cpuMs)} (avg ${ms(e.cpuAvgMs)}), gpu ${e.gpuTimer ? ms(e.gpuMs) : 'n/a'},`
       + ` strokes ${e.strokes}, ${e.renderer || '-'}`,
+    `  output   : ${output}`,
     values,
     photoLine,
+    printLine,
   ];
 }
 
@@ -379,7 +396,7 @@ function sessionDevLines() {
         + ` grab ${last.grabMs.toFixed(1)}ms, encode ${last.encodeMs.toFixed(1)}ms`
       : 'capture    : -',
     `resources  : object URLs ${c.liveUrls}, canvases ${c.liveCanvases}, pending jobs ${c.pending}`
-      + ` (taken ${c.taken}, released ${c.released}, stale results ${s.staleResults})`,
+      + ` (taken ${c.taken}, released ${c.released}, stale results ${s.staleResults}), print data ${c.livePrints}`,
   ];
 }
 

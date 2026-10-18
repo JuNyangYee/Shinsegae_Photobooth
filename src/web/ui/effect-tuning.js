@@ -2,6 +2,7 @@
 // 조절하는 즉시 미리보기에 반영하고, "저장"을 눌러야 효과 조절값 파일(서버 config/effect.local.json)에 기록한다.
 // 저장·취소·기본값·닫기 규칙은 인식 범위 조절(presence-tuning.js, R)과 같다:
 // 저장하지 않고 닫으면 저장된 값으로 되돌리고(실행 중인 값 = 다시 시작했을 때의 값), 저장 중에 닫으면 저장이 끝난 뒤 닫는다.
+// 출력 단계(6-1): 모드(감열지·회색조·끔)·점 방식·용지 폭은 선택 상자, 밝기·대비·감마는 슬라이더. 기능만 넣었다(디자인은 6-3).
 // Node 테스트: test/ui/effect-tuning.test.mjs
 
 import {
@@ -22,7 +23,20 @@ const SLIDERS = [
   ['grade', effectLimits.grade, 2],
   ['refineThreshold', effectLimits.refineThreshold, 2],
   ['previewScale', effectLimits.previewScale, 2],
+  ['brightness', effectLimits.brightness, 2],
+  ['contrast', effectLimits.contrast, 2],
+  ['gamma', effectLimits.gamma, 2],
 ];
+
+// 선택 상자 항목: [조절값 키, 값 변환]. 선택지는 index.html에 있다
+const SELECTS = [
+  ['outputMode', String],
+  ['dither', String],
+  ['paperDots', Number],
+];
+const LEVEL_KEYS = new Set(['brightness', 'contrast', 'gamma']); // 회색조·감열지에서 쓴다
+const THERMAL_KEYS = new Set(['dither', 'paperDots']); // 감열지에서만 쓴다
+const OUTPUT_LABELS = Object.freeze({ thermal: '감열지', gray: '회색조', off: '컬러' });
 
 /**
  * @param {{ panel: HTMLElement, preview: { setSettings: Function, getState: Function }, defaults: object,
@@ -42,6 +56,9 @@ export function createEffectTuning({ panel, preview, defaults, initial, saveSett
     input.step = String(limits.step);
     return [key, { input, output: panel.querySelector(`output[data-key="${key}"]`), digits }];
   }));
+  const selects = new Map(SELECTS.map(([key, parse]) => [key, {
+    select: panel.querySelector(`select[data-key="${key}"]`), output: panel.querySelector(`output[data-key="${key}"]`), parse,
+  }]));
 
   const baseDefaults = normalizeEffectSettings(defaults, defaults).settings;
   const loaded = initial;
@@ -70,9 +87,15 @@ export function createEffectTuning({ panel, preview, defaults, initial, saveSett
     const values = effectTunables(current);
     for (const [key, { input, output, digits }] of sliders) {
       const value = values[key];
-      input.disabled = value === null; // 보완 층이 없으면 문턱을 조절할 수 없다
+      // 보완 층이 없으면 문턱을 조절할 수 없다. 레벨은 출력 모드가 끔(컬러)이면 쓰지 않는다
+      input.disabled = value === null || (LEVEL_KEYS.has(key) && values.outputMode === 'off');
       input.value = value === null ? input.min : String(value);
       output.textContent = value === null ? '-' : value.toFixed(digits);
+    }
+    for (const [key, { select, output }] of selects) {
+      select.value = String(values[key]);
+      select.disabled = THERMAL_KEYS.has(key) && values.outputMode !== 'thermal';
+      if (output) output.textContent = key === 'paperDots' ? `${values.paperDots}점` : '';
     }
     const dirty = !sameEffectSettings(current, saved);
     stateText.textContent = dirty ? '저장하지 않은 변경이 있습니다 (닫으면 취소됩니다)' : '저장된 값과 같습니다';
@@ -82,8 +105,12 @@ export function createEffectTuning({ panel, preview, defaults, initial, saveSett
   function renderLive() {
     const e = preview.getState();
     const ms = e.cpuAvgMs === null ? '-' : `${e.cpuAvgMs.toFixed(1)}ms`;
+    const fmt = (value) => (value === null || value === undefined ? '-' : `${value.toFixed(1)}ms`);
+    const output = e.outputMode === 'thermal' && e.printWidth
+      ? ` · 감열지 ${e.printWidth}x${e.printHeight} ${e.dither}${e.readMs === null ? '' : ` (읽기 ${fmt(e.readMs)}, 디더 ${fmt(e.ditherMs)})`}`
+      : ` · ${OUTPUT_LABELS[e.outputMode] ?? ''}`;
     liveText.textContent = e.status === 'running'
-      ? `미리보기 ${e.width}x${e.height} · 초당 ${e.drawingsPerSecond}장 (설정 ${e.fps}) · 그리기 ${ms}`
+      ? `미리보기 ${e.width}x${e.height} · 초당 ${e.drawingsPerSecond}장 (설정 ${e.fps}) · 그리기 ${ms}${output}`
       : `미리보기 효과 ${e.status}${e.fault ? ` (${e.fault})` : ''} — 원본 미리보기 중입니다. 값은 저장할 수 있습니다.`;
   }
 
@@ -123,6 +150,13 @@ export function createEffectTuning({ panel, preview, defaults, initial, saveSett
   for (const [key, { input }] of sliders) {
     input.addEventListener('input', () => {
       apply(applyEffectTunables(current, { [key]: Number(input.value) }, defaults).settings);
+      showMessage('');
+    });
+  }
+
+  for (const [key, { select, parse }] of selects) {
+    select.addEventListener('change', () => {
+      apply(applyEffectTunables(current, { [key]: parse(select.value) }, defaults).settings);
       showMessage('');
     });
   }
