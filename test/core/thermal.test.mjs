@@ -5,8 +5,9 @@ import { describe, it } from 'node:test';
 import { deflateSync, inflateSync } from 'node:zlib';
 
 import {
-  applyLevels, bayerRanks, blueNoiseRanks, crc32, dither, ditherErrorDiffusion, ditherThreshold, encodeOneBitPng, grayLevelsInPlace,
-  isGpuDither, levelOf, maskToRgba, packPrintBits, printSizeFor, readPngHeader, reduceToPrintGray, sharpAxis, thresholdMap, upscaleSharp,
+  applyLevels, bayerRanks, blueNoiseRanks, bwStyleOf, crc32, dither, ditherErrorDiffusion, ditherThreshold, ditherWithThresholds,
+  encodeOneBitPng, grayLevelsInPlace, isGpuDither, levelOf, maskToRgba, packPrintBits, printSizeFor, readPngHeader, reduceToPrintGray,
+  screenOf, sharpAxis, thresholdMap, upscaleSharp,
 } from '../../src/web/core/thermal.js';
 
 const NEUTRAL = { brightness: 0, contrast: 1, gamma: 1 };
@@ -263,5 +264,29 @@ describe('인쇄 데이터', () => {
 
   it('CRC-32 알려진 값 ("IEND" → 0xae426082)', () => {
     assert.equal(crc32(new TextEncoder().encode('IEND')), 0xae426082);
+  });
+});
+
+describe('흑백 스타일 (7-1)', () => {
+  it('스타일이 없으면 톤 점. 점을 정하는 것: 톤 점·질감 강조 점은 점 방식, 흐름 선·붓 결 선은 선', () => {
+    assert.equal(bwStyleOf({}), 'tone');
+    assert.equal(screenOf({ dither: 'atkinson' }), 'atkinson', '6-1 설정(스타일 없음)은 그대로');
+    assert.equal(screenOf({ bwStyle: 'texture', dither: 'floyd-steinberg' }), 'floyd-steinberg');
+    assert.equal(screenOf({ bwStyle: 'flow', dither: 'atkinson' }), 'flow-lines');
+    assert.equal(screenOf({ bwStyle: 'stroke', dither: 'bayer' }), 'stroke-lines');
+  });
+
+  it('점별 문턱 디더: g >= t면 흰 점 (알려진 작은 입력), 문턱 255·회색 255는 흰 점, 문턱 1·회색 0은 검은 점, 같은 입력이면 같은 결과', () => {
+    const gray = Uint8Array.from([0, 0, 1, 128, 127, 255, 254, 255]);
+    const thr = Uint8Array.from([1, 255, 1, 128, 128, 255, 255, 1]);
+    assert.deepEqual([...ditherWithThresholds(gray, thr)], [0, 0, 1, 1, 0, 1, 0, 1]);
+    assert.deepEqual(ditherWithThresholds(gray, thr), ditherWithThresholds(gray, thr));
+    // 타일 문턱 지도를 인쇄 크기로 펼치면 ditherThreshold와 같다 (GPU uFull 0과 1이 같은 비교)
+    const map = thresholdMap('bayer');
+    const w = 20;
+    const h = 11;
+    const g = Uint8Array.from({ length: w * h }, (_, i) => (i * 37) % 256);
+    const full = Uint8Array.from({ length: w * h }, (_, i) => map.thresholds[(Math.floor(i / w) % map.size) * map.size + ((i % w) % map.size)]);
+    assert.deepEqual(ditherWithThresholds(g, full), ditherThreshold(g, w, h, map));
   });
 });

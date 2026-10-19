@@ -315,6 +315,32 @@ export function ditherErrorDiffusion(gray, w, h, method, work) {
 /** 문턱값 디더는 GPU에서도 같은 결과를 낼 수 있다. 오차 확산은 순차라 CPU에서만 한다 */
 export const isGpuDither = (method) => method === 'bayer' || method === 'blue-noise';
 
+// ---------- 흑백 스타일 (7-1) ----------
+
+/** 흑백 스타일: 'tone' 톤 점(6-1) / 'texture' 질감 강조 점 / 'flow' 흐름 선 / 'stroke' 붓 결 선. 없으면 'tone' */
+export const bwStyleOf = (settings) => settings.bwStyle ?? 'tone';
+
+/**
+ * 점을 무엇으로 정하는지(D 화면·결과 표시용): 톤 점·질감 강조 점은 점 방식(dither) 그대로,
+ * 흐름 선은 'flow-lines', 붓 결 선은 'stroke-lines'(GPU가 만든 점별 문턱)
+ */
+export function screenOf(settings) {
+  const style = bwStyleOf(settings);
+  if (style === 'flow') return 'flow-lines';
+  if (style === 'stroke') return 'stroke-lines';
+  return settings.dither;
+}
+
+/**
+ * 점별 문턱 디더: gray[i] >= thr[i]면 흰 점. 흐름 선·붓 결 선의 문턱(GPU FS_THERMAL_SCREEN)을 읽어 GPU 점 그림을
+ * 다시 확인할 때 쓴다(GPU FS_THERMAL_DITHER uFull 1과 같은 정수 비교라 비트 단위로 같아야 한다)
+ */
+export function ditherWithThresholds(gray, thr) {
+  const mask = new Uint8Array(gray.length);
+  for (let i = 0; i < gray.length; i += 1) mask[i] = gray[i] >= thr[i] ? 1 : 0;
+  return mask;
+}
+
 /** 방식 이름으로 디더링 (8비트 회색 → 마스크). work는 오차 확산용 작업 버퍼 */
 export function dither(gray, w, h, method, work) {
   return isGpuDither(method) ? ditherThreshold(gray, w, h, thresholdMap(method)) : ditherErrorDiffusion(gray, w, h, method, work);
