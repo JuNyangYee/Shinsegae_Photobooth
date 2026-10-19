@@ -8,9 +8,10 @@
 //
 // 저장 형식 (5-2, 서버 파일 config/effect.local.json, settings-file.js):
 //   { "version": 1, "settings": { "strength", "size", "boil", "fps", "grade", "refineThreshold", "previewScale",
-//     "outputMode", "dither", "brightness", "contrast", "gamma", "paperDots" } }
+//     "outputMode", "dither", "brightness", "contrast", "gamma", "paperDots", "bwStyle", "bwTexture", "lineSpacing" } }
 // 운영자가 조절하는 값(EFFECT_TUNABLE_KEYS)만 저장한다. 붓 층 모양 등은 config.effect 기본값을 쓴다.
-// 출력 단계 값 6개는 6-1에서 더했다. 버전은 1 그대로이고, 5-2 파일(앞 7개만)을 읽으면 없는 값은 기본값(감열지)으로 채운다.
+// 출력 단계 값 6개는 6-1에서, 흑백 스타일 값 3개는 7-1에서 더했다. 버전은 1 그대로이고, 예전 파일(5-2의 앞 7개, 6-1의 13개)을
+// 읽으면 없는 값은 기본값으로 채운다.
 
 export const effectLimits = Object.freeze({
   strength: Object.freeze({ min: 0, max: 1.6, step: 0.05 }), // 강도: 요철·광택·색 흔들림
@@ -26,12 +27,20 @@ export const effectLimits = Object.freeze({
   contrast: Object.freeze({ min: 0.5, max: 2, step: 0.05 }), // 대비: 0.5를 중심으로 늘린다
   gamma: Object.freeze({ min: 0.4, max: 2.5, step: 0.05 }), // 감마: 1보다 크면 중간 밝기를 밝게
   paperDots: Object.freeze({ min: 128, max: 1024, step: 8 }), // 용지 폭 점 수. 8의 배수 (80mm 576, 58mm 384)
+  // 흑백 스타일 (7-1). 질감 세기: 붓 높이 조명·국소 대비를 1비트 전에 더하는 정도. 선 간격: 선 스타일의 선 주기(인쇄 점)
+  bwTexture: Object.freeze({ min: 0, max: 2, step: 0.05 }),
+  lineSpacing: Object.freeze({ min: 2, max: 8, step: 0.5 }),
 });
 
 /** 출력 모드: 감열지(1비트 점) / 회색조만 / 끔(컬러 유화) */
 export const OUTPUT_MODES = Object.freeze(['thermal', 'gray', 'off']);
 /** 점 방식: 문턱값(GPU·CPU 같은 결과) 2개, 오차 확산(CPU) 2개 */
 export const DITHER_METHODS = Object.freeze(['blue-noise', 'bayer', 'atkinson', 'floyd-steinberg']);
+/**
+ * 흑백 스타일 (7-1, 감열지에서만): 톤 점(6-1 그대로) / 질감 강조 점(붓 높이 조명·국소 대비 + 점 방식) /
+ * 흐름 선(흐름장을 따라 번진 결, GPU) / 붓 결 선(획마다 획 방향 선, GPU). 흐름 선·붓 결 선은 점 방식을 쓰지 않는다
+ */
+export const BW_STYLES = Object.freeze(['tone', 'texture', 'flow', 'stroke']);
 
 const isFiniteNumber = (value) => typeof value === 'number' && Number.isFinite(value);
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
@@ -104,16 +113,20 @@ export function normalizeEffectSettings(input, defaults) {
     contrast: number('contrast', effectLimits.contrast),
     gamma: number('gamma', effectLimits.gamma),
     paperDots: number('paperDots', effectLimits.paperDots, (v) => Math.round(v / 8) * 8),
+    bwStyle: oneOf('bwStyle', BW_STYLES),
+    bwTexture: number('bwTexture', effectLimits.bwTexture),
+    lineSpacing: number('lineSpacing', effectLimits.lineSpacing),
   });
   return { settings, issues };
 }
 
 export const EFFECT_SETTINGS_VERSION = 1;
 
-/** 운영자 조절 화면(E)에서 바꾸고 파일에 저장하는 값. 원본 갤러리 UI에 있는 것 + 미리보기 처리 해상도 + 출력 단계(6-1) */
+/** 운영자 조절 화면(E)에서 바꾸고 파일에 저장하는 값. 원본 갤러리 UI에 있는 것 + 미리보기 처리 해상도 + 출력 단계(6-1) + 흑백 스타일(7-1) */
 export const EFFECT_TUNABLE_KEYS = Object.freeze([
   'strength', 'size', 'boil', 'fps', 'grade', 'refineThreshold', 'previewScale',
   'outputMode', 'dither', 'brightness', 'contrast', 'gamma', 'paperDots',
+  'bwStyle', 'bwTexture', 'lineSpacing',
 ]);
 
 /** 정규화된 설정에서 조절값만 꺼낸다. 보완 층이 없으면 refineThreshold는 null */
@@ -132,6 +145,9 @@ export function effectTunables(settings) {
     contrast: settings.contrast,
     gamma: settings.gamma,
     paperDots: settings.paperDots,
+    bwStyle: settings.bwStyle,
+    bwTexture: settings.bwTexture,
+    lineSpacing: settings.lineSpacing,
   };
 }
 

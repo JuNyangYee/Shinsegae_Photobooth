@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 
 import { config } from '../../src/web/config/config.js';
 import {
+  BW_STYLES,
   DITHER_METHODS,
   EFFECT_TUNABLE_KEYS,
   OUTPUT_MODES,
@@ -98,11 +99,12 @@ describe('normalizeEffectSettings', () => {
 describe('효과 조절값 (E 화면·파일, 5-2)', () => {
   const base = normalizeEffectSettings(defaults, defaults).settings;
 
-  it('조절값은 13개(5-2의 7개 + 출력 단계 6개), 보완 층 문턱은 refine[4]', () => {
+  it('조절값은 16개(5-2의 7개 + 출력 단계 6개 + 흑백 스타일 3개), 보완 층 문턱은 refine[4]', () => {
     assert.deepEqual(Object.keys(effectTunables(base)), [...EFFECT_TUNABLE_KEYS]);
     assert.deepEqual(effectTunables(base), {
       strength: 0.1, size: 1.25, boil: 0.1, fps: 24, grade: 1, refineThreshold: 0.22, previewScale: 1,
       outputMode: 'thermal', dither: defaults.dither, brightness: 0, contrast: 1, gamma: 1, paperDots: 576,
+      bwStyle: defaults.bwStyle, bwTexture: defaults.bwTexture, lineSpacing: defaults.lineSpacing,
     });
   });
 
@@ -134,7 +136,7 @@ describe('효과 조절값 (E 화면·파일, 5-2)', () => {
     assert.equal(partial.source, 'stored');
     assert.equal(partial.settings.fps, 10);
     assert.equal(partial.settings.strength, 0.1);
-    assert.equal(partial.issues.length, 12);
+    assert.equal(partial.issues.length, 15);
     for (const [text, issue] of [['{', /not valid JSON/], ['[]', /not an object/], ['{"version":2,"settings":{}}', /version 2/]]) {
       const r = parseStoredEffectSettings(text, defaults);
       assert.equal(r.source, 'default');
@@ -152,6 +154,41 @@ describe('효과 조절값 (E 화면·파일, 5-2)', () => {
     assert.equal(r.source, 'stored');
     assert.deepEqual([r.settings.strength, r.settings.fps, r.settings.refine[4], r.settings.previewScale], [0.3, 12, 0.3, 0.75]);
     assert.deepEqual([r.settings.outputMode, r.settings.paperDots, r.settings.dither], ['thermal', 576, defaults.dither]);
-    assert.deepEqual(r.issues, ['outputMode', 'dither', 'brightness', 'contrast', 'gamma', 'paperDots'].map((k) => `${k}: missing -> default`));
+    assert.deepEqual(r.issues, ['outputMode', 'dither', 'brightness', 'contrast', 'gamma', 'paperDots', 'bwStyle', 'bwTexture', 'lineSpacing']
+      .map((k) => `${k}: missing -> default`));
+  });
+
+  it('6-1 파일(조절값 13개)을 읽으면 그 값은 쓰고 흑백 스타일 3개는 기본값으로 채워 알린다 (7-1)', () => {
+    const old = JSON.stringify({ version: 1, settings: {
+      strength: 0.1, size: 1.25, boil: 0.1, fps: 24, grade: 1, refineThreshold: 0.22, previewScale: 1,
+      outputMode: 'thermal', dither: 'bayer', brightness: 0.05, contrast: 1.1, gamma: 1.2, paperDots: 384,
+    } }, null, 2);
+    const r = parseStoredEffectSettings(old, defaults);
+    assert.equal(r.source, 'stored');
+    assert.deepEqual([r.settings.dither, r.settings.paperDots, r.settings.gamma], ['bayer', 384, 1.2]);
+    assert.deepEqual([r.settings.bwStyle, r.settings.bwTexture, r.settings.lineSpacing], [defaults.bwStyle, defaults.bwTexture, defaults.lineSpacing]);
+    assert.deepEqual(r.issues, ['bwStyle', 'bwTexture', 'lineSpacing'].map((k) => `${k}: missing -> default`));
+  });
+});
+
+describe('흑백 스타일 설정 (7-1)', () => {
+  it('기본값은 가안 붓 결 선·질감 세기 1·선 간격 4점, 스타일은 목록에 없으면 기본값, 세기·간격은 범위로', () => {
+    const { settings, issues } = normalizeEffectSettings(defaults, defaults);
+    assert.deepEqual(issues, []);
+    assert.deepEqual([settings.bwStyle, settings.bwTexture, settings.lineSpacing], ['stroke', 1, 4]);
+    assert.deepEqual([...BW_STYLES], ['tone', 'texture', 'flow', 'stroke']);
+    for (const style of BW_STYLES) assert.equal(normalizeEffectSettings({ ...defaults, bwStyle: style }, defaults).settings.bwStyle, style);
+    const bad = normalizeEffectSettings({ ...defaults, bwStyle: 'oil', bwTexture: 9, lineSpacing: 0 }, defaults);
+    assert.deepEqual([bad.settings.bwStyle, bad.settings.bwTexture, bad.settings.lineSpacing], ['stroke', 2, 2]);
+    assert.deepEqual(bad.issues, ['bwStyle: "oil" -> default', 'bwTexture: 9 -> 2', 'lineSpacing: 0 -> 2']);
+  });
+
+  it('저장 → 읽기 왕복에 흑백 스타일 값이 들어간다', () => {
+    const base = normalizeEffectSettings(defaults, defaults).settings;
+    const changed = applyEffectTunables(base, { bwStyle: 'flow', bwTexture: 0.5, lineSpacing: 6 }, defaults).settings;
+    const back = parseStoredEffectSettings(serializeEffectSettings(changed), defaults);
+    assert.deepEqual(back.issues, []);
+    assert.deepEqual([back.settings.bwStyle, back.settings.bwTexture, back.settings.lineSpacing], ['flow', 0.5, 6]);
+    assert.ok(!sameEffectSettings(back.settings, base));
   });
 });

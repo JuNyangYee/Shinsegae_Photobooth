@@ -212,12 +212,13 @@ describe('loadInitialEffectSettings (효과 조절값, 5-2): 파일 → 기본�
 
   it('파일이 있으면 그 값', async () => {
     const text = JSON.stringify({ version: 1, settings: { strength: 0.3, size: 1, boil: 0.2, fps: 12, grade: 0.5, refineThreshold: 0.3, previewScale: 0.5,
-      outputMode: 'gray', dither: 'bayer', brightness: -0.1, contrast: 1.2, gamma: 0.9, paperDots: 384 } });
+      outputMode: 'gray', dither: 'bayer', brightness: -0.1, contrast: 1.2, gamma: 0.9, paperDots: 384, bwStyle: 'texture', bwTexture: 1.5, lineSpacing: 3 } });
     const r = await loadInitialEffectSettings({ file: file(async () => ({ found: true, text })), defaults: config.effect });
     assert.equal(r.source, SettingsSource.FILE);
     assert.equal(r.settings.fps, 12);
     assert.deepEqual(r.settings.refine, [3.5, 3, 10, 0.6, 0.3]);
     assert.deepEqual([r.settings.outputMode, r.settings.dither, r.settings.paperDots, r.settings.gamma], ['gray', 'bayer', 384, 0.9]);
+    assert.deepEqual([r.settings.bwStyle, r.settings.bwTexture, r.settings.lineSpacing], ['texture', 1.5, 3]);
     assert.deepEqual(r.issues, []);
   });
 
@@ -227,7 +228,7 @@ describe('loadInitialEffectSettings (효과 조절값, 5-2): 파일 → 기본�
     assert.equal(r.source, SettingsSource.FILE);
     assert.equal(r.settings.fps, 12);
     assert.equal(r.settings.outputMode, 'thermal');
-    assert.equal(r.issues.length, 6);
+    assert.equal(r.issues.length, 9); // 출력 단계 6개(6-1) + 흑백 스타일 3개(7-1)
   });
 
   it('파일이 없으면 기본값 (no file), 읽기 실패·형식 오류도 기본값', async () => {
