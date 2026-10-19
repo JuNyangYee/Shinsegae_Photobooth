@@ -417,12 +417,45 @@ async function thermalShot(app, { method, check }) {
   expect(c.size === '1080x1920' && c.previewSize === '1080x1920' && c.shutterIndex >= 0, `compare ${JSON.stringify(c)}`);
   expect(c.twoTone.ends.length === 2 && c.twoTone.offLine === 0, `result is not paper/ink only: ${JSON.stringify(c.twoTone)}`);
   expect(c.resultRendering === 'auto' && c.canvasRendering === 'auto', `image-rendering ${c.resultRendering} / ${c.canvasRendering}`);
+  // 1비트 점 사진은 인쇄 점 = 화면 화소 1:1 폭 (576/1080, 6-3·8단계)
+  expect(c.box.dots && Math.abs(c.box.ratio - 576 / 1080) < 0.001, `result box ${JSON.stringify(c.box)}`);
   const atShutter = c.drawings[c.shutterIndex];
   const others = c.drawings.filter((_, i) => i !== c.shutterIndex);
   expect(atShutter.mismatch === 0, `shutter drawing differs in ${atShutter.mismatch} px (${JSON.stringify(c.drawings)})`);
   expect(others.length > 0 && others.every((d) => d.mismatch > 0), `other drawings: ${JSON.stringify(c.drawings)}`);
   return { fx, print, compare: `shutter drawing 0 px differ, other drawings ${others.map((d) => d.mismatch).join('/')} px,`
     + ` paper/ink ${c.twoTone.ends.join(' / ')} only (pure ${(c.twoTone.pureRatio * 100).toFixed(1)}%, rest edge blends)` };
+}
+
+/**
+ * 회색조 유화 S 한 장 (8단계 기본값): 결과(JPEG 1080x1920)가 셔터 직전 미리보기 그림과 10x10 블록 평균으로 가장 가깝고(1/255 미만),
+ * 미리보기 그림이 무채색(R=G=B)이며 결과도 무채색에 가깝고(JPEG), 인쇄 데이터가 576x1024 1비트이고, 결과 폭이 영역의 정확히 절반인지 본다.
+ * withAutoPaused 안에서 부른다.
+ */
+async function grayOilShot(app, { method = 'blue-noise', check = 'gpu=cpu' } = {}) {
+  await app.evaluate(EFFECT_READER);
+  await app.evaluate('window.__fxReader.drawings.length = 0; window.__fxReader.pinned = null; true');
+  await sleep(500);
+  const { completedDelta, resources, dev, image, extra: c } = await manualCycle(app, { onResult: () => app.evaluate(EFFECT_COMPARE) });
+  await app.evaluate('window.__fxReader.drawings.length = 0; true');
+  expect(completedDelta === 1, `S completed +${completedDelta}`);
+  expect(photoFree(resources), `resources ${dev.get('resources')}`);
+  const fx = dev.get('photo-fx') ?? '';
+  expect(new RegExp(`^applied gray-oil 1080x1920 print ${method} seed \\d+ tick \\d+ \\(same drawing as preview, ${check}\\)`).test(fx), `photo-fx ${fx}`);
+  expect(image.startsWith('1080x1920') && /image\/jpeg/.test(dev.get('capture') ?? ''), `result ${image}, capture ${dev.get('capture')}`);
+  const print = dev.get('print') ?? '';
+  expect(/^576x1024 1-bit, raster 72B\/row 73728B, png \d+B \(IHDR depth 1 color 0\)/.test(print), `print ${print}`);
+  expect(c.size === '1080x1920' && c.previewSize === '1080x1920' && c.shutterIndex >= 0, `compare ${JSON.stringify(c)}`);
+  const atShutter = c.drawings[c.shutterIndex];
+  const others = c.drawings.filter((_, i) => i !== c.shutterIndex);
+  expect(atShutter.diff < 1 && others.length > 0 && others.every((d) => d.diff > atShutter.diff), `block diff: ${JSON.stringify(c.drawings)}`);
+  // 무채색: 미리보기 그림은 화소마다 R=G=B, 결과는 JPEG라 1 이하 허용
+  expect(c.drawings.every((d) => d.chroma === 0), `preview chroma ${c.drawings.map((d) => d.chroma).join('/')}`);
+  expect(c.resultChroma <= 1, `result chroma ${c.resultChroma}`);
+  // 연속 톤 사진은 영역 폭의 정확히 절반 (1080 화면 1/2, 4K 1:1, 8단계)
+  expect(!c.box.dots && Math.abs(c.box.ratio - 0.5) < 0.001, `result box ${JSON.stringify(c.box)}`);
+  return { fx, print, compare: `shutter drawing block diff ${atShutter.diff}/255, other drawings ${others.map((d) => d.diff).join('/')},`
+    + ` max chroma preview 0 / result ${c.resultChroma}, result ${c.box.width}px = ${c.box.ratio} of stage` };
 }
 
 // 효과 캔버스에 새 그림이 그려진 화면 갱신마다 화소를 복사해 둔다(최근 8장, 페이지 메모리 안에서만).
@@ -480,14 +513,20 @@ const EFFECT_COMPARE = `(() => {
     const t = (res[i] - ink[0]) / (paper[0] - ink[0]);
     if (Math.abs(res[i + 1] - (ink[1] + t * (paper[1] - ink[1]))) > 1.5 || Math.abs(res[i + 2] - (ink[2] + t * (paper[2] - ink[2]))) > 1.5) offLine++;
     if (t === 0 || t === 1) pure++; } }
+  // 채도(무채색 확인, 8단계): 화소마다 RGB 최댓값 − 최솟값의 최댓값
+  const chroma = (a) => { let m = 0; for (let i = 0; i < a.length; i += 4) { const hi = Math.max(a[i], a[i + 1], a[i + 2]), lo = Math.min(a[i], a[i + 1], a[i + 2]); if (hi - lo > m) m = hi - lo; } return m; };
   const list = r.pinned && !r.drawings.includes(r.pinned) ? [r.pinned, ...r.drawings] : r.drawings;
   const out = list.filter((d) => d.W === W && d.H === H).map((d) => ({
     beforeShutter: d.at < r.shutterAt, msFromShutter: Math.round(d.at - r.shutterAt),
     diff: +diff(resGrid, grid((xx, y) => { const i = ((d.H - 1 - y) * d.W + xx) * 4; return [d.buf[i], d.buf[i + 1], d.buf[i + 2]]; })).toFixed(3),
-    mismatch: mismatch(d),
+    mismatch: mismatch(d), chroma: chroma(d.buf),
   }));
+  // 결과 출력물 폭: 9:16 영역 대비 비율, 1비트 점 사진 표시(is-dots)
+  const photoBox = document.querySelector('.result-photo').getBoundingClientRect(), stageBox = document.getElementById('stage').getBoundingClientRect();
+  const box = { width: +photoBox.width.toFixed(3), ratio: +(photoBox.width / stageBox.width).toFixed(4), dots: document.getElementById('result-card').classList.contains('is-dots') };
   const shutterDrawing = out.map((d) => d.beforeShutter).lastIndexOf(true);
   return { size: W + 'x' + H, previewSize: r.drawings.length ? r.drawings.at(-1).W + 'x' + r.drawings.at(-1).H : '-', shutterAt: r.shutterAt, drawings: out, shutterIndex: shutterDrawing,
+    resultChroma: chroma(res), box,
     twoTone: { ends: ends.map((c) => c.join(',')), offLine, pureRatio: +(pure / (W * H)).toFixed(3) }, resultRendering: getComputedStyle(img).imageRendering, canvasRendering: getComputedStyle(document.getElementById('effect')).imageRendering };
 })()`;
 
@@ -577,8 +616,10 @@ async function runScenarios(app, origin) {
     return `${line.split(', fps')[0]}; ${m[2]} drawings/s at fps ${m[1]}; context lost → camera preview → restored`;
   });
 
-  await scenario('촬영 결과(감열지 기본값, 흑백 스타일 붓 결 선): 화면용 1080x1920 PNG가 셔터 순간 미리보기 점 그림과 화소까지 같음, 인쇄 데이터 576x1024 1비트', async () => withAutoPaused(app, async () => {
-    const { fx, print, compare } = await thermalShot(app, { method: 'stroke-lines', check: 'gpu=cpu' });
+  await scenario('촬영 결과(회색조 유화 기본값): 1080x1920 JPEG = 셔터 순간 미리보기 그림, 미리보기·결과 무채색, 인쇄 데이터 576x1024 1비트(블루 노이즈, GPU = CPU), 결과 폭 1/2', async () => withAutoPaused(app, async () => {
+    const output = subLine(await app.devText(), 'output');
+    expect(/^gray-oil \(input luma Rec\.709 -> oil2f -> gray\), print data on photo: paper 576 blue-noise/.test(output), `output ${output}`);
+    const { fx, print, compare } = await grayOilShot(app);
     return `${fx.split(' (applied')[0]}; ${compare}; print ${print.split(', black')[0]}`;
   }));
 
@@ -600,7 +641,9 @@ async function runScenarios(app, origin) {
       expect(await app.evaluate("document.getElementById('effect').hidden"), 'effect canvas visible in fallback');
       expect((await app.status()) === '', 'visitor status message shown in fallback');
       const { completedDelta, resources, dev: after } = await withAutoPaused(app, () => manualCycle(app));
-      expect(/^RAW PHOTO thermal 576x1024 /.test(after.get('photo-fx') ?? ''), `photo-fx ${after.get('photo-fx')}`);
+      // 회색조 유화 기본값: 원본 사진(결과 크기)을 입력 회색조·레벨로, 인쇄 데이터도 그 사진에서 (8단계)
+      expect(/^RAW PHOTO gray-oil 1080x1920 /.test(after.get('photo-fx') ?? ''), `photo-fx ${after.get('photo-fx')}`);
+      expect(/^576x1024 1-bit/.test(after.get('print') ?? ''), `print ${after.get('print')}`);
       expect(completedDelta === 1, `S completed +${completedDelta}`);
       expect(resources && resources.urls === 0 && resources.canvases === 0 && resources.pending === 0, 'resources not released');
       return `${effect}; camera ready, detector ok, S cycle ok`;
@@ -744,13 +787,14 @@ async function runScenarios(app, origin) {
       + ` CPU dither 576x1024: atkinson ${t.atkinson}ms, floyd-steinberg ${t['floyd-steinberg']}ms, bayer ${t.bayer}ms, blue-noise ${t['blue-noise']}ms`;
   });
 
-  await scenario('흑백 스타일 4가지(E): 미리보기 캔버스 1080x1920·D 표시, 흐름 선·질감 강조 점 결과 = 셔터 순간 그림, 저장 → 새로고침 유지 (파일은 원래대로)', async () => {
+  await scenario('흑백 스타일 4가지(E, 감열지): 미리보기 캔버스 1080x1920·D 표시, 붓 결 선·흐름 선·질감 강조 점 결과 = 셔터 순간 그림(화면용 PNG 화소까지, 인쇄 576x1024), 저장 → 새로고침 유지 (파일은 원래대로)', async () => {
     const details = [];
     try {
       await app.open();
       await waitReady(app);
       await app.key('KeyE');
       await app.waitFor('effect panel open', () => app.evaluate("!document.getElementById('effect-panel').hidden"), 5000);
+      await app.choose('outputMode', 'thermal'); // 흑백 스타일은 감열지에서만 (8단계부터 기본 모드는 회색조 유화)
       for (const [style, screen] of [['tone', 'blue-noise'], ['texture', 'blue-noise'], ['flow', 'flow-lines'], ['stroke', 'stroke-lines']]) {
         await app.choose('bwStyle', style);
         await app.waitFor(`style ${style}`, async () => new RegExp(`^thermal 576x1024 ${screen} \\(style ${style}\\)`).test(subLine(await app.devText(), 'output')), 5000);
@@ -761,7 +805,7 @@ async function runScenarios(app, origin) {
         expect(disabled === want, `${style}: disabled dither,bwTexture,lineSpacing ${disabled}`);
         details.push(`${style} ${screen}`);
       }
-      for (const [style, method] of [['flow', 'flow-lines'], ['texture', 'blue-noise']]) {
+      for (const [style, method] of [['stroke', 'stroke-lines'], ['flow', 'flow-lines'], ['texture', 'blue-noise']]) {
         await app.choose('bwStyle', style);
         const shot = await withAutoPaused(app, () => thermalShot(app, { method, check: 'gpu=cpu' }));
         details.push(`${style} shot: ${shot.compare.split(',')[0]}`);
@@ -825,7 +869,8 @@ async function runScenarios(app, origin) {
   });
 
   await scenario('결과 효과 렌더 실패 3가지(예외·INVALID_OPERATION·컨텍스트 손실) → 원본 사진으로 대신 (관람객 흐름 계속)', async () => {
-    // 효과 캔버스 컨텍스트의 결과 화소 읽기만 건드린다(감열지 결과는 4점씩 묶은 144x1024, 블루 노이즈 미리보기는 읽지 않는다).
+    // 효과 캔버스 컨텍스트의 결과 화소 읽기만 건드린다(회색조 유화 결과는 1080x1920 화소가 먼저, 인쇄 데이터는 4점씩 묶은 144x1024.
+    // 미리보기는 읽지 않는다).
     // 감지기의 WebGL은 그대로 (5단계 검수 1의 실제 WebGL 재현)
     // - throw: 예외를 던진다
     // - invalid: 결과 FBO(RGBA8)를 RGB 형식으로 읽어 실제 INVALID_OPERATION을 낸다 (화소는 0으로 남는다)
@@ -854,8 +899,8 @@ async function runScenarios(app, origin) {
         const { completedDelta, resources, dev, image } = await withAutoPaused(app, () => manualCycle(app));
         const fx = dev.get('photo-fx') ?? '';
         expect(completedDelta === 1, `${mode}: S completed +${completedDelta}`);
-        // 감열지 기본값: 원본 사진에 같은 출력 단계를 CPU로 (인쇄 데이터 포함, 6-1)
-        expect(/^RAW PHOTO thermal 576x1024 /.test(fx) && expected[mode].test(fx), `${mode}: photo-fx ${fx}`);
+        // 회색조 유화 기본값: 원본 사진(결과 크기)을 입력 회색조·레벨로, 인쇄 데이터도 그 사진에서 (8단계)
+        expect(/^RAW PHOTO gray-oil 1080x1920 /.test(fx) && expected[mode].test(fx), `${mode}: photo-fx ${fx}`);
         expect(image.startsWith('1080x1920'), `${mode}: result image ${image}`);
         expect(/^576x1024 1-bit/.test(dev.get('print') ?? ''), `${mode}: print ${dev.get('print')}`);
         expect(photoFree(resources), `${mode}: resources ${dev.get('resources')}`);
@@ -868,7 +913,7 @@ async function runScenarios(app, origin) {
         }
         details.push(`${mode} → ${/\(([^)]*)\)/.exec(fx)?.[1] ?? fx}`);
       }
-      return `${details.join('; ')}; results: raw photo -> thermal 576x1024 on CPU with print data (shown 1080x1920), preview running again`;
+      return `${details.join('; ')}; results: raw photo -> gray 1080x1920 on CPU with print data 576x1024, preview running again`;
     } finally {
       await app.cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier });
     }
