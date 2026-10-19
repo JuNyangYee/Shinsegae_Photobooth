@@ -110,7 +110,7 @@ describe('computeEffectView', () => {
 });
 
 describe('createEffectPreview', () => {
-  it('카메라가 준비되면 그리고 캔버스를 보인다. 초당 그림 수만큼만 그린다', () => {
+  it('카메라가 준비되면 그리고 캔버스를 보인다. 초당 그림 수(기본값 12)만큼만, 처리 해상도(기본값 0.5)로 그린다', () => {
     const t = setup();
     t.preview.start();
     assert.equal(t.canvas.hidden, true);
@@ -118,11 +118,12 @@ describe('createEffectPreview', () => {
     const s = t.preview.getState();
     assert.equal(s.status, EffectStatus.RUNNING);
     assert.equal(t.canvas.hidden, false);
-    assert.ok(t.renderer.calls.length >= 24 && t.renderer.calls.length <= 25, `${t.renderer.calls.length}`);
-    assert.ok(s.drawingsPerSecond >= 24 && s.drawingsPerSecond <= 25, `${s.drawingsPerSecond}`); // 1초 창 양 끝에 걸치면 25
+    assert.ok(t.renderer.calls.length >= 12 && t.renderer.calls.length <= 13, `${t.renderer.calls.length}`);
+    assert.ok(s.drawingsPerSecond >= 12 && s.drawingsPerSecond <= 13, `${s.drawingsPerSecond}`); // 1초 창 양 끝에 걸치면 13
     const call = t.renderer.calls.at(-1);
-    assert.equal(call.width, 1080);
-    assert.equal(call.height, 1920);
+    assert.equal(call.width, 540);
+    assert.equal(call.height, 960);
+    assert.deepEqual([call.displayWidth, call.displayHeight], [1080, 1920]);
     assert.deepEqual(call.sourceScale, [-1, 1]);
     assert.ok(call.seed >= 0 && call.seed < 997);
   });

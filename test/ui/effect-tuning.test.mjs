@@ -76,11 +76,11 @@ describe('effect-tuning (E)', () => {
     assert.deepEqual([t.input('previewScale').min, t.input('previewScale').max], ['0.25', '1']);
     t.tuning.toggle();
     assert.equal(t.panel.hidden, false);
-    t.slide('fps', 12);
+    t.slide('fps', 18);
     t.slide('refineThreshold', 0.3);
-    assert.equal(t.running().fps, 12);
+    assert.equal(t.running().fps, 18);
     assert.deepEqual(t.running().refine, [3.5, 3, 10, 0.6, 0.3]);
-    assert.equal(t.output('fps'), '12');
+    assert.equal(t.output('fps'), '18');
   });
 
   it('저장하지 않고 닫으면 저장된 값으로 되돌린다', () => {
@@ -90,7 +90,7 @@ describe('effect-tuning (E)', () => {
     assert.equal(t.running().boil, 0.5);
     t.tuning.close();
     assert.equal(t.tuning.isOpen(), false);
-    assert.equal(t.running().boil, 0.1);
+    assert.equal(t.running().boil, 0.05);
     assert.deepEqual(t.opens, [true, false]);
   });
 
@@ -120,7 +120,7 @@ describe('effect-tuning (E)', () => {
     t.saves[0].reject(new Error('HTTP 500'));
     await flush();
     assert.equal(t.tuning.isOpen(), false);
-    assert.equal(t.running().size, 1.25);
+    assert.equal(t.running().size, 1.1);
     assert.equal(t.tuning.describeSettingsSource(), 'file');
   });
 
@@ -142,7 +142,7 @@ describe('effect-tuning (E)', () => {
     t.tuning.toggle();
     assert.equal(t.running().fps, 10);
     t.click('defaults');
-    assert.equal(t.running().fps, 24);
+    assert.equal(t.running().fps, 12);
     assert.match(t.tuning.describeSettingsSource(), /unsaved changes/);
     t.click('revert');
     assert.equal(t.running().fps, 10);
@@ -218,7 +218,7 @@ describe('effect-tuning: 저장 상태 표시 (6-3)', () => {
   it('저장 실패는 다시 저장해 성공하거나 값을 바꿀 때까지 실패로 보인다', async () => {
     const t = current = setup();
     t.tuning.toggle();
-    t.slide('fps', 12);
+    t.slide('fps', 18);
     assert.equal(t.panel.dataset.save, 'dirty');
     t.click('save');
     assert.equal(t.panel.dataset.save, 'saving');
@@ -243,9 +243,9 @@ describe('effect-tuning: 불러온 결과에 따른 저장 상태 (6단계 검�
       const t = current = setup({ loaded });
       t.tuning.toggle();
       assert.equal(t.panel.dataset.save, expected);
-      t.slide('fps', 12);
+      t.slide('fps', 18);
       assert.equal(t.panel.dataset.save, 'dirty');
-      t.slide('fps', 24); // 불러온 값으로 돌아오면 다시 불러온 상태
+      t.slide('fps', 12); // 불러온 값으로 돌아오면 다시 불러온 상태
       assert.equal(t.panel.dataset.save, expected);
       t.click('save');
       t.saves[0].resolve();

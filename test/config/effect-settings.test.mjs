@@ -20,17 +20,17 @@ import {
 const defaults = config.effect;
 
 describe('normalizeEffectSettings', () => {
-  it('기본값(oil2f 사용자 세팅 그대로, boil 0.1)은 그대로 통과한다', () => {
+  it('기본값(개발 PC 저장값, 사용자 결정 2026-10-19)은 그대로 통과한다', () => {
     const { settings, issues } = normalizeEffectSettings(defaults, defaults);
     assert.deepEqual(issues, []);
     assert.equal(settings.strength, 0.1);
-    assert.equal(settings.size, 1.25);
-    assert.equal(settings.boil, 0.1, 'oil2f 원본 값 (7-1의 0.05에서 되돌림, 사용자 결정 2026-10-19 8단계)');
-    assert.equal(settings.fps, 24);
+    assert.equal(settings.size, 1.1, 'oil2f 1.25에서 개발 PC 저장값으로');
+    assert.equal(settings.boil, 0.05, '8단계 0.1에서 개발 PC 저장값으로');
+    assert.equal(settings.fps, 12, 'oil2f 24에서 개발 PC 저장값으로');
     assert.equal(settings.grade, 1);
     assert.deepEqual(settings.layers, [[36, 15, 84, 3.8, 0, 1], [18, 8, 44, 2.6, 0.02, 1], [8, 4, 20, 1.4, 0.06, 1]]);
     assert.deepEqual(settings.refine, [3.5, 3, 10, 0.6, 0.22]);
-    assert.equal(settings.previewScale, 1);
+    assert.equal(settings.previewScale, 0.5, '1에서 개발 PC 저장값으로');
     assert.ok(Object.isFrozen(settings) && Object.isFrozen(settings.layers[0]) && Object.isFrozen(settings.refine));
   });
 
@@ -69,7 +69,7 @@ describe('normalizeEffectSettings', () => {
   it('숫자가 아니거나 없으면 그 항목만 기본값', () => {
     const { settings, issues } = normalizeEffectSettings({ strength: 'x', fps: NaN, boil: 0.3 }, defaults);
     assert.equal(settings.strength, 0.1);
-    assert.equal(settings.fps, 24);
+    assert.equal(settings.fps, 12);
     assert.equal(settings.boil, 0.3);
     assert.ok(issues.includes('strength: not a number -> default'));
     assert.ok(issues.includes('size: missing -> default'));
@@ -92,7 +92,7 @@ describe('normalizeEffectSettings', () => {
 
   it('입력이 객체가 아니면 전부 기본값', () => {
     const { settings } = normalizeEffectSettings(null, defaults);
-    assert.equal(settings.fps, 24);
+    assert.equal(settings.fps, 12);
     assert.deepEqual(settings.refine, defaults.refine);
   });
 });
@@ -103,15 +103,15 @@ describe('효과 조절값 (E 화면·파일, 5-2)', () => {
   it('조절값은 16개(5-2의 7개 + 출력 단계 6개 + 흑백 스타일 3개), 보완 층 문턱은 refine[4]', () => {
     assert.deepEqual(Object.keys(effectTunables(base)), [...EFFECT_TUNABLE_KEYS]);
     assert.deepEqual(effectTunables(base), {
-      strength: 0.1, size: 1.25, boil: 0.1, fps: 24, grade: 1, refineThreshold: 0.22, previewScale: 1,
+      strength: 0.1, size: 1.1, boil: 0.05, fps: 12, grade: 1, refineThreshold: 0.22, previewScale: 0.5,
       outputMode: 'gray-oil', dither: defaults.dither, brightness: 0, contrast: 1, gamma: 1, paperDots: 576,
       bwStyle: defaults.bwStyle, bwTexture: defaults.bwTexture, lineSpacing: defaults.lineSpacing,
     });
   });
 
   it('조절값을 덮으면 붓 층 모양은 그대로, 범위 밖은 맞춘다', () => {
-    const { settings, issues } = applyEffectTunables(base, { fps: 12, refineThreshold: 0.3, strength: 5 }, defaults);
-    assert.equal(settings.fps, 12);
+    const { settings, issues } = applyEffectTunables(base, { fps: 18, refineThreshold: 0.3, strength: 5 }, defaults);
+    assert.equal(settings.fps, 18);
     assert.deepEqual(settings.refine, [3.5, 3, 10, 0.6, 0.3]);
     assert.equal(settings.strength, 1.6);
     assert.deepEqual(settings.layers, base.layers);
@@ -120,7 +120,7 @@ describe('효과 조절값 (E 화면·파일, 5-2)', () => {
 
   it('저장 → 읽기 왕복이 같다', () => {
     const changed = applyEffectTunables(base, {
-      fps: 8, boil: 0.4, previewScale: 0.5, outputMode: 'gray', dither: 'atkinson', brightness: 0.1, contrast: 1.3, gamma: 1.4, paperDots: 384,
+      fps: 8, boil: 0.4, previewScale: 0.75, outputMode: 'gray', dither: 'atkinson', brightness: 0.1, contrast: 1.3, gamma: 1.4, paperDots: 384,
     }, defaults).settings;
     assert.deepEqual([changed.outputMode, changed.dither, changed.paperDots], ['gray', 'atkinson', 384]);
     const text = serializeEffectSettings(changed);
@@ -175,11 +175,11 @@ describe('효과 조절값 (E 화면·파일, 5-2)', () => {
 });
 
 describe('흑백 스타일 설정 (7-1)', () => {
-  it('boil이 없는 파일은 기본값 0.1(8단계에서 되돌림), 있으면 파일 값이 앞선다 (7단계에 저장한 0.05도 그대로)', () => {
-    const missing = parseStoredEffectSettings(JSON.stringify({ version: 1, settings: { fps: 12 } }), defaults);
-    assert.equal(missing.settings.boil, 0.1);
+  it('boil이 없는 파일은 기본값 0.05(개발 PC 저장값, 2026-10-19), 있으면 파일 값이 앞선다 (8단계 기본값 0.1로 저장한 파일도 그대로)', () => {
+    const missing = parseStoredEffectSettings(JSON.stringify({ version: 1, settings: { fps: 10 } }), defaults);
+    assert.equal(missing.settings.boil, 0.05);
     assert.ok(missing.issues.includes('boil: missing -> default'));
-    for (const boil of [0.05, 0, 0.3]) {
+    for (const boil of [0.1, 0, 0.3]) {
       assert.equal(parseStoredEffectSettings(JSON.stringify({ version: 1, settings: { boil } }), defaults).settings.boil, boil);
     }
   });
@@ -216,7 +216,7 @@ describe('회색조 유화 설정 (8단계)', () => {
     assert.equal(r.source, 'stored');
     assert.deepEqual(r.issues, []);
     assert.deepEqual([r.settings.outputMode, r.settings.bwStyle], ['thermal', 'stroke']);
-    assert.equal(r.settings.boil, 0.05, '7단계에 저장한 boil은 새 기본값(0.1)보다 앞선다');
+    assert.equal(r.settings.boil, 0.05, '7단계에 저장한 boil 그대로');
     for (const mode of ['gray', 'off']) {
       const file = JSON.stringify({ version: 1, settings: { ...JSON.parse(stage7).settings, outputMode: mode } });
       assert.equal(parseStoredEffectSettings(file, defaults).settings.outputMode, mode);
@@ -235,9 +235,9 @@ describe('회색조 유화 설정 (8단계)', () => {
   });
 
   it('모드 값이 틀린 파일은 그 항목만 기본값(회색조 유화)으로', () => {
-    const r = parseStoredEffectSettings(JSON.stringify({ version: 1, settings: { outputMode: 'grey-oil', fps: 12 } }), defaults);
+    const r = parseStoredEffectSettings(JSON.stringify({ version: 1, settings: { outputMode: 'grey-oil', fps: 10 } }), defaults);
     assert.equal(r.settings.outputMode, 'gray-oil');
-    assert.equal(r.settings.fps, 12);
+    assert.equal(r.settings.fps, 10);
     assert.ok(r.issues.includes('outputMode: "grey-oil" -> default'));
   });
 });

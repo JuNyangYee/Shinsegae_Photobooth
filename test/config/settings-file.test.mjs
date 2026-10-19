@@ -211,11 +211,11 @@ describe('loadInitialEffectSettings (효과 조절값, 5-2): 파일 → 기본�
   const file = (read) => ({ read, write: () => { throw new Error('must not write'); } });
 
   it('파일이 있으면 그 값', async () => {
-    const text = JSON.stringify({ version: 1, settings: { strength: 0.3, size: 1, boil: 0.2, fps: 12, grade: 0.5, refineThreshold: 0.3, previewScale: 0.5,
+    const text = JSON.stringify({ version: 1, settings: { strength: 0.3, size: 1, boil: 0.2, fps: 10, grade: 0.5, refineThreshold: 0.3, previewScale: 0.75,
       outputMode: 'gray', dither: 'bayer', brightness: -0.1, contrast: 1.2, gamma: 0.9, paperDots: 384, bwStyle: 'texture', bwTexture: 1.5, lineSpacing: 3 } });
     const r = await loadInitialEffectSettings({ file: file(async () => ({ found: true, text })), defaults: config.effect });
     assert.equal(r.source, SettingsSource.FILE);
-    assert.equal(r.settings.fps, 12);
+    assert.equal(r.settings.fps, 10);
     assert.deepEqual(r.settings.refine, [3.5, 3, 10, 0.6, 0.3]);
     assert.deepEqual([r.settings.outputMode, r.settings.dither, r.settings.paperDots, r.settings.gamma], ['gray', 'bayer', 384, 0.9]);
     assert.deepEqual([r.settings.bwStyle, r.settings.bwTexture, r.settings.lineSpacing], ['texture', 1.5, 3]);
@@ -223,10 +223,10 @@ describe('loadInitialEffectSettings (효과 조절값, 5-2): 파일 → 기본�
   });
 
   it('5-2 파일(출력 단계 값 없음)도 파일 값으로 읽고, 출력 단계는 기본값(8단계부터 회색조 유화)으로 채워 알린다 (6-1)', async () => {
-    const text = JSON.stringify({ version: 1, settings: { strength: 0.3, size: 1, boil: 0.2, fps: 12, grade: 0.5, refineThreshold: 0.3, previewScale: 0.5 } });
+    const text = JSON.stringify({ version: 1, settings: { strength: 0.3, size: 1, boil: 0.2, fps: 10, grade: 0.5, refineThreshold: 0.3, previewScale: 0.75 } });
     const r = await loadInitialEffectSettings({ file: file(async () => ({ found: true, text })), defaults: config.effect });
     assert.equal(r.source, SettingsSource.FILE);
-    assert.equal(r.settings.fps, 12);
+    assert.equal(r.settings.fps, 10);
     assert.equal(r.settings.outputMode, 'gray-oil');
     assert.equal(r.issues.length, 9); // 출력 단계 6개(6-1) + 흑백 스타일 3개(7-1)
   });
@@ -235,7 +235,7 @@ describe('loadInitialEffectSettings (효과 조절값, 5-2): 파일 → 기본�
     const none = await loadInitialEffectSettings({ file: file(async () => ({ found: false })), defaults: config.effect });
     assert.equal(none.source, SettingsSource.DEFAULTS);
     assert.equal(none.note, 'no file');
-    assert.equal(none.settings.fps, 24);
+    assert.equal(none.settings.fps, 12);
     const failed = await loadInitialEffectSettings({ file: file(async () => { throw new Error('timeout 3000ms'); }), defaults: config.effect });
     assert.equal(failed.note, 'file read failed: timeout 3000ms');
     const invalid = await loadInitialEffectSettings({ file: file(async () => ({ found: true, text: '{' })), defaults: config.effect });
