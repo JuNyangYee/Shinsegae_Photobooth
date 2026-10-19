@@ -16,6 +16,8 @@
 // - 감열지 출력 단계 FS_THERMAL_REDUCE·FS_THERMAL_DITHER·FS_THERMAL_SHOW (6-1, 원본에 없음. 계산은 core/thermal.js와 같다)
 // - 흑백 스타일 (7-1, 원본에 없음): VS_STROKE·FS_STROKE가 높이 텍스처의 G에 "붓 결 선" 값을 더 쓴다(합성은 R만 읽어 색은 같다),
 //   FS_BW_PREP(붓 높이 조명), FS_THERMAL_REDUCE의 국소 대비, FS_THERMAL_SCREEN(흐름 선·붓 결 선 문턱)
+// - 회색조 유화 (8단계, 원본에 없음): FS_INPUT_GRAY가 FS_GRADE 앞에서 입력을 회색조로 바꾼다. 유화 패스는 그대로이고,
+//   색 보정(따뜻한 톤)·획 색 흔들림이 더하는 색은 출력 단계 FS_OUTPUT의 회색조가 없앤다
 
 export const VS = `#version 300 es
 const vec2 P[3] = vec2[3](vec2(-1.,-1.), vec2(3.,-1.), vec2(-1.,3.));
@@ -28,6 +30,17 @@ in vec2 vUV; out vec4 o;
 uniform vec2 uRes; uniform vec2 uTexel;
 float lum(vec3 c){ return dot(c, vec3(.299,.587,.114)); }
 `;
+
+// 입력 회색조 (8단계 회색조 유화, 원본에 없음): 유화 첫 패스(색 보정) 앞에서 카메라 프레임을 단순 흑백 한 장으로 만든다.
+// 보이는 9:16 영역을 좌우 반전해 읽는 좌표는 FS_GRADE와 같고, 결과는 그리는 해상도의 RGBA8(R=G=B)이다.
+// 그 뒤 FS_GRADE는 이 그림을 크롭·반전 없이(오프셋 0, 배율 1) 텍셀 가운데에서 읽으므로, 회색 이미지를 원본 페이지에 넣은 것과 같다.
+// 계수 uLuma는 core/thermal.js INPUT_LUMA (Rec.709)
+export const FS_INPUT_GRAY = COMMON + `
+uniform sampler2D uSrc; uniform vec3 uLuma; uniform vec2 uSrcOffset, uSrcScale;
+void main(){
+  float y = dot(texture(uSrc, uSrcOffset + vUV*uSrcScale).rgb, uLuma);
+  o = vec4(vec3(y), 1.);
+}`;
 
 // 색 보정: 따뜻한 쪽으로 조금, 밝은 곳 압축, 아주 약한 갈색 섞기
 export const FS_GRADE = COMMON + `
@@ -208,7 +221,7 @@ float levels(vec3 c){
   return pow(g, 1./uGamma);
 }`;
 
-// 출력 단계: 합성 결과 → 화면 캔버스 또는 결과 사진용 화면 밖 대상. uGray 1이면 회색조·레벨 (출력 모드 'gray')
+// 출력 단계: 합성 결과 → 화면 캔버스 또는 결과 사진용 화면 밖 대상. uGray 1이면 회색조·레벨 (출력 모드 'gray'·'gray-oil')
 export const FS_OUTPUT = `#version 300 es
 precision highp float;
 in vec2 vUV; out vec4 o;

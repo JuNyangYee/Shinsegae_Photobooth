@@ -4,21 +4,23 @@
 //   (원본 tex·pass·allocate·upload·renderDrawing·paintStrokes 중 oil2f 경로를 옮겼다. 셰이더는 oil-shaders.js)
 // 기법: Hertzmann 1998 (층 칠하기·보완 층). 패스 구조는 docs/SYSTEM.md 6절 "사진 효과(유화 · 획)".
 //
-// 패스: 색 보정 → 구조 텐서 → 가로·세로 흐림 → 흐름장 → 밑칠 → 붓 층 3개 → 보완 층 → 합성 → 출력 단계 → 캔버스
+// 패스: (회색조 유화면 입력 회색조) → 색 보정 → 구조 텐서 → 가로·세로 흐림 → 흐름장 → 밑칠 → 붓 층 3개 → 보완 층 → 합성 → 출력 단계 → 캔버스
 // 출력 단계 (6-1, settings.outputMode): 'off' 그대로, 'gray' 회색조·레벨, 'thermal' 회색조·레벨 → 인쇄 해상도로 면적 평균
 //   → 1비트 디더(문턱값은 GPU, 오차 확산은 화소를 읽어 CPU) → 캔버스(결과 크기, 종이색·잉크색). 화면 확대는 정수배 최근접 +
 //   경계 1화소만 넓이 비율로 섞는다(FS_THERMAL_SHOW, 화면 표시 전용).
 // 흑백 스타일 (7-1, settings.bwStyle): 'tone'은 6-1 그대로. 'texture'는 붓 높이 조명(FS_BW_PREP)·국소 대비를 더한 회색에 점 방식,
 //   'flow'·'stroke'는 회색은 'texture'와 같고 문턱을 인쇄 해상도 전체로 만든다(FS_THERMAL_SCREEN: 흐름장 LIC 또는 획 가로 삼각파).
+// 회색조 유화 (8단계, outputMode 'gray-oil'): 입력 회색조(FS_INPUT_GRAY, Rec.709) → 유화 패스 그대로 → 출력 단계 회색조·레벨(FS_OUTPUT).
+//   결과 사진(output 'pixels')이면 같은 합성 그림에서 인쇄용 1비트(6-1 톤 점 경로: 회색조·레벨 → 면적 평균 → 점 방식)도 만들어 돌려준다.
 // 이미지·프레임을 밖으로 내보내거나 저장하지 않는다. 캔버스에 그리거나 결과 사진용 화소를 돌려주기만 한다.
 //
 // GPU 자원은 만드는 즉시 owned에 넣는다. 만들다 실패하면(텍스처·프레임버퍼·셰이더) 그때까지 만든 것을 지우고,
 // dispose()는 owned 전체를 지운다 (5단계 검수 2·3). 그림마다 GL 오류·컨텍스트 손실을 확인해 실패를 성공으로 넘기지 않는다 (검수 1).
 
 import { createStrokeBuilder, resolveOilDrawing } from '../core/oil-paint.js';
-import { bwStyleOf, ditherErrorDiffusion, isGpuDither, printSizeFor, screenOf, thresholdMap } from '../core/thermal.js';
+import { INPUT_LUMA, bwStyleOf, ditherErrorDiffusion, isGpuDither, printSizeFor, screenOf, thresholdMap } from '../core/thermal.js';
 import {
-  FS_BLUR, FS_BW_PREP, FS_COMPOSE, FS_GRADE, FS_OUTPUT, FS_SST, FS_STROKE, FS_TFM, FS_THERMAL_DITHER, FS_THERMAL_REDUCE,
+  FS_BLUR, FS_BW_PREP, FS_COMPOSE, FS_GRADE, FS_INPUT_GRAY, FS_OUTPUT, FS_SST, FS_STROKE, FS_TFM, FS_THERMAL_DITHER, FS_THERMAL_REDUCE,
   FS_THERMAL_SCREEN, FS_THERMAL_SHOW, FS_UNDER, VS, VS_STROKE,
 } from './oil-shaders.js';
 
@@ -110,7 +112,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
       grade: compile(FS_GRADE), sst: compile(FS_SST), blur: compile(FS_BLUR), tfm: compile(FS_TFM),
       stroke: compile(FS_STROKE, VS_STROKE), under: compile(FS_UNDER), compose: compile(FS_COMPOSE), output: compile(FS_OUTPUT),
       reduce: compile(FS_THERMAL_REDUCE), dither: compile(FS_THERMAL_DITHER), show: compile(FS_THERMAL_SHOW),
-      prep: compile(FS_BW_PREP), screen: compile(FS_THERMAL_SCREEN),
+      prep: compile(FS_BW_PREP), screen: compile(FS_THERMAL_SCREEN), inputGray: compile(FS_INPUT_GRAY),
     };
 
     // 소스 텍스처: 영상 프레임을 그림마다 올린다 (크기는 texImage2D가 정한다)
@@ -234,7 +236,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
     }
   }
 
-  const TARGET_KEYS = ['grade', 'sst', 'sst2', 'tfm', 'paint', 'hgt', 'paintC', 'composed', 'out', 'bw'];
+  const TARGET_KEYS = ['inputGray', 'grade', 'sst', 'sst2', 'tfm', 'paint', 'hgt', 'paintC', 'composed', 'out', 'bw'];
 
   function freeTargets(set) {
     for (const key of TARGET_KEYS) {
@@ -269,7 +271,8 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
   function allocate(W, H) {
     const fw = Math.round(W / 2);
     const fh = Math.round(H / 2);
-    const set = { mrt: null, out: null, bw: null }; // out: 결과 사진(화면 밖) 출력, bw: 흑백 스타일 밝기(7-1). 처음 쓸 때 만든다
+    // out: 결과 사진(화면 밖) 출력, bw: 흑백 스타일 밝기(7-1), inputGray: 회색조 유화의 입력 회색조(8단계). 처음 쓸 때 만든다
+    const set = { mrt: null, out: null, bw: null, inputGray: null };
     try {
       set.grade = tex(W, H, { mip: true });
       set.sst = tex(fw, fh, { float: true });
@@ -577,7 +580,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
    *   width·height: 그리는 해상도. sourceOffset·sourceScale: 출력 uv(왼쪽 아래 원점, 0~1) → 소스 텍스처 uv
    *   (위아래를 뒤집어 올리므로 텍스처 uv도 왼쪽 아래 원점). 기본값은 소스 전체 그대로.
    *   output: 'canvas'(화면 캔버스, 크기를 맞춘다), 'pixels'(화면 밖에 그려 RGBA 화소를 위 줄부터 돌려준다.
-   *   화면 캔버스는 건드리지 않는다. 결과 사진용, 출력 모드 off·gray), 'print'(감열지 결과 사진용: 인쇄 해상도의
+   *   화면 캔버스는 건드리지 않는다. 결과 사진용, 출력 모드 off·gray·gray-oil. gray-oil이면 인쇄용 gray·mask도), 'print'(감열지 결과 사진용: 인쇄 해상도의
    *   gray·mask를 위 줄부터 돌려준다. 화면 캔버스는 건드리지 않는다)
    *   출력 단계는 settings의 outputMode·dither·brightness·contrast·gamma·paperDots를 따른다 (outputMode가 없으면 'off')
    *   displayWidth·displayHeight: 감열지 화면 캔버스 크기 (기본값은 그리는 해상도. 미리보기는 결과 크기를 넘긴다)
@@ -593,7 +596,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
     const t0 = performance.now();
     const mode = settings.outputMode ?? 'off';
     if ((output === 'print') !== (mode === 'thermal') && output !== 'canvas') {
-      throw new Error(`output ${output} does not fit outputMode ${mode} (thermal -> print, off/gray -> pixels)`);
+      throw new Error(`output ${output} does not fit outputMode ${mode} (thermal -> print, off/gray/gray-oil -> pixels)`);
     }
     useTargets(width, height);
     if (output === 'canvas' && mode !== 'thermal') resizeCanvas(width, height);
@@ -612,7 +615,14 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
     try {
       clearGlErrors();
       if (source !== null) upload(source);
-      pass(PR.grade, T.grade, { uSrc: srcTex }, { uAmt: D.grade, uSrcOffset: sourceOffset, uSrcScale: sourceScale });
+      if (mode === 'gray-oil') {
+        // 회색조 유화 (8단계): 입력을 먼저 회색 한 장으로. 색 보정 이후는 원본 그대로이고, 회색 그림을 크롭·반전 없이 읽는다
+        if (!T.inputGray) T.inputGray = tex(width, height);
+        pass(PR.inputGray, T.inputGray, { uSrc: srcTex }, { uLuma: INPUT_LUMA, uSrcOffset: sourceOffset, uSrcScale: sourceScale });
+        pass(PR.grade, T.grade, { uSrc: T.inputGray }, { uAmt: D.grade, uSrcOffset: [0, 0], uSrcScale: [1, 1] });
+      } else {
+        pass(PR.grade, T.grade, { uSrc: srcTex }, { uAmt: D.grade, uSrcOffset: sourceOffset, uSrcScale: sourceScale });
+      }
       pass(PR.sst, T.sst, { uTex: T.grade });
       pass(PR.blur, T.sst2, { uTex: T.sst }, { uDir: [1 / T.sst.w, 0], uSigma: D.flowSigma });
       pass(PR.blur, T.sst, { uTex: T.sst2 }, { uDir: [0, 1 / T.sst.h], uSigma: D.flowSigma });
@@ -620,7 +630,8 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
       // 붓 결 선 주기: 선 간격(인쇄 점) × 인쇄 점 하나의 그리는 해상도 px (감열지가 아니어도 같은 식, 색에는 영향 없음)
       count = paintStrokes(D, seed, (settings.lineSpacing ?? 3) * (width / (settings.paperDots ?? 576)));
       pass(PR.compose, T.composed, { uPaint: T.paint, uHgt: T.hgt }, { uStr: D.strength, uRelief: D.relief, uPxScale: D.pxScale });
-      const outputUniforms = { uGray: mode === 'gray' ? 1 : 0, ...levelUniforms(settings) };
+      // 회색조·회색조 유화는 회색조·레벨. 회색조 유화는 이것으로 색 보정·획 색 흔들림의 색을 없앤다(무채색, 8단계)
+      const outputUniforms = { uGray: mode === 'gray' || mode === 'gray-oil' ? 1 : 0, ...levelUniforms(settings) };
       if (mode === 'thermal') {
         thermal = thermalStage(settings, D, output, displayWidth, displayHeight);
         checkGl(output === 'canvas' ? 'preview render' : 'photo render'); // 화소 읽기까지 끝난 뒤
@@ -630,6 +641,10 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
         pixels = new Uint8ClampedArray(width * height * 4);
         gl.bindFramebuffer(gl.FRAMEBUFFER, T.out.fb);
         gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        if (mode === 'gray-oil') {
+          // 인쇄용 1비트 (8단계): 같은 합성 그림을 6-1 톤 점 경로로(회색조·레벨 → 인쇄 해상도 면적 평균 → 점 방식). 화면에는 보이지 않는다
+          thermal = thermalStage({ ...settings, bwStyle: 'tone' }, D, 'print', width, height);
+        }
         checkGl('photo render'); // 화소 읽기까지 끝난 뒤. 잃었거나 오류면 빈 화소일 수 있다
       } else {
         pass(PR.output, null, { uImage: T.composed }, { uFlipY: 0, ...outputUniforms });
@@ -654,9 +669,9 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
         readMs: thermal?.readMs ?? null, ditherMs: thermal?.ditherMs ?? null,
       });
     }
-    if (output === 'print') {
+    if (thermal && output !== 'canvas') {
       const { gray, mask, thr, printWidth, printHeight } = thermal;
-      return { strokes: count, cpuMs, gray, mask, thr, printWidth, printHeight };
+      return { strokes: count, cpuMs, pixels, gray, mask, thr, printWidth, printHeight };
     }
     return { strokes: count, cpuMs, pixels };
   }

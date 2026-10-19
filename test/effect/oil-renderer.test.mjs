@@ -8,6 +8,7 @@ import { normalizeEffectSettings } from '../../src/web/config/effect-settings.js
 import { EffectStatus, createEffectPreview } from '../../src/web/effect/effect-preview.js';
 import { EffectFault, createOilRenderer } from '../../src/web/effect/oil-renderer.js';
 import { createPhotoEffect } from '../../src/web/effect/photo-effect.js';
+import { INPUT_LUMA } from '../../src/web/core/thermal.js';
 import { createFakeWebGL2 } from '../fixtures/fake-webgl2.mjs';
 
 // 5단계 검수 테스트는 컬러 출력(outputMode off) 경로로 본다. 감열지 경로는 아래 6-1 테스트
@@ -16,12 +17,12 @@ const small = { settings, width: 20, height: 36, seed: 3 };
 const ZERO = { program: 0, shader: 0, texture: 0, framebuffer: 0, buffer: 0, vertexArray: 0 };
 
 describe('oil-renderer: GPU 자원 정리 (검수 2·3)', () => {
-  it('dispose는 만든 프로그램 13개(유화 8 + 감열지 3 + 흑백 스타일 2)를 그 객체로 지우고, 텍스처·프레임버퍼·버퍼·VAO도 모두 지운다', () => {
+  it('dispose는 만든 프로그램 14개(유화 8 + 감열지 3 + 흑백 스타일 2 + 입력 회색조 1)를 그 객체로 지우고, 텍스처·프레임버퍼·버퍼·VAO도 모두 지운다', () => {
     const fake = createFakeWebGL2();
     const renderer = createOilRenderer({ canvas: fake.canvas });
     renderer.render({}, small); // 미리보기 묶음
     renderer.render(null, { ...small, width: 30, height: 54, output: 'pixels' }); // 결과 묶음 + out
-    assert.equal(fake.created.program.length, 13);
+    assert.equal(fake.created.program.length, 14);
     renderer.dispose();
     assert.deepEqual(fake.liveCount(), ZERO);
     for (const program of fake.created.program) {
@@ -363,6 +364,7 @@ describe('촬영 결과 감열지 경로 (실제 미리보기·렌더러·결과
     assert.deepEqual([t.canvas.width, t.canvas.height], [1080, 1920]);
     const out = await t.photo.apply(t.raw);
     assert.equal(out.type, 'image/png');
+    assert.equal(out.dots, true, '1비트 점 사진 표시 (결과 화면이 1:1 폭으로 놓는다)');
     assert.deepEqual([out.canvas.width, out.canvas.height], [1080, 1920], '화면용 이미지(b)는 결과 크기로 확대');
     assert.deepEqual([out.print.width, out.print.height, out.print.bytesPerRow, out.print.bits.length], [128, 228, 16, 16 * 228]);
     assert.deepEqual([out.print.pngBitDepth, out.print.pngColorType], [1, 0]);
@@ -415,5 +417,184 @@ describe('촬영 결과 감열지 경로 (실제 미리보기·렌더러·결과
     const { last } = photo.getStats();
     assert.deepEqual([last.status, last.mode], ['raw', 'off']);
     assert.match(last.reason, /thermal output failed: no CompressionStream/);
+  });
+});
+
+describe('oil-renderer: 회색조 유화 (8단계, 가짜 WebGL2)', () => {
+  const grayOil = (over = {}) => normalizeEffectSettings({ ...config.effect, outputMode: 'gray-oil', paperDots: 128, ...over }, config.effect).settings;
+  const P = { w: 128, h: 230 }; // 20x36 그림 → 용지 128점
+
+  // uniform 값을 프로그램(패스)마다 기록한다: 마지막 useProgram 이후의 uniform 이름 → 값
+  function recordPasses(fake) {
+    const passes = [];
+    const wrap = (name) => {
+      const original = fake.gl[name];
+      fake.gl[name] = (loc, ...v) => { passes.at(-1)?.set(loc?.name, v.length === 1 ? v[0] : v); return original(loc, ...v); };
+    };
+    const use = fake.gl.useProgram;
+    fake.gl.useProgram = (p) => { passes.push(new Map()); return use(p); };
+    for (const name of ['uniform1f', 'uniform2fv', 'uniform3fv']) wrap(name);
+    return passes;
+  }
+
+  it('미리보기: 색 보정 앞에 입력 회색조 패스 하나(Rec.709 계수, 크롭·반전은 이 패스가), 색 보정은 회색 그림을 그대로 읽고, 출력은 회색조', () => {
+    const fake = createFakeWebGL2();
+    const passes = recordPasses(fake);
+    const renderer = createOilRenderer({ canvas: fake.canvas });
+    const mirror = { sourceOffset: [0.9, 0], sourceScale: [-0.8, 1] };
+    renderer.render({}, { ...small, ...mirror, settings: grayOil() });
+    const input = passes.find((p) => p.has('uLuma'));
+    assert.deepEqual([...input.get('uLuma')], [...INPUT_LUMA]);
+    assert.deepEqual([input.get('uSrcOffset'), input.get('uSrcScale')], [[0.9, 0], [-0.8, 1]]);
+    const grade = passes.find((p) => p.has('uAmt'));
+    assert.deepEqual([grade.get('uSrcOffset'), grade.get('uSrcScale'), grade.get('uAmt')], [[0, 0], [1, 1], 1], '원본 색 보정 그대로, 크롭·반전 없이');
+    assert.ok(passes.indexOf(input) < passes.indexOf(grade), '입력 회색조가 색 보정보다 먼저');
+    assert.equal(passes.at(-1).get('uGray'), 1, '출력 단계 회색조 (무채색)');
+    assert.deepEqual([fake.canvas.width, fake.canvas.height], [20, 36]);
+    assert.equal(renderer.getStats().outputMode, 'gray-oil');
+
+    // 다른 모드는 입력 회색조 패스가 없고, 색 보정이 크롭·반전을 한다 (6-1·7-1 그대로)
+    for (const outputMode of ['off', 'gray', 'thermal']) {
+      passes.length = 0;
+      renderer.render({}, { ...small, ...mirror, settings: grayOil({ outputMode, bwStyle: 'tone' }) });
+      assert.ok(!passes.some((p) => p.has('uLuma')), outputMode);
+      assert.deepEqual(passes.find((p) => p.has('uAmt')).get('uSrcScale'), [-0.8, 1], outputMode);
+    }
+    renderer.dispose();
+    assert.deepEqual(fake.liveCount(), ZERO, '입력 회색조 텍스처도 지운다');
+  });
+
+  it('미리보기 패스 수: 회색조 유화 = 회색조 + 1 (입력 회색조만 더한다), 화소는 읽지 않는다', () => {
+    const draws = (outputMode) => {
+      const fake = createFakeWebGL2();
+      let n = 0;
+      let reads = 0;
+      const original = fake.gl.drawArrays;
+      fake.gl.drawArrays = (...args) => { n += 1; return original(...args); };
+      fake.onReadPixels(() => { reads += 1; });
+      const renderer = createOilRenderer({ canvas: fake.canvas });
+      renderer.render({}, { ...small, settings: grayOil({ outputMode }) });
+      renderer.dispose();
+      assert.equal(reads, 0, outputMode);
+      return n;
+    };
+    assert.equal(draws('gray-oil'), draws('gray') + 1);
+  });
+
+  it('결과(pixels): 결과 크기 화소 + 같은 합성 그림에서 만든 인쇄용 회색·GPU 점(톤 점 경로). 흑백 스타일은 쓰지 않는다', () => {
+    const fake = createFakeWebGL2();
+    const renderer = createOilRenderer({ canvas: fake.canvas });
+    const reads = [];
+    fake.onReadPixels((f, [, , w, h, , , buf]) => { reads.push([w, h]); buf.fill([7, 100, 255][reads.length - 1] ?? 0); });
+    const out = renderer.render({}, { ...small, settings: grayOil({ bwStyle: 'stroke' }), output: 'pixels' });
+    assert.deepEqual(reads, [[20, 36], [P.w / 4, P.h], [P.w / 4, P.h]], '화소 1번 + 인쇄 회색 + GPU 점 (붓 결 선 문턱은 읽지 않는다)');
+    assert.equal(out.pixels.length, 20 * 36 * 4);
+    assert.deepEqual([out.printWidth, out.printHeight, out.gray[0], out.mask[0], out.thr], [P.w, P.h, 100, 1, null]);
+    assert.deepEqual([fake.canvas.width, fake.canvas.height], [0, 0], '결과는 화면 캔버스를 건드리지 않는다');
+    // 오차 확산이면 회색만 읽어 CPU로
+    reads.length = 0;
+    const fs = renderer.render(null, { ...small, settings: grayOil({ dither: 'floyd-steinberg' }), output: 'pixels' });
+    assert.deepEqual(reads, [[20, 36], [P.w / 4, P.h]]);
+    assert.equal(fs.mask.length, P.w * P.h);
+    // 끔·회색조 결과에는 인쇄 데이터가 없다
+    for (const outputMode of ['off', 'gray']) {
+      const plain = renderer.render(null, { ...small, settings: grayOil({ outputMode }), output: 'pixels' });
+      assert.deepEqual([plain.mask, plain.gray], [undefined, undefined], outputMode);
+    }
+    assert.throws(() => renderer.render(null, { ...small, settings: grayOil(), output: 'print' }), /does not fit/);
+    renderer.dispose();
+    assert.deepEqual(fake.liveCount(), ZERO);
+  });
+
+  it('결과 인쇄 데이터를 읽기 직전 손실·INVALID_OPERATION은 예외', () => {
+    for (const [inject, fault] of [
+      [(f) => { let n = 0; f.onReadPixels((g) => { n += 1; if (n === 2) g.lose(); }); }, EffectFault.CONTEXT_LOST],
+      [(f) => f.failNextCall('readPixels'), EffectFault.RENDER_FAILED],
+    ]) {
+      const fake = createFakeWebGL2();
+      const renderer = createOilRenderer({ canvas: fake.canvas });
+      inject(fake);
+      assert.throws(() => renderer.render({}, { ...small, settings: grayOil(), output: 'pixels' }), (e) => e.fault === fault);
+    }
+  });
+});
+
+describe('촬영 결과 회색조 유화 경로 (실제 미리보기·렌더러·결과 단계 + 가짜 WebGL2, 8단계)', () => {
+  const canvas2d = (w = 0, h = 0, fill = 255) => ({
+    width: w, height: h, getContext: () => ({
+      putImageData() {}, drawImage() {}, set imageSmoothingQuality(v) {},
+      getImageData: (x, y, gw, gh) => ({ data: new Uint8ClampedArray(gw * gh * 4).fill(fill) }),
+    }),
+  });
+
+  function setup(over = {}, photoOver = {}) {
+    const fake = createFakeWebGL2();
+    const canvas = Object.assign(fake.canvas, { hidden: true, style: {}, addEventListener() {}, removeEventListener() {} });
+    let queued = null;
+    let time = 10000;
+    const preview = createEffectPreview({
+      canvas, video: { videoWidth: 54, videoHeight: 96 }, camera: { isReady: () => true }, stageAspect: 9 / 16, mirror: true,
+      settings: { ...config.effect, previewScale: 0.25, paperDots: 128, ...over },
+      raf: (fn) => { queued = fn; return 1; }, cancelRaf: () => {}, now: () => time, log: { warn() {}, clear() {} },
+    });
+    const run = (frames) => { for (let i = 0; i < frames; i += 1) { time += 1000 / 60; const fn = queued; queued = null; fn?.(); } };
+    const warnings = [];
+    const photo = createPhotoEffect({
+      preview, createCanvas: () => canvas2d(), createImageData: (p, w, h) => ({ p, w, h }),
+      log: { warn: (k, m) => warnings.push(m), clear() {} }, ...photoOver,
+    });
+    preview.start();
+    run(3);
+    assert.equal(preview.getState().status, EffectStatus.RUNNING);
+    return { fake, preview, photo, run, raw: canvas2d(1080, 1920), canvas, warnings };
+  }
+
+  it('기본 설정(회색조 유화): 사진은 결과 크기 캔버스(형식 없음 = JPEG), 인쇄 데이터 1비트·GPU 디더 = CPU, 점 사진 표시 없음', async () => {
+    const t = setup();
+    assert.equal(t.preview.getSettings().outputMode, 'gray-oil');
+    // 결과는 1080x1920으로 그리므로 인쇄 해상도는 128 x round(128 x 1920 / 1080) = 128x228
+    const out = await t.photo.apply(t.raw);
+    assert.equal(out.type, undefined, 'capture.js 기본 형식(JPEG)');
+    assert.equal(out.dots, undefined);
+    assert.deepEqual([out.canvas.width, out.canvas.height], [1080, 1920]);
+    assert.deepEqual([out.print.width, out.print.height, out.print.bytesPerRow, out.print.bits.length], [128, 228, 16, 16 * 228]);
+    assert.deepEqual([out.print.pngBitDepth, out.print.pngColorType], [1, 0]);
+    const { last } = t.photo.getStats();
+    assert.deepEqual([last.status, last.mode, last.dither, last.check, last.sameAsPreview], ['applied', 'gray-oil', 'print blue-noise', 'gpu=cpu', true]);
+    assert.deepEqual([last.print.width, last.print.height], [128, 228]);
+  });
+
+  it('인쇄 데이터만 실패하면(PNG 압축) 회색조 유화 사진은 그대로, 인쇄 데이터 없이 경고', async () => {
+    const t = setup({}, { deflate: async () => { throw new Error('no CompressionStream'); } });
+    const out = await t.photo.apply(t.raw);
+    assert.deepEqual([out.width, out.height], [1080, 1920], '캔버스 그대로 (인쇄 데이터 없음)');
+    assert.equal(out.print, undefined);
+    const { last } = t.photo.getStats();
+    assert.deepEqual([last.status, last.mode, last.print, last.check], ['applied', 'gray-oil', null, 'no print data']);
+    assert.match(last.printError, /no CompressionStream/);
+    assert.ok(t.warnings.some((m) => /print data not made/.test(m)));
+  });
+
+  it('인쇄 데이터를 만드는 중 회차가 취소되면 사진 캔버스를 비우고 예외', async () => {
+    const controller = new AbortController();
+    let made = null;
+    const t = setup({}, {
+      createCanvas: () => { made = canvas2d(); return made; },
+      deflate: async (raw) => { controller.abort(new Error('cancelled')); return raw; },
+    });
+    await assert.rejects(t.photo.apply(t.raw, { signal: controller.signal }), /cancelled/);
+    assert.deepEqual([made.width, made.height], [0, 0]);
+  });
+
+  it('효과를 그리지 못하면 원본 사진(결과 크기)을 입력 회색조·레벨로, 인쇄 데이터도 그 사진에서', async () => {
+    const t = setup({ dither: 'atkinson' });
+    t.fake.onReadPixels((f) => f.lose());
+    const out = await t.photo.apply(t.raw);
+    assert.equal(out.canvas, t.raw, '이미 결과 크기인 원본 캔버스를 회색으로');
+    assert.deepEqual([out.print.width, out.print.height], [128, 228]);
+    assert.equal(out.print.blackRatio, 0, '흰 원본 → 흰 종이');
+    const { last } = t.photo.getStats();
+    assert.deepEqual([last.status, last.mode, last.dither], ['raw', 'gray-oil', 'print atkinson']);
+    assert.match(last.reason, /context-lost/);
   });
 });

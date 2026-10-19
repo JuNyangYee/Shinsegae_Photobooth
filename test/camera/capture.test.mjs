@@ -51,7 +51,7 @@ describe('createCapture', () => {
   it('보이는 영역을 원본 해상도로 잘라 좌우 반전해 그리고, 캔버스는 인코딩 뒤 비운다', async () => {
     const { env, capture } = setup();
     const photo = await capture.take();
-    assert.deepEqual(photo, { url: 'blob:fake/1', width: 608, height: 1080, print: null });
+    assert.deepEqual(photo, { url: 'blob:fake/1', width: 608, height: 1080, print: null, dots: false });
     const [canvas] = env.canvases;
     assert.deepEqual(canvas.calls, [
       ['translate', 608, 0],
@@ -97,11 +97,11 @@ describe('createCapture', () => {
       const out = env2.createCanvas();
       out.width = 576;
       out.height = 1024;
-      return { canvas: out, type: 'image/png', print };
+      return { canvas: out, type: 'image/png', print, dots: true };
     };
     const { env, capture } = setup({ effect });
     const photo = await capture.take();
-    assert.deepEqual(photo, { url: 'blob:fake/1', width: 576, height: 1024, print });
+    assert.deepEqual(photo, { url: 'blob:fake/1', width: 576, height: 1024, print, dots: true });
     assert.deepEqual(env2.canvases[0].calls.at(-1), ['toBlob', 'image/png', 0.92]);
     assert.equal(env.liveCanvasCount() + env2.liveCanvasCount(), 0); // 원본·화면용 캔버스 모두 비움
     assert.equal(capture.getStats().livePrints, 1);
@@ -109,6 +109,25 @@ describe('createCapture', () => {
     capture.release(photo);
     assert.equal(capture.getStats().livePrints, 0);
     assert.equal(capture.getStats().liveUrls, 0);
+  });
+
+  it('효과 단계가 형식 없이 { canvas, print }를 주면(회색조 유화, 8단계) 기본 형식(JPEG)으로 인코딩하고 인쇄 데이터를 붙인다', async () => {
+    const env2 = fakeEnvironment();
+    const print = { width: 576, height: 1024, bits: new Uint8Array(72 * 1024) };
+    const effect = async () => {
+      const out = env2.createCanvas();
+      out.width = 1080;
+      out.height = 1920;
+      return { canvas: out, print };
+    };
+    const { env, capture } = setup({ effect });
+    const photo = await capture.take();
+    assert.deepEqual(photo, { url: 'blob:fake/1', width: 1080, height: 1920, print, dots: false });
+    assert.deepEqual(env2.canvases[0].calls.at(-1), ['toBlob', 'image/jpeg', 0.92]);
+    assert.equal(env.liveCanvasCount() + env2.liveCanvasCount(), 0);
+    assert.equal(capture.getStats().livePrints, 1);
+    capture.release(photo);
+    assert.equal(capture.getStats().livePrints, 0);
   });
 
   it('영상이 없으면 바로 예외, 캔버스를 만들지 않는다', () => {

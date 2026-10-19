@@ -1,6 +1,7 @@
 // 한 장 캡처: 미리보기에 보이는 9:16 영역을 원본 해상도로 잘라 좌우 반전하고, 결과 이미지(Object URL)로 만든다.
 // 이미지는 메모리에만 둔다. 파일·영구 저장소·서버에 저장하지 않는다. 다 쓴 사진은 release()로 정리한다.
-// 감열지 출력이면 사진에 인쇄 데이터(print: 1비트 래스터·PNG)가 함께 붙는다 (6-1, effect/photo-effect.js). 인쇄 연동 때 넘길 데이터다.
+// 감열지·회색조 유화 출력이면 사진에 인쇄 데이터(print: 1비트 래스터·PNG)가 함께 붙는다 (6-1·8단계, effect/photo-effect.js).
+// 인쇄 연동 때 넘길 데이터다. dots는 화면용 사진이 1비트 점 그림(감열지)이라는 표시로, 결과 화면이 화소 1:1로 놓는 데 쓴다.
 // Node 테스트: test/camera/capture.test.mjs
 
 import { computeCoverMapping } from '../core/presence.js';
@@ -24,8 +25,8 @@ export function computeCaptureCrop({ videoWidth, videoHeight, stageAspect }) {
 
 /**
  * 사진 효과 자리. 캡처한 캔버스를 받아 결과로 보일 캔버스를 돌려준다 (기본값은 그대로 통과, 앱은 photo-effect.js).
- * 새 캔버스를 돌려줘도 되며, 캡처 쪽이 둘 다 정리한다. { canvas, type, quality?, print }를 돌려주면 그 형식으로 인코딩하고
- * print(인쇄 데이터)를 사진에 붙인다.
+ * 새 캔버스를 돌려줘도 되며, 캡처 쪽이 둘 다 정리한다. { canvas, type?, quality?, print, dots? }를 돌려주면 그 형식(없으면 기본 형식)으로
+ * 인코딩하고 print(인쇄 데이터)·dots(1비트 점 사진)를 사진에 붙인다.
  * signal이 abort되면(촬영 제한 시간 초과·강제 초기화) 하던 일을 멈춘다. 멈추지 않아도 캡처 쪽이 결과를 버리고 정리한다.
  * @param {HTMLCanvasElement} canvas
  * @param {{ signal?: AbortSignal }} [options]
@@ -176,7 +177,7 @@ export function createCapture({
         grabMs,
         encodeMs: now() - encodeStart,
       });
-      return Object.freeze({ url, width: last.width, height: last.height, print });
+      return Object.freeze({ url, width: last.width, height: last.height, print, dots: custom.dots === true });
     } finally {
       // 성공·실패·취소 모두 여기서 바로 비운다. toBlob은 호출할 때 픽셀을 복사하므로 인코딩 중에 비워도 된다.
       freeCanvas(canvas);
