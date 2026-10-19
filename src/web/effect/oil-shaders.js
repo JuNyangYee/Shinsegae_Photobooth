@@ -156,7 +156,7 @@ void main(){
   float a; vec3 col = vCol; float h = .5;
   float bris = vnoise(vec2(u*uBrisLen/2.2, vSt.y*uBrisWid*.45 + vR*13.));
   float edge = 1. - smoothstep(.72, 1., av + (bris - .5)*.4);
-  a = edge*smoothstep(0., .06, u)*(1. - smoothstep(.9, 1., u)); // 원본 smoothstep(1., .9, u) (역순 경계는 GLSL 명세상 정의되지 않음, 7단계 검수)
+  a = edge*smoothstep(0., .06, u)*(1. - smoothstep(.9, 1., u)); // 원본은 경계 1 → 0.9 역순 호출(GLSL 명세상 정의되지 않음)이라 같은 뜻으로 바꿈 (7단계 검수)
   a *= mix(1., step(.38, bris), smoothstep(.7, 1., u));       // 붓 끝에서 물감이 갈라진다
   col *= .92 + .16*bris;
   h = .3 + .6*bris*edge;
