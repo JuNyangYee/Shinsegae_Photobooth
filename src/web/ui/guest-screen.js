@@ -1,10 +1,9 @@
-// 관람객 화면 표현 (6-2): 대기 안내, 인식 표시(테두리 빛), 3·2·1(숫자·원형 진행), 플래시, 결과 출력물 카드·남은 시간,
+// 관람객 화면 표현 (6-2, 7-2 미니멀): 대기 안내, 인식 표시(가는 선), 3·2·1(숫자·진행선), 셔터 페이드, 결과 출력물·남은 시간,
 // 쿨타임 문구, 준비 중·직원 문의 안내. 무엇을 보일지는 main.js가 정하고(상태 기계·안내 규칙), 이 모듈은 어떻게 보일지만 맡는다.
 // 애니메이션은 transform·opacity만 움직인다 (미리보기·감지·효과 성능을 건드리지 않게). Node 테스트: test/ui/guest-screen.test.mjs
 
 import { SessionState } from '../core/session.js';
 
-const POP = 'cubic-bezier(0.2, 0.8, 0.3, 1.15)';
 const SETTLE = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
 
 /**
@@ -17,8 +16,7 @@ export function createGuestScreen({ root, text, countdownSeconds, now = () => pe
   const guide = $('guide');
   const countdown = $('countdown');
   const countdownNumber = $('countdown-number');
-  const ringA = $('countdown-ring-a'); // 오른쪽 반원: 앞 절반 시간
-  const ringB = $('countdown-ring-b'); // 왼쪽 반원: 뒤 절반 시간
+  const progress = $('countdown-progress-fill');
   const flash = $('flash');
   const resultView = $('result-view');
   const resultCard = $('result-card');
@@ -32,15 +30,13 @@ export function createGuestScreen({ root, text, countdownSeconds, now = () => pe
 
   guide.textContent = text.idle;
   $('countdown-caption').textContent = text.countdown;
-  $('result-title').textContent = text.resultTitle;
-  $('result-back').textContent = text.resultBack;
   notice.textContent = text.cooldown;
 
   let lastState = SessionState.IDLE;
   let shownNumber = null;
   let shownUrl = null;
   let shownEndsAt; // 막대를 맞춘 종료 시각. undefined = 아직 맞추지 않음 (null은 "시계 멈춤")
-  let ringAnimations = [];
+  let progressAnimation = null;
   let timerAnimation = null;
 
   // 숨겨져 있다가 보이게 될 때만 짧게 나타나는 움직임을 준다.
@@ -50,24 +46,18 @@ export function createGuestScreen({ root, text, countdownSeconds, now = () => pe
     if (appearing) element.animate(keyframes, options);
   }
 
-  const fadeUp = [{ opacity: 0, transform: 'translateY(2cqw)' }, { opacity: 1, transform: 'translateY(0)' }];
+  const fadeUp = [{ opacity: 0, transform: 'translateY(0.8cqw)' }, { opacity: 1, transform: 'translateY(0)' }];
 
   function renderCountdown(s) {
     const counting = s.state === SessionState.COUNTDOWN;
     if (counting && lastState !== SessionState.COUNTDOWN) {
-      // 원형 진행: 두 반원을 차례로 돌려 3초(countdownSeconds) 동안 한 바퀴를 채운다 (transform만)
-      const duration = countdownSeconds * 1000;
-      ringAnimations = [
-        ringA.animate([{ transform: 'rotate(45deg)' }, { transform: 'rotate(225deg)', offset: 0.5 }, { transform: 'rotate(225deg)' }],
-          { duration, fill: 'forwards' }),
-        ringB.animate([{ transform: 'rotate(45deg)' }, { transform: 'rotate(45deg)', offset: 0.5 }, { transform: 'rotate(225deg)' }],
-          { duration, fill: 'forwards' }),
-      ];
-      $('countdown-dial').animate([{ opacity: 0, transform: 'scale(0.8)' }, { opacity: 1, transform: 'scale(1)' }],
-        { duration: 360, easing: SETTLE });
+      // 진행선: 3초(countdownSeconds) 동안 가운데에서 양쪽으로 차오른다 (transform만)
+      progressAnimation = progress.animate([{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }],
+        { duration: countdownSeconds * 1000, fill: 'forwards' });
+      countdown.animate(fadeUp, { duration: 400, easing: SETTLE });
     } else if (!counting && lastState === SessionState.COUNTDOWN) {
-      for (const animation of ringAnimations) animation.cancel();
-      ringAnimations = [];
+      progressAnimation?.cancel();
+      progressAnimation = null;
     }
     countdown.hidden = !counting;
     if (!counting) {
@@ -77,12 +67,12 @@ export function createGuestScreen({ root, text, countdownSeconds, now = () => pe
     if (s.countdown === shownNumber) return;
     shownNumber = s.countdown;
     countdownNumber.textContent = String(s.countdown);
-    // 숫자마다 1초: 커지며 나타나고, 끝 무렵 작아지며 사라진다. 다음 숫자가 늦게 와도 빈 원으로 남는다(fill)
+    // 숫자마다 1초: 조용히 나타났다가 끝 무렵 흐려진다. 다음 숫자가 늦게 와도 진행선은 남는다(fill)
     countdownNumber.animate([
-      { opacity: 0, transform: 'scale(1.35)', easing: POP },
-      { opacity: 1, transform: 'scale(1)', offset: 0.28 },
-      { opacity: 1, transform: 'scale(1)', offset: 0.8, easing: 'ease-in' },
-      { opacity: 0, transform: 'scale(0.9)' },
+      { opacity: 0, transform: 'translateY(0.6cqw)', easing: SETTLE },
+      { opacity: 1, transform: 'translateY(0)', offset: 0.25 },
+      { opacity: 1, transform: 'translateY(0)', offset: 0.82, easing: 'ease-in' },
+      { opacity: 0, transform: 'translateY(0)' },
     ], { duration: 1000, fill: 'forwards' });
   }
 
@@ -95,12 +85,12 @@ export function createGuestScreen({ root, text, countdownSeconds, now = () => pe
       shownUrl = url;
       shownEndsAt = undefined;
       if (url) {
-        // 출력물이 기울어진 채 위에서 내려와 반듯하게 놓인다. 놓인 뒤에는 기울이지 않는다: 흑백 점 사진을 회전하면 다시 보간돼
-        // 점이 뭉개진다 (6-3, CSS .result-card)
+        // 출력물이 조용히 떠오른다. 회전·확대는 쓰지 않는다: 흑백 점 사진을 회전·비정수 배율로 그리면 다시 보간돼
+        // 점이 뭉개진다 (6-3, CSS .result-card). 끝나면 변형이 없어 사진 폭이 화면 화소와 1:1로 놓인다
         resultCard.animate([
-          { opacity: 0, transform: 'translateY(-10cqw) rotate(-5deg) scale(0.94)' },
-          { opacity: 1, transform: 'translateY(0) rotate(0deg) scale(1)' },
-        ], { duration: 700, easing: SETTLE });
+          { opacity: 0, transform: 'translateY(1.6cqw)' },
+          { opacity: 1, transform: 'translateY(0)' },
+        ], { duration: 600, easing: SETTLE });
       }
     }
     resultImage.hidden = url === null;
@@ -128,23 +118,22 @@ export function createGuestScreen({ root, text, countdownSeconds, now = () => pe
     renderSession(s) {
       renderCountdown(s);
       if (s.state === SessionState.CAPTURING && lastState !== SessionState.CAPTURING) {
-        // 촬영 순간: 따뜻한 흰빛이 짧게 (눈부시지 않게 최대 0.7, 약 0.3초)
-        flash.animate([{ opacity: 0 }, { opacity: 0.7, offset: 0.16 }, { opacity: 0 }], { duration: 320, easing: 'ease-out' });
+        // 촬영 순간: 짧은 흰 페이드 (눈부시지 않게 최대 0.55, 약 0.28초)
+        flash.animate([{ opacity: 0 }, { opacity: 0.55, offset: 0.14 }, { opacity: 0 }], { duration: 280, easing: 'ease-out' });
       }
       renderResult(s);
       lastState = s.state;
     },
 
-    /** 준비 중·직원 문의 안내. kind: 'preparing' | 'staff' (아이콘 움직임만 다르다) */
+    /** 준비 중·직원 문의 안내. kind: 'preparing' | 'staff' (준비 중이면 가는 선이 천천히 숨 쉰다) */
     setStatus({ message, kind, visible }) {
       status.textContent = message;
       status.dataset.kind = kind;
       statusVeil.hidden = !visible;
-      reveal(status, visible, [{ opacity: 0, transform: 'scale(0.96)' }, { opacity: 1, transform: 'scale(1)' }],
-        { duration: 400, easing: SETTLE });
+      reveal(status, visible, fadeUp, { duration: 500, easing: SETTLE });
     },
 
-    /** 인식 표시: 화면 테두리가 따뜻하게 밝아진다 (CSS 전환, opacity) */
+    /** 인식 표시: 가장자리 가는 선이 또렷해진다 (CSS 전환, opacity) */
     setPresence(present) {
       stage.classList.toggle('is-present', present);
     },

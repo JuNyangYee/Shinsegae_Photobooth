@@ -1,5 +1,5 @@
 // 실행: npm test
-// 관람객 화면 표현(guest-screen.js, 6-2): 카운트다운 숫자·원형 진행, 플래시, 결과 카드·남은 시간, 안내 문구 표시.
+// 관람객 화면 표현(guest-screen.js, 6-2·7-2): 카운트다운 숫자·진행선, 셔터 페이드, 결과 출력물·남은 시간, 안내 문구 표시.
 // DOM은 필요한 만큼만 흉내 내고, 애니메이션은 animate() 호출만 기록한다.
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
@@ -44,16 +44,16 @@ function setup({ countdownSeconds = 3 } = {}) {
 }
 
 describe('guest-screen: 3·2·1', () => {
-  it('카운트다운에 들어가면 원형 진행 두 반원이 카운트다운 시간 동안 돌고, 숫자마다 한 번 나타난다', () => {
+  it('카운트다운에 들어가면 진행선이 카운트다운 시간 동안 차오르고, 숫자마다 한 번 나타난다', () => {
     const { screen, el, snapshot } = setup({ countdownSeconds: 3 });
     screen.renderSession(snapshot(SessionState.COUNTDOWN, { countdown: 3 }));
     assert.equal(el('countdown').hidden, false);
     assert.equal(el('countdown-number').textContent, '3');
-    for (const id of ['countdown-ring-a', 'countdown-ring-b']) {
-      assert.equal(el(id).animations.length, 1);
-      assert.equal(el(id).animations[0].options.duration, 3000);
-      assert.equal(el(id).animations[0].options.fill, 'forwards');
-    }
+    const progress = el('countdown-progress-fill').animations;
+    assert.equal(progress.length, 1);
+    assert.equal(progress[0].options.duration, 3000);
+    assert.equal(progress[0].options.fill, 'forwards');
+    assert.deepEqual(progress[0].keyframes.map((k) => k.transform), ['scaleX(0)', 'scaleX(1)'], 'transform만 움직인다');
     assert.equal(el('countdown-number').animations.length, 1);
 
     // 같은 숫자로 다시 알려도(다른 상태 변화) 다시 움직이지 않는다
@@ -62,23 +62,22 @@ describe('guest-screen: 3·2·1', () => {
     screen.renderSession(snapshot(SessionState.COUNTDOWN, { countdown: 2 }));
     assert.equal(el('countdown-number').textContent, '2');
     assert.equal(el('countdown-number').animations.length, 2);
-    assert.equal(el('countdown-ring-a').animations.length, 1, '원형 진행은 회차에 한 번만 시작한다');
+    assert.equal(el('countdown-progress-fill').animations.length, 1, '진행선은 회차에 한 번만 시작한다');
   });
 
-  it('카운트다운이 끝나거나 취소되면 원형 진행을 멈추고, 다음 회차는 처음부터 돈다', () => {
+  it('카운트다운이 끝나거나 취소되면 진행선을 멈추고, 다음 회차는 처음부터 차오른다', () => {
     const { screen, el, snapshot } = setup();
     screen.renderSession(snapshot(SessionState.COUNTDOWN, { countdown: 3 }));
     screen.renderSession(snapshot(SessionState.IDLE)); // 취소
     assert.equal(el('countdown').hidden, true);
-    assert.ok(el('countdown-ring-a').animations[0].cancelled);
-    assert.ok(el('countdown-ring-b').animations[0].cancelled);
+    assert.ok(el('countdown-progress-fill').animations[0].cancelled);
     screen.renderSession(snapshot(SessionState.COUNTDOWN, { countdown: 3 }));
-    assert.equal(el('countdown-ring-a').animations.length, 2);
+    assert.equal(el('countdown-progress-fill').animations.length, 2);
     assert.equal(el('countdown-number').animations.length, 2, '같은 숫자 3이라도 새 회차면 다시 나타난다');
   });
 });
 
-describe('guest-screen: 플래시', () => {
+describe('guest-screen: 셔터 페이드', () => {
   it('촬영 상태에 들어갈 때 한 번만, 눈부시지 않게 짧게', () => {
     const { screen, el, snapshot } = setup();
     screen.renderSession(snapshot(SessionState.COUNTDOWN, { countdown: 1 }));
@@ -91,7 +90,7 @@ describe('guest-screen: 플래시', () => {
   });
 });
 
-describe('guest-screen: 결과 출력물 카드', () => {
+describe('guest-screen: 결과 출력물', () => {
   it('결과 사진을 카드에 보이고, 남은 시간 막대가 종료 시각까지 줄어든다', () => {
     const { screen, el, snapshot } = setup();
     screen.renderSession(snapshot(SessionState.RESULT, { photo: { url: 'blob:a' }, endsAt: 11000 }));
@@ -99,6 +98,10 @@ describe('guest-screen: 결과 출력물 카드', () => {
     assert.equal(el('result').hidden, false);
     assert.equal(el('result-view').hidden, false);
     assert.equal(el('result-card').animations.length, 1);
+    // 출력물은 회전·확대 없이 나타나고 끝에는 변형이 없다 (흑백 점 사진이 화면 화소와 1:1로 놓이게, 6-3)
+    const card = el('result-card').animations[0].keyframes;
+    assert.ok(card.every((k) => !/rotate|scale/.test(k.transform)), JSON.stringify(card));
+    assert.equal(card.at(-1).transform, 'translateY(0)');
     assert.equal(el('result-note').textContent, guestText.resultReady);
     assert.equal(el('result-timer').hidden, false);
     assert.equal(el('result-timer-fill').animations.length, 1);

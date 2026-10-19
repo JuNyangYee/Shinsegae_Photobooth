@@ -28,7 +28,7 @@ const pauseBadge = document.getElementById('pause-badge');
 // P 자동 촬영 일시정지
 const Keys = Object.freeze({ devInfo: 'KeyD', tuning: 'KeyR', effectTuning: 'KeyE', start: 'KeyS', reset: 'KeyX', pause: 'KeyP' });
 
-// 관람객 화면 표현 (6-2). 문구는 config/guest-text.js 한곳에 있고, 상태 상세는 D 키 개발용 정보에만 보인다.
+// 관람객 화면 표현 (6-2, 7-2 미니멀). 문구는 config/guest-text.js 한곳에 있고, 상태 상세는 D 키 개발용 정보에만 보인다.
 const guest = createGuestScreen({ root: document, text: guestText, countdownSeconds: config.session.countdownSeconds });
 
 // 기다려도 스스로 풀리기 어려운 카메라 상태는 바로 직원 문의 문구를 보인다. 감지기는 장애(fault)가 그렇다.
@@ -173,7 +173,7 @@ function renderStatus() {
   if (decision.recheckInMs !== null) staffNoticeTimer = setTimeout(renderStatus, decision.recheckInMs);
 }
 
-// 카메라나 감지기를 쓸 수 없으면 "준비 중" 문구만 보이고 인식 표시(테두리 빛)·대기 안내는 숨긴다.
+// 카메라나 감지기를 쓸 수 없으면 "준비 중" 문구만 보이고 인식 표시(가장자리 가는 선)·대기 안내는 숨긴다.
 // 인식 표시는 config.showPresenceIndicator로 끈다. 대기 안내는 대기 상태에서만 보인다(카운트다운·쿨타임은 각자 문구).
 function renderPresence() {
   const visible = camera.isReady() && guidanceNow === Guidance.NONE && !isShowingPhoto();
@@ -379,14 +379,14 @@ function sessionDevLines() {
   ];
 }
 
-// 겹쳐 그리기 색 (6-3, 관람객 화면 색 계열). 흑백 점 미리보기 위에서도 보이게 선마다 어두운 테두리를 먼저 그린다
+// 겹쳐 그리기 색 (6-3, 7-2 무채색 화면에 맞춰 채도를 낮춤). 흑백 점 미리보기 위에서도 보이게 선마다 어두운 테두리를 먼저 그린다
 const OVERLAY = Object.freeze({
-  region: '#f6d58a', // 인식 영역 (금빛)
-  maxGuide: '#f29aa0', // 최대 얼굴 크기 가이드 (분홍)
-  minGuide: '#7fd1b9', // 최소 얼굴 크기 가이드 (청록)
-  accepted: '#5fd39a', // 인정된 얼굴
-  rejected: '#ff6b6b', // 제외된 얼굴
-  outline: 'rgba(30, 18, 10, 0.85)',
+  region: '#f4f2ee', // 인식 영역 (오프화이트)
+  maxGuide: '#e0a39a', // 최대 얼굴 크기 가이드 (붉은색)
+  minGuide: '#8fb6d6', // 최소 얼굴 크기 가이드 (파란색)
+  accepted: '#7fcf9c', // 인정된 얼굴
+  rejected: '#ff7a6e', // 제외된 얼굴
+  outline: 'rgba(16, 16, 16, 0.85)',
 });
 
 // 감지 박스와 인식 영역을 9:16 영역 위에 겹쳐 그린다. 인정된 얼굴은 초록, 제외된 얼굴은 빨강.

@@ -1,18 +1,26 @@
-/* 서체 (6-2). 같은 행사의 다른 웹 체험(ThrowSnow)과 같은 서체·색 계열을 쓴다. 저장소 안 파일만 쓴다 (CSP, 오프라인).
-   제목·숫자: 고운바탕 Bold, 본문: 고운돋움. KS X 1001 완성형 2,350자 + 영숫자·기호로 줄인 woff라 그 밖의 글자는 시스템 서체로 보인다.
-   라이선스: SIL Open Font License 1.1 (assets/fonts/OFL-*.txt) */
+/* 서체 (7-2). 저장소 안 파일만 쓴다 (CSP, 오프라인). 라이선스: SIL Open Font License 1.1 (assets/fonts/OFL-*.txt)
+   본문: Pretendard 1.3.9 공식 부분 집합(한글 2,780자 + 영숫자·기호). 그 밖의 글자는 시스템 서체로 보인다.
+   제목·숫자: Noto Serif KR 2.003 Light를 관람객 문구(config/guest-text.js)의 글자 + 영숫자로 줄인 것 (docs/SYSTEM.md 3절) */
 @font-face {
-  font-family: 'Gowun Batang';
-  src: url('assets/fonts/GowunBatang-Bold.woff') format('woff');
-  font-weight: 700;
+  font-family: 'Pretendard';
+  src: url('assets/fonts/Pretendard-Regular.subset.woff2') format('woff2');
+  font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Gowun Dodum';
-  src: url('assets/fonts/GowunDodum-Regular.woff') format('woff');
-  font-weight: 400;
+  font-family: 'Pretendard';
+  src: url('assets/fonts/Pretendard-Medium.subset.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Noto Serif KR';
+  src: url('assets/fonts/NotoSerifKR-Light.subset.woff') format('woff');
+  font-weight: 300;
   font-style: normal;
   font-display: swap;
 }
@@ -21,18 +29,14 @@
 :root {
   --stage-ratio-w: 9;
   --stage-ratio-h: 16;
-  /* 관람객 화면 (6-2, 가안): 크림·딥 레드·골드·솔잎 그린. 크림·솔잎은 ThrowSnow 팔레트와 같은 값 */
-  --font-title: 'Gowun Batang', serif;
-  --font-body: 'Gowun Dodum', system-ui, sans-serif;
-  --cream: #f3e4d6;
-  --paper: #fbf7ef;
-  --ink: #3a2418;
-  --red-deep: #9b1c26;
-  --gold: #d9a441;
-  --gold-light: #f6d58a;
-  --pine: #2f5f52;
-  --pine-deep: #1d3f35;
-  --paper-grain: url('assets/paper.webp') 0 0 / 24cqw;
+  /* 관람객 화면 (7-2, 가안): 흑백 사진에 맞춘 무채색. 강조색은 쓰지 않는다 */
+  --font-serif: 'Noto Serif KR', serif;
+  --font-sans: 'Pretendard', system-ui, sans-serif;
+  --white: #f4f2ee; /* 오프화이트: 미리보기 위 글자·선 */
+  --wall: #eeece7; /* 결과 화면 바탕 */
+  --charcoal: #1a1a1a; /* 결과 화면 글자, 안내 막 */
+  --gray: #8a8884;
+  --hairline: 0.0926cqw; /* 1080 폭에서 1px */
 }
 
 html,
@@ -56,7 +60,7 @@ body {
   width: min(100vw, 100vh * var(--stage-ratio-w) / var(--stage-ratio-h));
   aspect-ratio: var(--stage-ratio-w) / var(--stage-ratio-h);
   overflow: hidden;
-  background: var(--pine-deep);
+  background: var(--charcoal);
   container-type: inline-size;
 }
 
@@ -89,10 +93,10 @@ body {
   display: none;
 }
 
-/* ---- 관람객 화면 (6-2, ui/guest-screen.js). 미리보기·결과 사진은 흰 감열지 위의 검은 점이 되므로,
-   글자는 늘 불투명한 종이·리본 위에 둔다. 움직임은 transform·opacity만 쓴다. ---- */
+/* ---- 관람객 화면 (7-2 미니멀, ui/guest-screen.js). 화면의 주인공은 미리보기다.
+   글자·숫자는 9:16 영역 아래 15%(26.67cqw) 안에만 두어 얼굴·가운데를 가리지 않는다. 불투명한 판·카드는 쓰지 않고,
+   아래 가장자리의 얇은 그라데이션 띠와 글자 그림자로 흑백 점 위에서도 읽히게 한다. 움직임은 transform·opacity만 쓴다. ---- */
 
-/* 장식 프레임: 가장자리 딥 레드 띠(안쪽 금선, 둥근 모서리), 위 솔가지 가랜드·리본, 아래 가랜드 */
 .frame,
 .frame > * {
   position: absolute;
@@ -103,226 +107,133 @@ body {
   inset: 0;
 }
 
-.frame-band {
-  inset: 2.2cqw;
-  border: 0.45cqw solid var(--gold);
-  border-radius: 4cqw;
-  box-shadow: 0 0 0 6cqw var(--red-deep), inset 0 0 2.4cqw rgba(20, 8, 4, 0.35);
-}
-
-.frame-top {
+/* 아래 가장자리 그라데이션 띠: 안내·숫자가 보일 때만 (결과·안내 막에서는 없다) */
+.frame-shade {
   left: 0;
-  top: 0;
-  width: 100%;
-  aspect-ratio: 900 / 360;
-  background: url('assets/garland-top.svg') center top / 100% auto no-repeat;
-}
-
-.frame-bottom {
-  left: 0;
+  right: 0;
   bottom: 0;
-  width: 100%;
-  aspect-ratio: 900 / 200;
-  background: url('assets/garland-bottom.svg') center bottom / 100% auto no-repeat;
+  height: 18%;
+  background: linear-gradient(to top, rgba(10, 10, 10, 0.58) 0%, rgba(10, 10, 10, 0.4) 30%, rgba(10, 10, 10, 0.16) 62%,
+    rgba(10, 10, 10, 0.05) 84%, rgba(10, 10, 10, 0) 100%);
+  opacity: 0;
+  transition: opacity 0.5s ease;
 }
 
-/* 인식 표시: 인식되면 금선이 굵어지고 테두리 안쪽이 따뜻한 금빛으로 밝아진다 (config.showPresenceIndicator) */
-.frame-glow {
-  inset: 2.2cqw;
-  border-radius: 4cqw;
-  box-shadow: inset 0 0 0 1.1cqw rgba(246, 213, 138, 0.95), inset 0 0 9cqw 2.4cqw rgba(255, 196, 92, 0.7);
-  opacity: 0;
+.stage:has(#guide:not([hidden]), #countdown:not([hidden]), #notice:not([hidden])) .frame-shade {
+  opacity: 1;
+}
+
+/* 가는 선 프레임: 밝은 선 + 바깥 어두운 선 한 겹 (흰 바탕·검은 점 어느 쪽에서도 보이게).
+   인식 표시: 인식되면 선이 또렷해진다 (config.showPresenceIndicator) */
+.frame-line {
+  inset: 3.6cqw;
+  border: var(--hairline) solid rgba(244, 242, 238, 0.9);
+  box-shadow: 0 0 0 var(--hairline) rgba(16, 16, 16, 0.32);
+  opacity: 0.3;
   transition: opacity 0.6s ease;
   will-change: opacity;
 }
 
-.stage.is-present .frame-glow {
-  opacity: 1;
+.stage.is-present .frame-line {
+  opacity: 0.95;
 }
 
-/* 종이 알약: 대기 안내·카운트다운 안내·쿨타임 문구가 같은 모양을 쓴다 */
+.stage:has(#result-view:not([hidden])) .frame-line {
+  opacity: 0;
+}
+
+/* 아래 가장자리 한 줄: 대기 안내·카운트다운 안내·쿨타임 문구가 같은 자리, 같은 모양 */
 .guide,
 .countdown-caption,
 .notice {
-  display: flex;
-  align-items: center;
-  gap: 2cqw;
   margin: 0;
-  padding: 2.2cqw 5cqw 2.2cqw 3.6cqw;
-  border-radius: 999px;
-  background: var(--paper-grain), var(--paper);
-  color: var(--red-deep);
-  box-shadow: 0 0.8cqw 2.4cqw rgba(40, 20, 10, 0.35), inset 0 0 0 0.4cqw var(--gold);
-  font: 400 5.2cqw / 1.2 var(--font-body);
+  color: var(--white);
+  font: 400 3.1cqw / 1.4 var(--font-sans);
+  letter-spacing: 0.08em;
+  text-align: center;
   white-space: nowrap;
+  text-shadow: 0 0 1.2cqw rgba(0, 0, 0, 0.4), 0 0.1cqw 0.3cqw rgba(0, 0, 0, 0.35);
 }
 
-.guide::before,
-.countdown-caption::before,
-.notice::before {
-  content: '';
-  flex: none;
-  width: 6.4cqw;
-  height: 6.4cqw;
-  background: center / contain no-repeat;
-}
-
-/* 대기 안내: 아래쪽 가운데, 천천히 떠오르듯 움직인다 */
-.guide {
+.guide,
+.notice {
   position: absolute;
-  left: 50%;
-  bottom: 15cqw;
-  translate: -50% 0;
-  animation: guide-float 3.2s ease-in-out infinite alternate;
+  left: 0;
+  right: 0;
+  bottom: 6.4cqw;
 }
 
-.guide::before {
-  background-image: url('assets/icon-footprints.svg');
+.notice {
+  color: rgba(244, 242, 238, 0.78);
 }
 
-@keyframes guide-float {
-  from { transform: translateY(0); }
-  to { transform: translateY(-1.2cqw); }
-}
-
-/* 3·2·1: 딥 레드 원판 위 크림 숫자, 금빛 원형 진행. 얼굴을 덜 가리게 가운데보다 조금 아래 */
+/* 3·2·1: 아래 가장자리에 작은 세리프 숫자, 가는 진행선, 안내 한 줄. 위끝이 영역 아래 15% 안에 있다 */
 .countdown {
   position: absolute;
-  inset: 0;
+  left: 0;
+  right: 0;
+  bottom: 6.4cqw;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 5cqw;
-  padding-top: 24cqw;
   pointer-events: none;
 }
 
-.countdown-dial {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 46cqw;
-  aspect-ratio: 1;
-  border-radius: 50%;
-  /* 글자 바탕은 불투명 (6-3): 뒤의 흑백 점이 비치지 않게 */
-  background: var(--paper-grain), var(--red-deep);
-  box-shadow: 0 1.6cqw 5cqw rgba(30, 10, 5, 0.45), inset 0 0 0 0.5cqw rgba(246, 213, 138, 0.55);
-}
-
-.countdown-ring,
-.ring-half,
-.ring-fill {
-  position: absolute;
-}
-
-.countdown-ring {
-  inset: 2.4cqw;
-}
-
-.countdown-ring::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border: 1.6cqw solid rgba(243, 228, 214, 0.22);
-  border-radius: 50%;
-}
-
-/* 반원 두 개를 transform으로 돌려 원을 채운다 (ui/guest-screen.js). 처음에는 반대쪽 반원 안에 숨어 있다 */
-.ring-half {
-  top: 0;
-  width: 50%;
-  height: 100%;
-  overflow: hidden;
-}
-
-.ring-half.is-right { right: 0; }
-.ring-half.is-left { left: 0; }
-
-.ring-fill {
-  top: 0;
-  box-sizing: border-box;
-  width: 200%;
-  height: 100%;
-  border: 1.6cqw solid transparent;
-  border-radius: 50%;
-  transform: rotate(45deg);
-}
-
-.is-right .ring-fill {
-  left: -100%;
-  border-bottom-color: var(--gold-light);
-  border-left-color: var(--gold-light);
-}
-
-.is-left .ring-fill {
-  left: 0;
-  border-top-color: var(--gold-light);
-  border-right-color: var(--gold-light);
-}
-
 .countdown-number {
-  margin: 0 0 1.6cqw;
-  color: var(--cream);
-  font: 700 28cqw / 1 var(--font-title);
-  text-shadow: 0 0.6cqw 1.6cqw rgba(60, 10, 10, 0.5);
+  margin: 0;
+  color: var(--white);
+  font: 300 9.6cqw / 1 var(--font-serif);
+  font-variant-numeric: lining-nums tabular-nums;
+  text-shadow: 0 0 1.6cqw rgba(0, 0, 0, 0.38), 0 0.15cqw 0.4cqw rgba(0, 0, 0, 0.3);
 }
 
-.countdown-caption::before {
-  background-image: url('assets/icon-star.svg');
+/* 진행선: 가운데에서 양쪽으로 차오른다 (ui/guest-screen.js, scaleX) */
+.countdown-progress {
+  display: block;
+  width: 28cqw;
+  height: 0.16cqw;
+  margin: 2.6cqw 0 2.4cqw;
+  background: rgba(244, 242, 238, 0.28);
 }
 
-/* 촬영 순간: 따뜻한 흰빛. ui/guest-screen.js가 투명도를 짧게 움직인다 */
+.countdown-progress-fill {
+  display: block;
+  height: 100%;
+  background: var(--white);
+  transform: scaleX(0);
+}
+
+/* 촬영 순간: 짧은 흰 페이드. ui/guest-screen.js가 투명도를 짧게 움직인다 */
 .flash {
   position: absolute;
   inset: 0;
-  background: #fff8ec;
+  background: #fff;
   opacity: 0;
   pointer-events: none;
 }
 
-/* 결과: 솔잎 그린 바탕 위 출력물 카드(흰 종이, 그림자, 금빛 테이프). 프레임 장식은 그 위에 그대로.
-   카드는 기울이지 않는다 (6-3): 흑백 점 사진을 회전하면 다시 보간돼 점이 뭉개진다(합성 화면 측정, 로그 2026-10-19-03) */
+/* 결과: 오프화이트 벽 위 출력물 한 장(흰 여백, 가는 테두리). 기울임·그림자·장식 없음.
+   사진 폭 53.333cqw = 576/1080: 1080 폭 화면에서 감열지 576점이 화면 화소와 1:1로 놓인다 (6-3).
+   1080 폭에서 카드 = 576 + 여백 24×2 + 테두리 1×2 = 626px이라 왼쪽·위 끝이 정수 화소에 놓인다 */
 .result-view {
   position: absolute;
   inset: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding-top: 26cqw;
-  background: var(--paper-grain), radial-gradient(ellipse at 50% 45%, var(--pine) 0%, var(--pine-deep) 62%, #142c25 100%);
-  color: var(--cream);
-}
-
-.result-title {
-  margin: 0;
-  font: 700 6.4cqw / 1.2 var(--font-title);
-  letter-spacing: 0.02em;
-  text-shadow: 0 0.4cqw 1.2cqw rgba(0, 0, 0, 0.35);
+  justify-content: center;
+  padding-bottom: 7.4074cqw;
+  background: var(--wall);
+  color: var(--charcoal);
 }
 
 .result-card {
-  position: relative;
-  margin-top: 4.4cqw;
-  padding: 2.4cqw 2.4cqw 6.4cqw;
-  background: var(--paper-grain), var(--paper);
-  box-shadow: 0 2.4cqw 6cqw rgba(0, 0, 0, 0.45), 0 0.3cqw 0.8cqw rgba(0, 0, 0, 0.3);
+  padding: 2.2222cqw;
+  border: var(--hairline) solid rgba(26, 26, 26, 0.16);
+  background: #fff;
 }
 
-.result-card::before {
-  content: '';
-  position: absolute;
-  top: -2.2cqw;
-  left: 50%;
-  width: 20cqw;
-  height: 5cqw;
-  background: rgba(217, 164, 65, 0.78);
-  box-shadow: 0 0.3cqw 0.6cqw rgba(0, 0, 0, 0.2);
-  transform: translateX(-50%) rotate(3deg);
-}
-
-/* 결과 사진은 이미 반전된 9:16 이미지이므로 그대로 채운다.
-   폭 53.333cqw = 576/1080: 1080 폭 화면에서 감열지 576점이 화면 화소와 1:1로 놓여 점이 덜 뭉개진다 (6-3) */
+/* 결과 사진은 이미 반전된 9:16 이미지이므로 그대로 채운다 */
 .result-photo {
   width: 53.3333cqw;
   aspect-ratio: var(--stage-ratio-w) / var(--stage-ratio-h);
@@ -336,64 +247,42 @@ body {
   object-fit: contain;
 }
 
-.result-note {
-  margin: 5cqw 0 0;
-  font: 400 5.4cqw / 1.3 var(--font-body);
-}
-
-/* 남은 시간: 금빛 막대가 줄어든다 (transform) */
+/* 아래 가장자리: 남은 시간 진행선(줄어든다) 위, 안내 한 줄 아래 — 카운트다운과 같은 자리 */
 .result-timer {
-  margin-top: 2.6cqw;
-}
-
-.result-timer-track {
-  display: block;
-  width: 34cqw;
-  height: 1cqw;
+  position: absolute;
+  left: 50%;
+  bottom: 13.14cqw; /* = 안내 6.4 + 줄 높이 4.34 + 2.4: 카운트다운 진행선과 같은 높이 */
+  width: 28cqw;
+  height: 0.16cqw;
+  margin-left: -14cqw;
   overflow: hidden;
-  border-radius: 999px;
-  background: rgba(243, 228, 214, 0.22);
+  background: rgba(26, 26, 26, 0.12);
 }
 
 .result-timer-fill {
   display: block;
   height: 100%;
-  background: var(--gold-light);
+  background: rgba(26, 26, 26, 0.62);
   transform-origin: left center;
 }
 
-.result-back {
-  margin: 1.8cqw 0 0;
-  color: rgba(243, 228, 214, 0.75);
-  font: 400 3.4cqw / 1.3 var(--font-body);
-}
-
-/* 쿨타임: 대기 안내와 같은 자리, 차분한 솔잎 그린 알약 */
-.notice {
+.result-note {
   position: absolute;
-  left: 50%;
-  bottom: 15cqw;
-  translate: -50% 0;
-  background: var(--paper-grain), var(--pine-deep); /* 불투명 (6-3) */
-  color: var(--cream);
-  box-shadow: 0 0.8cqw 2.4cqw rgba(0, 0, 0, 0.3), inset 0 0 0 0.35cqw rgba(217, 164, 65, 0.8);
+  left: 0;
+  right: 0;
+  bottom: 6.4cqw;
+  margin: 0;
+  font: 400 3.1cqw / 1.4 var(--font-sans);
+  letter-spacing: 0.08em;
+  text-align: center;
 }
 
-.notice::before {
-  background-image: url('assets/icon-star.svg');
-  animation: star-twinkle 2.4s ease-in-out infinite alternate;
-}
-
-@keyframes star-twinkle {
-  from { transform: scale(0.85) rotate(-8deg); opacity: 0.75; }
-  to { transform: scale(1.05) rotate(8deg); opacity: 1; }
-}
-
-/* 준비 중·직원 문의: 솔잎 그린 막 위 크림 종이 카드. 첫 줄은 제목처럼, 위에 금빛 방울 (준비 중이면 흔들린다) */
+/* 준비 중·직원 문의: 차콜 막 위 가운데 두 줄. 첫 줄은 세리프 제목, 둘째 줄은 작은 산세리프.
+   위의 가는 선이 준비 중이면 천천히 숨 쉬고, 직원 문의면 멈춰 있다 (기다려도 풀리지 않는다는 뜻) */
 .status-veil {
   position: absolute;
   inset: 0;
-  background: var(--paper-grain), rgba(29, 63, 53, 0.92);
+  background: rgba(16, 16, 16, 0.95);
 }
 
 .status {
@@ -402,44 +291,42 @@ body {
   top: 50%;
   translate: -50% -50%;
   box-sizing: border-box;
-  width: 76cqw;
+  width: 80cqw;
   margin: 0;
-  padding: 24cqw 6cqw 9cqw;
-  border-radius: 4cqw;
-  background: var(--paper-grain), var(--paper);
-  box-shadow: 0 2cqw 6cqw rgba(0, 0, 0, 0.4), inset 0 0 0 0.5cqw var(--gold);
-  color: var(--ink);
-  font: 400 5.2cqw / 1.5 var(--font-body);
+  color: rgba(244, 242, 238, 0.6);
+  font: 400 3.3cqw / 2.1 var(--font-sans);
+  letter-spacing: 0.06em;
   text-align: center;
   white-space: pre-line;
   word-break: keep-all;
 }
 
 .status::first-line {
-  color: var(--red-deep);
-  font: 700 7.4cqw / 1.6 var(--font-title);
+  color: var(--white);
+  font: 300 6.2cqw / 1.7 var(--font-serif);
+  letter-spacing: 0.04em;
 }
 
 .status::before {
   content: '';
   position: absolute;
-  top: 5.6cqw;
+  top: -7cqw;
   left: 50%;
-  width: 14cqw;
-  height: 16.8cqw;
-  margin-left: -7cqw;
-  background: url('assets/icon-ornament.svg') center / contain no-repeat;
-  transform-origin: 50% 0;
-  animation: ornament-swing 1.6s ease-in-out infinite alternate;
+  width: 8cqw;
+  height: var(--hairline);
+  margin-left: -4cqw;
+  background: var(--white);
+  opacity: 0.5;
+  animation: status-breathe 2.4s ease-in-out infinite alternate;
 }
 
 .status[data-kind="staff"]::before {
   animation: none;
 }
 
-@keyframes ornament-swing {
-  from { transform: rotate(-7deg); }
-  to { transform: rotate(7deg); }
+@keyframes status-breathe {
+  from { opacity: 0.15; }
+  to { opacity: 0.7; }
 }
 
 /* 개발용 감지 박스·영역 겹쳐 그리기 (D 키). 9:16 영역 좌표 그대로 그린다 (이미 반전 후 좌표). */
@@ -451,19 +338,22 @@ body {
   pointer-events: none;
 }
 
-/* ---- 운영자 화면 (6-3): R·E 조절 패널, D 개발 정보, P 표시, 조절 영역. 관람객용이 아니다.
-   관람객 화면과 같은 서체·색을 쓰되 차분한 종이 카드로 만든다. 9:16 영역 밖(body)에 고정되는 패널은 vmin 기준 글자 크기
-   하나(--op-size)에 em으로 맞춰 1080×1920·2160×3840·가로 화면에서 같은 비율로 보인다. 움직임은 없다(미리보기 성능). ---- */
+/* ---- 운영자 화면 (6-3 구조, 7-2 미니멀): R·E 조절 패널, D 개발 정보, P 표시, 조절 영역. 관람객용이 아니다.
+   차콜 반투명 패널, 가는 구분선, 작은 글자. 9:16 영역 밖(body)에 고정되는 패널은 vmin 기준 글자 크기 하나(--op-size)에
+   em으로 맞춰 1080×1920·2160×3840·가로 화면에서 같은 비율로 보인다. 움직임·블러는 없다(미리보기 성능). ---- */
 :root {
   --op-size: clamp(13px, 1.45vmin, 34px);
   --op-dev-size: clamp(11px, 1.12vmin, 26px);
   --op-mono: Consolas, 'Cascadia Mono', monospace;
-  --op-ok: #2f6f57;
-  --op-warn: #9a6210;
-  --op-error: #b3202c;
-  --op-muted: rgba(58, 36, 24, 0.62);
-  --op-line: rgba(58, 36, 24, 0.16);
-  --op-field: #fffdf8;
+  --op-bg: rgba(22, 22, 22, 0.965); /* 뒤 글자가 비치지 않을 만큼만 투명 */
+  --op-text: #ecebe7;
+  --op-muted: rgba(236, 235, 231, 0.55);
+  --op-line: rgba(236, 235, 231, 0.12);
+  --op-field: rgba(255, 255, 255, 0.06);
+  /* 상태 색은 작은 점·글자에만 (채도를 낮춘 초록·호박·빨강) */
+  --op-ok: #93c4a5;
+  --op-warn: #d9b673;
+  --op-error: #e58b80;
   /* 가로 화면에서 9:16 영역 옆에 남는 폭 (패널이 미리보기를 가리지 않게 옆으로 비킨다) */
   --op-side: calc((100vw - 100vh * var(--stage-ratio-w) / var(--stage-ratio-h)) / 2);
 }
@@ -480,11 +370,14 @@ body {
   overflow-y: auto; /* 화면보다 길면 휠로 넘긴다 (6단계 검수 2) */
   overscroll-behavior: contain;
   padding: 0.3em 0.9em 0.7em;
-  border-radius: 0.7em;
-  background: url('assets/paper.webp') 0 0 / 22em, rgba(251, 247, 239, 0.96);
-  box-shadow: 0 0.5em 1.6em rgba(20, 10, 5, 0.4), inset 0 0 0 0.12em var(--gold);
-  color: var(--ink);
-  font: 400 var(--op-dev-size) / 1.38 var(--op-mono);
+  border: 1px solid var(--op-line);
+  border-radius: 0.35em;
+  background: var(--op-bg);
+  color: var(--op-text);
+  font: 400 var(--op-dev-size) / 1.4 var(--op-mono);
+  color-scheme: dark;
+  scrollbar-color: rgba(236, 235, 231, 0.25) transparent;
+  scrollbar-width: thin;
 }
 
 /* R 조절 중에는 D가 영역·핸들 끌기를 막지 않게 마우스를 통과시킨다 (그동안 D는 넘기지 못한다) */
@@ -495,11 +388,12 @@ body:has(#tuning-panel:not([hidden])) .dev-info {
 .dev-section::before {
   content: attr(data-title);
   display: block;
-  margin: 0.55em 0 0.2em;
-  padding-bottom: 0.1em;
+  margin: 0.7em 0 0.25em;
+  padding-bottom: 0.2em;
   border-bottom: 1px solid var(--op-line);
-  color: var(--red-deep);
-  font: 700 1.12em / 1.3 var(--font-title);
+  color: var(--op-muted);
+  font: 500 0.92em / 1.3 var(--font-sans);
+  letter-spacing: 0.08em;
 }
 
 .dev-row {
@@ -507,7 +401,7 @@ body:has(#tuning-panel:not([hidden])) .dev-info {
   grid-template-columns: 8.4em minmax(0, 1fr);
   column-gap: 0.3em;
   padding: 0.04em 0.4em;
-  border-left: 0.24em solid transparent;
+  border-left: 0.2em solid transparent;
 }
 
 .dev-key {
@@ -522,35 +416,34 @@ body:has(#tuning-panel:not([hidden])) .dev-info {
 
 .dev-row.is-ok { border-left-color: var(--op-ok); }
 .dev-row.is-ok .dev-val { color: var(--op-ok); }
-.dev-row.is-warn { border-left-color: var(--gold); background: rgba(217, 164, 65, 0.16); }
+.dev-row.is-warn { border-left-color: var(--op-warn); background: rgba(217, 182, 115, 0.1); }
 .dev-row.is-warn .dev-val { color: var(--op-warn); }
-.dev-row.is-error { border-left-color: var(--op-error); background: rgba(179, 32, 44, 0.1); }
+.dev-row.is-error { border-left-color: var(--op-error); background: rgba(229, 139, 128, 0.12); }
 .dev-row.is-error .dev-val { color: var(--op-error); }
 
-/* 운영자 표시: 자동 촬영 일시정지(P). 관람객이 봐도 거슬리지 않게 오른쪽 위에 작은 종이 알약 (가안) */
+/* 운영자 표시: 자동 촬영 일시정지(P). 관람객이 봐도 거슬리지 않게 오른쪽 위에 작게 (가안) */
 .pause-badge {
   position: absolute;
-  top: 2.4cqw;
-  right: 2.4cqw;
+  top: 3.6cqw;
+  right: 3.6cqw;
   display: flex;
   align-items: center;
-  gap: 0.5em;
+  gap: 0.6em;
   margin: 0;
-  padding: 0.35em 0.85em 0.35em 0.65em;
-  border-radius: 999px;
-  background: var(--paper);
-  color: var(--red-deep);
-  box-shadow: 0 0.2em 0.6em rgba(0, 0, 0, 0.3), inset 0 0 0 0.12em var(--gold);
-  font: 400 1.7cqw / 1.2 var(--font-body);
-  opacity: 0.9;
+  padding: 0.4em 0.8em;
+  border-radius: 0.25em;
+  background: rgba(16, 16, 16, 0.55);
+  color: var(--white);
+  font: 400 1.7cqw / 1.2 var(--font-sans);
+  letter-spacing: 0.04em;
   pointer-events: none;
 }
 
 .pause-badge::before {
   content: '';
-  width: 0.62em;
-  height: 0.78em;
-  background: linear-gradient(90deg, currentColor 0 34%, transparent 34% 66%, currentColor 66%);
+  width: 0.55em;
+  height: 0.7em;
+  background: linear-gradient(90deg, currentColor 0 30%, transparent 30% 70%, currentColor 70%);
 }
 
 /* 인식 범위 조절(R) 중 9:16 영역 위의 편집 층. 영역 사각형과 핸들만 마우스를 받는다 */
@@ -561,21 +454,20 @@ body:has(#tuning-panel:not([hidden])) .dev-info {
   pointer-events: none;
 }
 
-/* 흑백 점 미리보기 위에서도 보이게 금빛 선에 어두운 테두리 */
+/* 흑백 점 미리보기 위에서도 보이게 흰 선에 어두운 테두리 */
 .tuning-region {
   position: absolute;
   box-sizing: border-box;
-  border: 0.45cqw solid var(--gold-light);
-  border-radius: 0.6cqw;
-  background: rgba(246, 213, 138, 0.1);
-  box-shadow: 0 0 0 0.3cqw rgba(30, 18, 10, 0.8), inset 0 0 0 0.3cqw rgba(30, 18, 10, 0.8);
+  border: 0.3cqw solid var(--white);
+  background: rgba(244, 242, 238, 0.06);
+  box-shadow: 0 0 0 0.25cqw rgba(16, 16, 16, 0.7), inset 0 0 0 0.25cqw rgba(16, 16, 16, 0.7);
   cursor: move;
   pointer-events: auto;
   touch-action: none;
 }
 
 .tuning-region.is-dragging {
-  background: rgba(246, 213, 138, 0.22);
+  background: rgba(244, 242, 238, 0.16);
 }
 
 .tuning-region::after {
@@ -584,12 +476,12 @@ body:has(#tuning-panel:not([hidden])) .dev-info {
   top: 4.4cqw;
   left: 50%;
   translate: -50% 0;
-  padding: 0.25em 0.8em;
-  border-radius: 999px;
-  background: var(--paper);
-  color: var(--red-deep);
-  box-shadow: inset 0 0 0 0.12em var(--gold);
-  font: 400 2.2cqw / 1.2 var(--font-body);
+  padding: 0.3em 0.8em;
+  border-radius: 0.25em;
+  background: rgba(16, 16, 16, 0.75);
+  color: var(--white);
+  font: 400 2cqw / 1.2 var(--font-sans);
+  letter-spacing: 0.06em;
   white-space: nowrap;
   pointer-events: none;
 }
@@ -600,10 +492,8 @@ body:has(#tuning-panel:not([hidden])) .dev-info {
   box-sizing: border-box;
   width: 3.4cqw;
   height: 3.4cqw;
-  border: 0.45cqw solid var(--red-deep);
-  border-radius: 50%;
-  background: var(--cream);
-  box-shadow: 0 0 0 0.25cqw rgba(30, 18, 10, 0.6);
+  border: 0.3cqw solid var(--charcoal);
+  background: var(--white);
 }
 
 .tuning-handle[data-handle="nw"] { left: 0; top: 0; cursor: nwse-resize; }
@@ -615,7 +505,7 @@ body:has(#tuning-panel:not([hidden])) .dev-info {
 .tuning-handle[data-handle="e"] { right: 0; top: calc(50% - 1.7cqw); cursor: ew-resize; }
 .tuning-handle[data-handle="w"] { left: 0; top: calc(50% - 1.7cqw); cursor: ew-resize; }
 
-/* 조절 패널(R·E): 크림 종이 카드, 딥 레드 제목. 아래(기본)·위로 옮길 수 있다(위·아래 버튼, data-dock).
+/* 조절 패널(R·E): 차콜 반투명. 아래(기본)·위로 옮길 수 있다(위·아래 버튼, data-dock).
    얼굴을 덜 가리게 세로 화면에서는 높이를 화면의 절반 남짓으로 제한하고 안쪽만 넘긴다 */
 .op-panel {
   position: fixed;
@@ -629,11 +519,15 @@ body:has(#tuning-panel:not([hidden])) .dev-info {
   width: min(44em, calc(100vw - 2em));
   max-height: min(50vh, calc(100vh - 2em));
   overflow: hidden;
-  border-radius: 0.9em;
-  background: url('assets/paper.webp') 0 0 / 22em, var(--paper);
-  box-shadow: 0 0.6em 2em rgba(20, 10, 5, 0.45), inset 0 0 0 0.12em var(--gold);
-  color: var(--ink);
-  font: 400 var(--op-size) / 1.45 var(--font-body);
+  border: 1px solid var(--op-line);
+  border-radius: 0.4em;
+  background: var(--op-bg);
+  box-shadow: 0 0.6em 2em rgba(0, 0, 0, 0.35);
+  color: var(--op-text);
+  font: 400 var(--op-size) / 1.45 var(--font-sans);
+  color-scheme: dark; /* 선택 상자 목록·넘김 막대도 어둡게 */
+  scrollbar-color: rgba(236, 235, 231, 0.25) transparent;
+  scrollbar-width: thin;
 }
 
 .op-panel[data-dock="top"] {
@@ -673,20 +567,20 @@ body:has(#tuning-panel:not([hidden])) .dev-info {
   align-items: flex-start;
   justify-content: space-between;
   gap: 1em;
-  padding: 0.85em 1.1em 0.6em;
+  padding: 0.9em 1.2em 0.7em;
   border-bottom: 1px solid var(--op-line);
 }
 
 .op-title {
   margin: 0;
-  color: var(--red-deep);
-  font: 700 1.35em / 1.2 var(--font-title);
+  font: 500 1.12em / 1.3 var(--font-sans);
+  letter-spacing: 0.04em;
 }
 
 .op-keys {
   margin-top: 0.2em;
   color: var(--op-muted);
-  font-size: 0.8em;
+  font-size: 0.78em;
 }
 
 .op-header-buttons {
@@ -697,17 +591,16 @@ body:has(#tuning-panel:not([hidden])) .dev-info {
 
 /* 실시간 상태 한 줄 (인식 상태·미리보기 해상도·초당 그림 등) */
 .op-live {
-  margin: 0.6em 1.1em 0;
-  padding: 0.4em 0.8em;
-  border-radius: 0.5em;
-  background: rgba(47, 95, 82, 0.1);
-  color: var(--pine-deep);
-  font-size: 0.86em;
+  margin: 0.7em 1.2em 0;
+  padding-left: 0.7em;
+  border-left: 0.16em solid var(--op-line);
+  color: var(--op-muted);
+  font-size: 0.84em;
   font-variant-numeric: tabular-nums;
 }
 
 .op-live.is-present {
-  background: rgba(47, 111, 87, 0.2);
+  border-left-color: var(--op-ok);
   color: var(--op-ok);
 }
 
@@ -715,12 +608,12 @@ body:has(#tuning-panel:not([hidden])) .dev-info {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  padding: 0 1.1em 0.6em;
+  padding: 0 1.2em 0.6em;
 }
 
-/* 묶음: 제목은 딥 레드 고운바탕, 묶음 사이에 가는 선 */
+/* 묶음: 작은 회색 제목, 묶음 사이에 가는 선 */
 .op-group {
-  margin: 0.6em 0 0;
+  margin: 0.7em 0 0;
   padding: 0;
   border: 0;
   border-top: 1px solid var(--op-line);
@@ -730,9 +623,10 @@ body:has(#tuning-panel:not([hidden])) .dev-info {
 .op-group > summary {
   float: left;
   width: 100%;
-  padding: 0.55em 0 0.1em;
-  color: var(--red-deep);
-  font: 700 1.02em / 1.3 var(--font-title);
+  padding: 0.7em 0 0.15em;
+  color: var(--op-muted);
+  font: 500 0.82em / 1.3 var(--font-sans);
+  letter-spacing: 0.08em;
 }
 
 .op-group > summary {
@@ -747,20 +641,21 @@ body:has(#tuning-panel:not([hidden])) .dev-info {
 
 .op-group legend small,
 .op-group summary small {
-  margin-left: 0.5em;
-  color: var(--op-muted);
-  font: 400 0.78em / 1 var(--font-body);
+  margin-left: 0.6em;
+  font: 400 0.92em / 1 var(--font-sans);
+  letter-spacing: 0;
+  opacity: 0.8;
 }
 
 .op-help {
   margin: 0.2em 0 0.3em;
   color: var(--op-muted);
-  font-size: 0.82em;
+  font-size: 0.8em;
 }
 
 .op-readout {
   margin-bottom: 0.4em;
-  font: 0.92em / 1.4 var(--op-mono);
+  font: 0.9em / 1.4 var(--op-mono);
   font-variant-numeric: tabular-nums;
 }
 
@@ -770,59 +665,57 @@ body:has(#tuning-panel:not([hidden])) .dev-info {
   grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) 6.4em;
   align-items: center;
   gap: 0.3em 1em;
-  padding: 0.42em 0;
+  padding: 0.45em 0;
 }
 
 .op-row + .op-row {
-  border-top: 1px dashed var(--op-line);
+  border-top: 1px solid rgba(236, 235, 231, 0.06);
 }
 
 .op-row:has(:disabled) {
-  opacity: 0.45;
+  opacity: 0.4;
 }
 
 .op-label {
   display: block;
-  font-size: 0.98em;
+  font-size: 0.95em;
   line-height: 1.3;
 }
 
 .op-label small {
   display: block;
-  margin-top: 0.1em;
+  margin-top: 0.15em;
   color: var(--op-muted);
-  font-size: 0.78em;
+  font-size: 0.8em;
   line-height: 1.35;
 }
 
 .op-swatch {
   display: inline-block;
-  width: 0.8em;
-  height: 0.8em;
-  margin-right: 0.4em;
-  border-radius: 0.18em;
-  box-shadow: inset 0 0 0 0.1em rgba(30, 18, 10, 0.6);
-  vertical-align: -0.05em;
+  width: 0.7em;
+  height: 0.7em;
+  margin-right: 0.45em;
+  vertical-align: -0.02em;
 }
 
-.op-swatch.is-min { background: #7fd1b9; } /* main.js OVERLAY.minGuide */
-.op-swatch.is-max { background: #f29aa0; } /* main.js OVERLAY.maxGuide */
+.op-swatch.is-min { background: #8fb6d6; } /* main.js OVERLAY.minGuide */
+.op-swatch.is-max { background: #e0a39a; } /* main.js OVERLAY.maxGuide */
 
 .op-row input[type="range"] {
   width: 100%;
   margin: 0;
-  accent-color: var(--red-deep);
+  accent-color: #d6d4cf;
 }
 
 .op-row select {
   width: 100%;
   padding: 0.25em 0.4em;
-  border: 1px solid rgba(58, 36, 24, 0.3);
-  border-radius: 0.4em;
-  background: var(--op-field);
-  color: var(--ink);
+  border: 1px solid rgba(236, 235, 231, 0.18);
+  border-radius: 0.25em;
+  background: #262626;
+  color: var(--op-text);
   font: inherit;
-  font-size: 0.92em;
+  font-size: 0.9em;
 }
 
 .op-value {
@@ -830,7 +723,7 @@ body:has(#tuning-panel:not([hidden])) .dev-info {
   align-items: baseline;
   justify-content: flex-end;
   gap: 0.3em;
-  font: 600 1em / 1.2 var(--op-mono);
+  font: 400 0.95em / 1.2 var(--op-mono);
   font-variant-numeric: tabular-nums;
 }
 
@@ -841,7 +734,7 @@ body:has(#tuning-panel:not([hidden])) .dev-info {
 .op-unit {
   min-width: 2.2em;
   color: var(--op-muted);
-  font: 400 0.78em / 1 var(--font-body);
+  font: 400 0.8em / 1 var(--font-sans);
 }
 
 .op-json textarea {
@@ -850,46 +743,44 @@ body:has(#tuning-panel:not([hidden])) .dev-info {
   width: 100%;
   margin: 0.4em 0;
   padding: 0.4em;
-  border: 1px solid rgba(58, 36, 24, 0.3);
-  border-radius: 0.4em;
+  border: 1px solid rgba(236, 235, 231, 0.18);
+  border-radius: 0.25em;
   background: var(--op-field);
-  color: var(--ink);
+  color: var(--op-text);
   font: 0.8em / 1.4 var(--op-mono);
 }
 
 /* 아래: 저장 상태(data-save) · 버튼 · 알림. 넘기는 동안에도 늘 보인다 */
 .op-footer {
-  padding: 0.65em 1.1em 0.85em;
+  padding: 0.7em 1.2em 0.9em;
   border-top: 1px solid var(--op-line);
-  background: rgba(251, 247, 239, 0.9);
 }
 
+/* 저장 상태: 점 하나와 글자. 색은 점과 글자에만 */
 .op-state {
   display: inline-flex;
   align-items: center;
-  gap: 0.45em;
-  margin-bottom: 0.55em !important;
-  padding: 0.2em 0.75em;
-  border-radius: 999px;
-  font-size: 0.85em;
+  gap: 0.5em;
+  margin-bottom: 0.6em !important;
+  font-size: 0.84em;
 }
 
 .op-state::before {
   content: '';
-  width: 0.55em;
-  height: 0.55em;
+  width: 0.5em;
+  height: 0.5em;
   border-radius: 50%;
   background: currentColor;
 }
 
-[data-save="saved"] .op-state { background: rgba(47, 111, 87, 0.12); color: var(--op-ok); }
-[data-save="dirty"] .op-state { background: rgba(217, 164, 65, 0.2); color: var(--op-warn); }
-[data-save="saving"] .op-state { background: rgba(217, 164, 65, 0.12); color: var(--op-warn); }
-[data-save="failed"] .op-state { background: rgba(179, 32, 44, 0.12); color: var(--op-error); }
+[data-save="saved"] .op-state { color: var(--op-ok); }
+[data-save="dirty"] .op-state { color: var(--op-warn); }
+[data-save="saving"] .op-state { color: var(--op-warn); opacity: 0.75; }
+[data-save="failed"] .op-state { color: var(--op-error); }
 /* 바꾸지 않았지만 파일과 같지 않은 상태 (6단계 검수 1): 파일 없음·불러오기 실패·고쳐 씀 */
-[data-save="defaults"] .op-state { background: rgba(47, 95, 82, 0.1); color: var(--pine-deep); }
-[data-save="adjusted"] .op-state { background: rgba(217, 164, 65, 0.2); color: var(--op-warn); }
-[data-save="load-failed"] .op-state { background: rgba(179, 32, 44, 0.12); color: var(--op-error); }
+[data-save="defaults"] .op-state { color: var(--op-muted); }
+[data-save="adjusted"] .op-state { color: var(--op-warn); }
+[data-save="load-failed"] .op-state { color: var(--op-error); }
 
 .op-buttons {
   display: flex;
@@ -899,46 +790,49 @@ body:has(#tuning-panel:not([hidden])) .dev-info {
 
 .op-panel button {
   padding: 0.42em 1em;
-  border: 1px solid rgba(58, 36, 24, 0.28);
-  border-radius: 0.5em;
-  background: var(--op-field);
-  color: var(--ink);
+  border: 1px solid rgba(236, 235, 231, 0.22);
+  border-radius: 0.25em;
+  background: transparent;
+  color: var(--op-text);
   font: inherit;
-  font-size: 0.92em;
+  font-size: 0.9em;
   cursor: pointer;
 }
 
 .op-panel button:hover {
-  border-color: var(--red-deep);
+  border-color: rgba(236, 235, 231, 0.6);
 }
 
 .op-panel button:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: default;
 }
 
 .op-header-buttons button {
   padding: 0.28em 0.7em;
-  font-size: 0.82em;
+  font-size: 0.8em;
 }
 
+/* 주 버튼(저장): 오프화이트 바탕 */
 .op-panel button.is-primary {
-  border-color: var(--red-deep);
-  background: var(--red-deep);
-  color: var(--cream);
+  border-color: var(--op-text);
+  background: var(--op-text);
+  color: #161616;
+  font-weight: 500;
 }
 
 /* 저장할 것이 없으면 저장 버튼을 차분하게 (누를 수는 있다) */
 [data-save="saved"] button.is-primary {
-  background: var(--op-field);
-  color: var(--red-deep);
+  border-color: rgba(236, 235, 231, 0.22);
+  background: transparent;
+  color: var(--op-text);
 }
 
 .op-message {
   min-height: 1.3em;
   margin-top: 0.5em !important;
   color: var(--op-muted);
-  font-size: 0.85em;
+  font-size: 0.84em;
 }
 
 [data-save="failed"] .op-message {
