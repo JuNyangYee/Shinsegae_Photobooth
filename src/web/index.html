@@ -206,7 +206,7 @@
           <span class="op-value"><output data-key="outputMode"></output></span>
         </label>
         <label class="op-row">
-          <span class="op-label">점 방식<small>블루 노이즈 권장. 오차 확산(CPU)은 지글거리고 무겁다</small></span>
+          <span class="op-label">점 방식<small>톤 점·질감 강조 점에서 쓴다. 오차 확산(CPU)은 지글거리고 무겁다</small></span>
           <select data-key="dither">
             <option value="blue-noise">블루 노이즈 (GPU)</option>
             <option value="bayer">Bayer 순서 디더 (GPU)</option>
@@ -222,6 +222,26 @@
             <option value="384">58mm · 384점</option>
           </select>
           <span class="op-value"><output data-key="paperDots"></output></span>
+        </label>
+        <label class="op-row">
+          <span class="op-label">흑백 스타일<small>유화 느낌을 1비트에 남기는 방식 (감열지)</small></span>
+          <select data-key="bwStyle">
+            <option value="stroke">붓 결 선 (획마다 획 방향 선)</option>
+            <option value="flow">흐름 선 (흐름을 따라 번진 결)</option>
+            <option value="texture">질감 강조 점 (획 볼록 + 점 방식)</option>
+            <option value="tone">톤 점 (질감 강조 없음)</option>
+          </select>
+          <span class="op-value"><output data-key="bwStyle"></output></span>
+        </label>
+        <label class="op-row">
+          <span class="op-label">질감 세기<small>획 볼록 조명·국소 대비 (톤 점 제외)</small></span>
+          <input type="range" data-key="bwTexture">
+          <span class="op-value"><output data-key="bwTexture"></output><span class="op-unit">세기</span></span>
+        </label>
+        <label class="op-row">
+          <span class="op-label">선 간격<small>붓 결 선·흐름 선의 주기</small></span>
+          <input type="range" data-key="lineSpacing">
+          <span class="op-value"><output data-key="lineSpacing"></output><span class="op-unit">점</span></span>
         </label>
         <label class="op-row">
           <span class="op-label">밝기<small>회색조에 더한다 (회색조·감열지)</small></span>

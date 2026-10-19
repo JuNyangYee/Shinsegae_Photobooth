@@ -311,11 +311,12 @@ function effectDevLines() {
   const t = effectTunables(effect.getSettings());
   const values = `  values   : strength ${t.strength} size ${t.size} boil ${t.boil} fps ${t.fps} grade ${t.grade}`
     + ` refine ${t.refineThreshold ?? '-'} scale ${t.previewScale} | output ${t.outputMode} ${t.dither} paper ${t.paperDots}`
+    + ` style ${t.bwStyle} texture ${t.bwTexture} lines ${t.lineSpacing}`
     + ` brightness ${t.brightness} contrast ${t.contrast} gamma ${t.gamma}`
     + ` (${effectTuning ? effectTuning.describeSettingsSource() : 'loading'}, ${config.effectSettingsFile.url})`;
-  // 출력 단계 (6-1): 감열지면 인쇄 해상도, 점 방식, 화소 읽기·CPU 디더 시간(오차 확산만)
+  // 출력 단계 (6-1): 감열지면 인쇄 해상도, 점을 정하는 것(점 방식 또는 흐름·붓 결 선, 7-1)·흑백 스타일, 화소 읽기·CPU 디더 시간(오차 확산만)
   const output = e.outputMode === 'thermal'
-    ? `thermal ${e.printWidth}x${e.printHeight} ${e.dither}, read ${ms(e.readMs)}, dither ${ms(e.ditherMs)}`
+    ? `thermal ${e.printWidth}x${e.printHeight} ${e.screen} (style ${e.bwStyle}), read ${ms(e.readMs)}, dither ${ms(e.ditherMs)}`
     : e.outputMode;
   const p = photoEffect.getStats();
   let photo = '-';

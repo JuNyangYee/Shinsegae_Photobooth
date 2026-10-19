@@ -155,6 +155,7 @@ describe('effect-tuning (E)', () => {
     assert.equal(t.select('outputMode').value, 'thermal', '기본값은 감열지');
     assert.equal(t.select('paperDots').value, '576');
     assert.deepEqual([t.input('gamma').min, t.input('gamma').max, t.input('brightness').min], ['0.4', '2.5', '-0.5']);
+    t.choose('bwStyle', 'tone'); // 점 방식은 톤 점·질감 강조 점에서 쓴다 (7-1)
     t.choose('dither', 'atkinson');
     t.choose('paperDots', 384);
     t.slide('gamma', 1.6);
@@ -176,6 +177,32 @@ describe('effect-tuning (E)', () => {
     await flush();
     t.tuning.close();
     assert.equal(t.running().dither, 'atkinson');
+  });
+
+  it('흑백 스타일 (7-1): 스타일 선택 상자, 질감 세기·선 간격 슬라이더. 스타일·모드에 따라 쓰지 않는 항목을 막고 저장에 들어간다', async () => {
+    const t = current = setup();
+    t.tuning.toggle();
+    assert.equal(t.select('bwStyle').value, 'stroke', '가안 기본값');
+    assert.deepEqual([t.input('lineSpacing').min, t.input('lineSpacing').max, t.input('bwTexture').max], ['2', '8', '2']);
+    assert.equal(t.output('lineSpacing'), '4.0');
+    // 붓 결 선·흐름 선: 점 방식은 쓰지 않는다
+    assert.deepEqual([t.select('dither').disabled, t.input('lineSpacing').disabled, t.input('bwTexture').disabled], [true, false, false]);
+    t.choose('bwStyle', 'texture');
+    assert.deepEqual([t.select('dither').disabled, t.input('lineSpacing').disabled, t.input('bwTexture').disabled], [false, true, false]);
+    t.choose('bwStyle', 'tone');
+    assert.deepEqual([t.select('dither').disabled, t.input('lineSpacing').disabled, t.input('bwTexture').disabled], [false, true, true]);
+    t.choose('bwStyle', 'flow');
+    t.slide('lineSpacing', 6);
+    t.slide('bwTexture', 1.5);
+    assert.deepEqual([t.running().bwStyle, t.running().lineSpacing, t.running().bwTexture], ['flow', 6, 1.5]);
+    t.choose('outputMode', 'gray');
+    assert.deepEqual([t.select('bwStyle').disabled, t.input('lineSpacing').disabled, t.input('bwTexture').disabled], [true, true, true]);
+    t.choose('outputMode', 'thermal');
+    t.click('save');
+    const saved = t.saves[0].settings;
+    assert.deepEqual([saved.bwStyle, saved.lineSpacing, saved.bwTexture], ['flow', 6, 1.5]);
+    t.saves[0].resolve();
+    await flush();
   });
 });
 
