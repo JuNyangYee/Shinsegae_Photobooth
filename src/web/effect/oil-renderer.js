@@ -594,7 +594,8 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
    *   width·height: 그리는 해상도. sourceOffset·sourceScale: 출력 uv(왼쪽 아래 원점, 0~1) → 소스 텍스처 uv
    *   (위아래를 뒤집어 올리므로 텍스처 uv도 왼쪽 아래 원점). 기본값은 소스 전체 그대로.
    *   output: 'canvas'(화면 캔버스, 크기를 맞춘다), 'pixels'(화면 밖에 그려 RGBA 화소를 위 줄부터 돌려준다.
-   *   화면 캔버스는 건드리지 않는다. 결과 사진용, 출력 모드 off·gray·gray-oil. gray-oil이면 인쇄용 gray·mask도), 'print'(감열지 결과 사진용: 인쇄 해상도의
+   *   화면 캔버스는 건드리지 않는다. 결과 사진용, 출력 모드 off·gray·gray-oil. gray-oil이면 인쇄용 gray·mask도. 인쇄 단계만 실패하면
+   *   gray·mask 대신 printError), 'print'(감열지 결과 사진용: 인쇄 해상도의
    *   gray·mask를 위 줄부터 돌려준다. 화면 캔버스는 건드리지 않는다)
    *   출력 단계는 settings의 outputMode·dither·brightness·contrast·gamma·paperDots를 따른다 (outputMode가 없으면 'off')
    *   displayWidth·displayHeight: 감열지 화면 캔버스 크기 (기본값은 그리는 해상도. 미리보기는 결과 크기를 넘긴다)
@@ -626,6 +627,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
     let count = 0;
     let pixels;
     let thermal = null;
+    let printError = ''; // 회색조 유화 결과에서 인쇄 단계만 실패한 원인 (사진은 확정)
     try {
       clearGlErrors();
       if (source !== null) upload(source);
@@ -656,11 +658,18 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
         pixels = new Uint8ClampedArray(width * height * 4);
         gl.bindFramebuffer(gl.FRAMEBUFFER, T.out.fb);
         gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        checkGl('photo render'); // 화소 읽기까지 끝난 뒤. 잃었거나 오류면 빈 화소일 수 있다. 여기를 지나면 사진은 확정이다
         if (mode === 'gray-oil') {
-          // 인쇄용 1비트 (8단계): 같은 합성 그림을 6-1 톤 점 경로로(회색조·레벨 → 인쇄 해상도 면적 평균 → 점 방식). 화면에는 보이지 않는다
-          thermal = thermalStage({ ...settings, bwStyle: 'tone' }, D, 'print', width, height);
+          // 인쇄용 1비트 (8단계): 같은 합성 그림을 6-1 톤 점 경로로(회색조·레벨 → 인쇄 해상도 면적 평균 → 점 방식). 화면에는 보이지 않는다.
+          // 사진과 따로 실패한다: 여기서 예외·GL 오류·컨텍스트 손실이 나도 확정된 사진은 돌려주고 printError만 알린다 (8단계 검수 1)
+          try {
+            thermal = thermalStage({ ...settings, bwStyle: 'tone' }, D, 'print', width, height);
+            checkGl('print data');
+          } catch (error) {
+            thermal = null;
+            printError = error instanceof EffectError ? error.message : `${EffectFault.RENDER_FAILED}: ${error?.message ?? error}`;
+          }
         }
-        checkGl('photo render'); // 화소 읽기까지 끝난 뒤. 잃었거나 오류면 빈 화소일 수 있다
       } else {
         pass(PR.output, null, { uImage: T.composed }, { uFlipY: 0, ...outputUniforms });
         checkGl('preview render');
@@ -688,7 +697,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
       const { gray, mask, thr, printWidth, printHeight } = thermal;
       return { strokes: count, cpuMs, pixels, gray, mask, thr, printWidth, printHeight };
     }
-    return { strokes: count, cpuMs, pixels };
+    return printError ? { strokes: count, cpuMs, pixels, printError } : { strokes: count, cpuMs, pixels };
   }
 
   function dispose() {

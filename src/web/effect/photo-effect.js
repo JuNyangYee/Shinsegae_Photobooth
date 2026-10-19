@@ -289,6 +289,8 @@ export function createPhotoEffect({
   /**
    * 회색조 유화 결과 (8단계): 사진은 미리보기와 같은 회색조 유화 그대로(output), 인쇄 데이터는 렌더러가 같은 합성 그림에서 만든
    * 인쇄 해상도 마스크(6-1 톤 점 경로)로. 인쇄 데이터만 실패하면 사진은 그대로 두고 인쇄 데이터 없이(사진은 인쇄 데이터와 관계없이 맞다).
+   * GPU 인쇄 단계가 실패했으면(still.printError, 8단계 검수 1) 확정된 사진 화소에서 CPU로 같은 계산(면적 평균 → 점 방식)을 해 대신한다:
+   * 사진은 이미 회색조·레벨을 입혔으므로 중립 레벨로 줄이면 GPU 경로와 회색이 ±1 안에서 같고, 인쇄 데이터가 화면 사진과 맞는다.
    * 인쇄 처리(GPU = CPU 확인·비트 묶기·PNG) 전에 작업을 한 번 양보한다: 셔터 순간의 동기 구간(효과 렌더·화소 읽기·결과 캔버스)과
    * 한 작업으로 이어지면 실제 OBS에서 50ms 긴 작업이 생겼다. 그 사이 회차가 취소되면 사진 캔버스를 비우고 예외
    */
@@ -297,12 +299,23 @@ export function createPhotoEffect({
     let print = null;
     let check = null;
     let printError = '';
+    let printFallback = '';
     try {
       await yieldTask();
       signal?.throwIfAborted();
-      if (!still.mask) throw new Error('no print mask from renderer');
-      check = checkGpuDither(still, method, 'print');
-      print = await printData(still.mask, still.printWidth, still.printHeight, signal);
+      let mask = still.mask;
+      let size = { width: still.printWidth, height: still.printHeight };
+      if (still.printError || !mask) {
+        printFallback = still.printError || 'no print mask from renderer';
+        log.warn('effect-capture', `GPU print data failed -> print data from photo on CPU (${printFallback})`);
+        size = printSizeFor(still.settings.paperDots, still.width, still.height);
+        const gray = reduceToPrintGray(still.pixels, still.width, still.height, size.width, size.height, NEUTRAL_LEVELS);
+        mask = dither(gray, size.width, size.height, method);
+        check = 'cpu from photo';
+      } else {
+        check = checkGpuDither(still, method, 'print');
+      }
+      print = await printData(mask, size.width, size.height, signal);
     } catch (error) {
       if (signal?.aborted) {
         free(output);
@@ -314,9 +327,9 @@ export function createPhotoEffect({
     applied += 1;
     last = {
       status: 'applied', mode: 'gray-oil', width: still.width, height: still.height, ...base, dither: `print ${method}`,
-      check: print ? check : 'no print data', print: print ? describePrint(print) : null, printError, ms: now() - t0,
+      check: print ? check : 'no print data', print: print ? describePrint(print) : null, printError, printFallback, ms: now() - t0,
     };
-    if (!printError) log.clear('effect-capture');
+    if (!printError && !printFallback) log.clear('effect-capture');
     return print ? { canvas: output, print } : output;
   }
 

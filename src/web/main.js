@@ -340,6 +340,7 @@ function effectDevLines() {
   const printLine = `print      : ${pr
     ? `${pr.width}x${pr.height} 1-bit, raster ${pr.bytesPerRow}B/row ${pr.rasterBytes}B, png ${pr.pngBytes}B`
       + ` (IHDR depth ${pr.pngBitDepth} color ${pr.pngColorType}), black ${(pr.blackRatio * 100).toFixed(1)}%`
+      + `${p.last.printFallback ? `, from photo on CPU (GPU print failed: ${p.last.printFallback})` : ''}`
     : p.last?.printError ? `none (${p.last.printError})` : '-'}`;
   if (e.status === EffectStatus.DISABLED) return ['effect     : disabled (config.effect.enabled) -> camera preview', photoLine, printLine];
   if (e.status === EffectStatus.FALLBACK || e.status === EffectStatus.CONTEXT_LOST) {

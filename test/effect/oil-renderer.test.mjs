@@ -515,15 +515,38 @@ describe('oil-renderer: 회색조 유화 (8단계, 가짜 WebGL2)', () => {
     assert.deepEqual(fake.liveCount(), ZERO);
   });
 
-  it('결과 인쇄 데이터를 읽기 직전 손실·INVALID_OPERATION은 예외', () => {
+  it('사진 화소 읽기(첫 번째) 직전 손실·INVALID_OPERATION은 예외 (빈 사진을 성공으로 넘기지 않는다)', () => {
     for (const [inject, fault] of [
-      [(f) => { let n = 0; f.onReadPixels((g) => { n += 1; if (n === 2) g.lose(); }); }, EffectFault.CONTEXT_LOST],
+      [(f) => f.onReadPixels((g) => g.lose()), EffectFault.CONTEXT_LOST],
       [(f) => f.failNextCall('readPixels'), EffectFault.RENDER_FAILED],
     ]) {
       const fake = createFakeWebGL2();
       const renderer = createOilRenderer({ canvas: fake.canvas });
       inject(fake);
       assert.throws(() => renderer.render({}, { ...small, settings: grayOil(), output: 'pixels' }), (e) => e.fault === fault);
+    }
+  });
+
+  it('인쇄 단계(두 번째·세 번째 읽기)만 실패하면 확정된 사진 화소와 printError를 돌려준다 (8단계 검수 1)', () => {
+    const cases = [
+      ['2nd read throws', (f, n) => { if (n === 2) throw new Error('blocked'); }, /render-failed: blocked/],
+      ['2nd read context lost', (f, n) => { if (n === 2) f.lose(); }, /context-lost: context lost during print data/],
+      ['3rd read GL error', (f, n) => { if (n === 3) f.pushError(); }, /render-failed: GL error 0x502 during print data/],
+    ];
+    for (const [label, hook, reason] of cases) {
+      const fake = createFakeWebGL2();
+      const renderer = createOilRenderer({ canvas: fake.canvas });
+      let n = 0;
+      fake.onReadPixels((f, [, , w, h, , , buf]) => { n += 1; if (n === 1) buf.fill(7); hook(f, n); });
+      const out = renderer.render({}, { ...small, settings: grayOil(), output: 'pixels' });
+      assert.equal(out.pixels.length, 20 * 36 * 4, label);
+      assert.equal(out.pixels[0], 7, `${label}: 사진은 첫 번째 읽기 그대로`);
+      assert.match(out.printError, reason, label);
+      assert.deepEqual([out.mask, out.gray], [undefined, undefined], label);
+      renderer.dispose();
+      // 잃은 컨텍스트의 객체는 지울 수 없고 지울 필요도 없다(기존 규칙). 렌더러의 소유 목록은 모두 비운다
+      if (fake.gl.isContextLost()) assert.deepEqual(renderer.liveResources(), { programs: 0, textures: 0, framebuffers: 0, buffers: 0, arrays: 0 }, label);
+      else assert.deepEqual(fake.liveCount(), ZERO, label);
     }
   });
 });
@@ -593,6 +616,30 @@ describe('촬영 결과 회색조 유화 경로 (실제 미리보기·렌더러�
     });
     await assert.rejects(t.photo.apply(t.raw, { signal: controller.signal }), /cancelled/);
     assert.deepEqual([made.width, made.height], [0, 0]);
+  });
+
+  it('GPU 인쇄 단계(두 번째·세 번째 읽기)만 실패하면 셔터 순간 유화 사진은 applied 그대로, 인쇄 데이터는 그 사진에서 CPU로 (8단계 검수 1)', async () => {
+    const cases = [
+      ['2nd read throws', (f, n) => { if (n === 2) throw new Error('blocked'); }, /blocked/],
+      ['2nd read context lost', (f, n) => { if (n === 2) f.lose(); }, /context-lost/],
+      ['3rd read GL error', (f, n) => { if (n === 3) f.pushError(); }, /GL error 0x502 during print data/],
+    ];
+    for (const [label, hook, reason] of cases) {
+      let made = null;
+      const t = setup({}, { createCanvas: () => { made = canvas2d(); return made; } });
+      let n = 0;
+      t.fake.onReadPixels((f, [, , w, h, , , buf]) => { n += 1; if (n === 1) buf.fill(255); hook(f, n); });
+      const out = await t.photo.apply(t.raw);
+      assert.equal(out.canvas, made, `${label}: 렌더러 화소로 만든 효과 사진 (원본 사진이 아니다)`);
+      assert.notEqual(out.canvas, t.raw, label);
+      assert.deepEqual([out.canvas.width, out.canvas.height], [1080, 1920], label);
+      assert.deepEqual([out.print.width, out.print.height, out.print.blackRatio], [128, 228, 0], `${label}: 흰 사진 → 흰 종이`);
+      const { last } = t.photo.getStats();
+      assert.deepEqual([last.status, last.mode, last.check, last.sameAsPreview], ['applied', 'gray-oil', 'cpu from photo', true], label);
+      assert.match(last.printFallback, reason, label);
+      assert.equal(last.printError, '', label);
+      assert.ok(t.warnings.some((m) => /GPU print data failed -> print data from photo on CPU/.test(m)), label);
+    }
   });
 
   it('효과를 그리지 못하면 원본 사진(결과 크기)을 입력 회색조·레벨로, 인쇄 데이터도 그 사진에서', async () => {

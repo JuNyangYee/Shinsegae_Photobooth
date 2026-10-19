@@ -176,6 +176,7 @@ export function createEffectPreview({
    *   sameAsPreview: boolean, ms: number, pixels?: Uint8ClampedArray,
    *   gray?: Uint8Array, mask?: Uint8Array, thr?: Uint8Array, printWidth?: number, printHeight?: number }}
    *   thr: 흐름 선·붓 결 선의 점별 문턱 (7-1, 결과 단계가 GPU 점 그림을 다시 확인한다)
+   *   printError: 회색조 유화에서 인쇄 단계만 실패한 원인 (사진 pixels는 확정, 8단계 검수 1)
    */
   function renderStill() {
     if (!renderer || (status !== EffectStatus.RUNNING && status !== EffectStatus.WAITING_CAMERA)) {
@@ -201,7 +202,7 @@ export function createEffectPreview({
     return {
       mode, settings: drawing.settings, width: v.resultWidth, height: v.resultHeight, seed: drawing.seed, tick: drawing.tick,
       sameAsPreview: reuse, ms: now() - t0, pixels: out.pixels,
-      gray: out.gray, mask: out.mask, thr: out.thr, printWidth: out.printWidth, printHeight: out.printHeight,
+      gray: out.gray, mask: out.mask, thr: out.thr, printWidth: out.printWidth, printHeight: out.printHeight, printError: out.printError,
     };
   }
 
