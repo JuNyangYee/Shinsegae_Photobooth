@@ -113,8 +113,9 @@ body {
   right: 0;
   bottom: 0;
   height: 18%;
-  /* 숫자 높이(띠의 50~80%)에서도 흰 바탕을 회색으로 눌러 오프화이트 숫자가 읽히게 (흰 바탕 모의로 확인) */
-  background: linear-gradient(to top, rgba(10, 10, 10, 0.62) 0%, rgba(10, 10, 10, 0.52) 40%, rgba(10, 10, 10, 0.34) 66%,
+  /* 숫자 높이(띠의 50~80%)에서도 흰 바탕을 회색으로 눌러 오프화이트 숫자가 읽히게 (흰 바탕 모의로 확인).
+     66% 지점은 붓 결 선 미리보기(7-1)와 합친 뒤 실제 OBS 숫자 대비로 0.34 → 0.46 (로그 2026-10-19-04) */
+  background: linear-gradient(to top, rgba(10, 10, 10, 0.62) 0%, rgba(10, 10, 10, 0.52) 40%, rgba(10, 10, 10, 0.46) 66%,
     rgba(10, 10, 10, 0.12) 86%, rgba(10, 10, 10, 0) 100%);
   opacity: 0;
   transition: opacity 0.5s ease;
@@ -185,7 +186,7 @@ body {
   color: var(--white);
   font: 300 9.6cqw / 1 var(--font-serif);
   font-variant-numeric: lining-nums tabular-nums;
-  text-shadow: 0 0 2.2cqw rgba(0, 0, 0, 0.45), 0 0.15cqw 0.5cqw rgba(0, 0, 0, 0.4);
+  text-shadow: 0 0 2.2cqw rgba(0, 0, 0, 0.6), 0 0.15cqw 0.5cqw rgba(0, 0, 0, 0.4);
 }
 
 /* 진행선: 가운데에서 양쪽으로 차오른다 (ui/guest-screen.js, scaleX) */
