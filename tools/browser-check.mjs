@@ -868,18 +868,24 @@ async function runScenarios(app, origin) {
     }
   });
 
-  await scenario('결과 효과 렌더 실패 3가지(예외·INVALID_OPERATION·컨텍스트 손실) → 원본 사진으로 대신 (관람객 흐름 계속)', async () => {
+  await scenario('결과 효과 렌더 실패 3가지(예외·INVALID_OPERATION·컨텍스트 손실) → 원본 사진으로 대신, 인쇄 읽기만 실패 2가지 → 유화 사진 그대로·인쇄 데이터는 사진에서 CPU로 (관람객 흐름 계속)', async () => {
     // 효과 캔버스 컨텍스트의 결과 화소 읽기만 건드린다(회색조 유화 결과는 1080x1920 화소가 먼저, 인쇄 데이터는 4점씩 묶은 144x1024.
     // 미리보기는 읽지 않는다).
     // 감지기의 WebGL은 그대로 (5단계 검수 1의 실제 WebGL 재현)
     // - throw: 예외를 던진다
     // - invalid: 결과 FBO(RGBA8)를 RGB 형식으로 읽어 실제 INVALID_OPERATION을 낸다 (화소는 0으로 남는다)
     // - lose: 읽기 직전에 WEBGL_lose_context로 컨텍스트를 잃게 한다 (화소는 0으로 남는다)
+    // - print-throw·print-invalid: 사진 읽기는 그대로 두고 두 번째 큰 읽기(인쇄용 회색 144x1024)만 실패시킨다 (8단계 검수 1)
     const { identifier } = await app.cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: `(() => {
       const original = WebGL2RenderingContext.prototype.readPixels;
       WebGL2RenderingContext.prototype.readPixels = function (x, y, w, h, format, type, ...rest) {
-        const mode = window.__photoboothFailPhotoEffect;
+        let mode = window.__photoboothFailPhotoEffect;
         if (mode && this.canvas?.id === 'effect' && w * h >= 100000) {
+          if (mode.startsWith('print-')) {
+            window.__photoboothBigReads = (window.__photoboothBigReads ?? 0) + 1;
+            if (window.__photoboothBigReads < 2) return original.call(this, x, y, w, h, format, type, ...rest);
+            mode = mode.slice('print-'.length);
+          }
           window.__photoboothFailPhotoEffect = null; // 한 번만
           if (mode === 'throw') throw new Error('readPixels blocked by browser-check');
           if (mode === 'invalid') return original.call(this, x, y, w, h, this.RGB, type, ...rest);
@@ -888,17 +894,29 @@ async function runScenarios(app, origin) {
         return original.call(this, x, y, w, h, format, type, ...rest);
       };
     })();` });
-    const expected = { throw: /readPixels blocked/, invalid: /render-failed: GL error 0x502 during photo render/, lose: /context-lost: context lost during photo render/ };
+    const expected = { throw: /readPixels blocked/, invalid: /render-failed: GL error 0x502 during photo render/, lose: /context-lost: context lost during photo render/,
+      'print-throw': /readPixels blocked/, 'print-invalid': /render-failed: GL error 0x502 during print data/ };
     const details = [];
     try {
       await app.open();
       await waitReady(app);
-      for (const mode of ['throw', 'invalid', 'lose']) {
+      for (const mode of ['throw', 'invalid', 'lose', 'print-throw', 'print-invalid']) {
         await app.waitFor('effect running', async () => /^running,/.test((await app.dev()).get('effect') ?? ''), 10000);
-        await app.evaluate(`window.__photoboothFailPhotoEffect = '${mode}'; true`);
+        await app.evaluate(`window.__photoboothBigReads = 0; window.__photoboothFailPhotoEffect = '${mode}'; true`);
         const { completedDelta, resources, dev, image } = await withAutoPaused(app, () => manualCycle(app));
         const fx = dev.get('photo-fx') ?? '';
         expect(completedDelta === 1, `${mode}: S completed +${completedDelta}`);
+        if (mode.startsWith('print-')) {
+          // 셔터 순간 유화 사진은 그대로(applied), 인쇄 데이터는 확정된 사진에서 CPU로 (8단계 검수 1)
+          const print = dev.get('print') ?? '';
+          expect(/^applied gray-oil 1080x1920 print blue-noise .*\(same drawing as preview, cpu from photo\)/.test(fx), `${mode}: photo-fx ${fx}`);
+          expect(/^576x1024 1-bit/.test(print) && expected[mode].test(print) && /from photo on CPU/.test(print), `${mode}: print ${print}`);
+          expect(image.startsWith('1080x1920') && /image\/jpeg/.test(dev.get('capture') ?? ''), `${mode}: result ${image}, ${dev.get('capture')}`);
+          expect(photoFree(resources), `${mode}: resources ${dev.get('resources')}`);
+          expect(/^running,/.test(dev.get('effect') ?? ''), `${mode}: preview after failure ${dev.get('effect')}`);
+          details.push(`${mode} → applied, print from photo (${/GPU print failed: ([^)]*)/.exec(print)?.[1] ?? print})`);
+          continue;
+        }
         // 회색조 유화 기본값: 원본 사진(결과 크기)을 입력 회색조·레벨로, 인쇄 데이터도 그 사진에서 (8단계)
         expect(/^RAW PHOTO gray-oil 1080x1920 /.test(fx) && expected[mode].test(fx), `${mode}: photo-fx ${fx}`);
         expect(image.startsWith('1080x1920'), `${mode}: result image ${image}`);
@@ -913,7 +931,7 @@ async function runScenarios(app, origin) {
         }
         details.push(`${mode} → ${/\(([^)]*)\)/.exec(fx)?.[1] ?? fx}`);
       }
-      return `${details.join('; ')}; results: raw photo -> gray 1080x1920 on CPU with print data 576x1024, preview running again`;
+      return `${details.join('; ')}; photo read failures: raw photo -> gray 1080x1920 on CPU with print data 576x1024, preview running again`;
     } finally {
       await app.cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier });
     }
