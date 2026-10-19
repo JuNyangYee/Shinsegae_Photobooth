@@ -652,7 +652,7 @@ async function runScenarios(app, origin) {
     }
   });
 
-  await scenario('출력 모드 3단계(E): 끔 1080x1920 JPEG, 회색조 1080x1920 JPEG, 감열지 Atkinson(CPU) PNG = 미리보기, 용지 384점·감마 저장 → 새로고침 유지', async () => {
+  await scenario('출력 모드 전환(E, 기본값 밖의 세 모드): 끔 1080x1920 JPEG, 회색조 1080x1920 JPEG, 감열지 Atkinson(CPU) PNG = 미리보기, 용지 384점·감마 저장 → 새로고침 유지', async () => {
     const details = [];
     try {
       await app.open();
