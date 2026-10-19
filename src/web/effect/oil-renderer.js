@@ -134,6 +134,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
   const printTargets = new Map();
   const thresholdTextures = new Map(); // 점 방식 → 문턱 지도 텍스처 (R8, 처음 쓸 때 만든다)
   let errorWork = null; // 오차 확산 작업 버퍼 (그림마다 새로 만들지 않게)
+  let warmedPrint = ''; // 회색조 유화: 결과 사진의 인쇄 경로를 미리 한 번 쓴 조건 (용지·점 방식, 8단계)
   let disposed = false;
   const queries = []; // GPU 시간 측정 중인 질의 (결과가 나오면 꺼낸다)
   const stats = {
@@ -387,6 +388,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
    * print: 화면은 건드리지 않고 gray·mask(위 줄부터, 1바이트/점)를 돌려준다. 문턱값 디더면 mask는 화면과 같은 bits를 읽는다.
    *   흐름 선·붓 결 선이면 점별 문턱 thr도 읽어 돌려준다(CPU가 gray ≥ thr로 다시 확인한다, 7-1).
    * 흑백 스타일(7-1)이 톤 점이 아니면 먼저 붓 높이 조명을 더한 밝기(bw, 밉)를 만들고 축소에서 국소 대비를 더한다.
+   * warm: 화면도 결과도 아닌 준비만(회색조 유화 미리보기, 8단계). 인쇄 대상·문턱 지도를 만들고 축소·디더 패스를 한 번 그린다. 화소는 읽지 않는다.
    */
   function thermalStage(settings, D, output, Dw, Dh) {
     const { width, height } = D;
@@ -423,6 +425,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
       pass(PR.dither, P.bits, { uGray: P.gray, uThr: thr ?? thresholdTexture(screen) }, { uFull: thr ? 1 : 0 });
       shown = P.bits;
     }
+    if (output === 'warm') return result;
     if (output === 'print' || !gpu) { // 결과 사진 또는 오차 확산: 회색을 읽는다 (동기)
       const r0 = performance.now();
       result.gray = readRows(P.gray, Pw, Ph);
@@ -452,6 +455,17 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
       pass(PR.show, null, { uMask: shown }, { uPaper: paperColor, uInk: inkColor });
     }
     return result;
+  }
+
+  /**
+   * 회색조 유화 미리보기 (8단계): 결과 사진에서만 쓰는 인쇄 경로(인쇄 대상, 블루 노이즈 문턱 지도 약 25ms, 축소·디더 셰이더)를
+   * 용지·점 방식이 바뀔 때 한 번 미리 쓴다. 안 하면 첫 셔터 순간에 몰려 동기 구간이 길어졌다(실제 OBS 첫 촬영 54.6ms, 긴 작업 1개)
+   */
+  function warmGrayOilPrint(settings, D) {
+    const key = `${settings.paperDots} ${settings.dither}`;
+    if (warmedPrint === key) return;
+    thermalStage({ ...settings, bwStyle: 'tone' }, D, 'warm', 0, 0);
+    warmedPrint = key;
   }
 
   // 원본 pass(): 전체 화면 삼각형 하나. target이 null이면 캔버스
@@ -630,6 +644,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
       // 붓 결 선 주기: 선 간격(인쇄 점) × 인쇄 점 하나의 그리는 해상도 px (감열지가 아니어도 같은 식, 색에는 영향 없음)
       count = paintStrokes(D, seed, (settings.lineSpacing ?? 3) * (width / (settings.paperDots ?? 576)));
       pass(PR.compose, T.composed, { uPaint: T.paint, uHgt: T.hgt }, { uStr: D.strength, uRelief: D.relief, uPxScale: D.pxScale });
+      if (mode === 'gray-oil' && output === 'canvas') warmGrayOilPrint(settings, D);
       // 회색조·회색조 유화는 회색조·레벨. 회색조 유화는 이것으로 색 보정·획 색 흔들림의 색을 없앤다(무채색, 8단계)
       const outputUniforms = { uGray: mode === 'gray' || mode === 'gray-oil' ? 1 : 0, ...levelUniforms(settings) };
       if (mode === 'thermal') {

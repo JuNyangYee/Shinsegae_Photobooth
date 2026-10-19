@@ -289,7 +289,8 @@ export function createPhotoEffect({
   /**
    * 회색조 유화 결과 (8단계): 사진은 미리보기와 같은 회색조 유화 그대로(output), 인쇄 데이터는 렌더러가 같은 합성 그림에서 만든
    * 인쇄 해상도 마스크(6-1 톤 점 경로)로. 인쇄 데이터만 실패하면 사진은 그대로 두고 인쇄 데이터 없이(사진은 인쇄 데이터와 관계없이 맞다).
-   * 그 사이 회차가 취소되면 사진 캔버스를 비우고 예외
+   * 인쇄 처리(GPU = CPU 확인·비트 묶기·PNG) 전에 작업을 한 번 양보한다: 셔터 순간의 동기 구간(효과 렌더·화소 읽기·결과 캔버스)과
+   * 한 작업으로 이어지면 실제 OBS에서 50ms 긴 작업이 생겼다. 그 사이 회차가 취소되면 사진 캔버스를 비우고 예외
    */
   async function grayOilResult(output, still, base, t0, signal) {
     const method = still.settings.dither;
@@ -297,6 +298,8 @@ export function createPhotoEffect({
     let check = null;
     let printError = '';
     try {
+      await yieldTask();
+      signal?.throwIfAborted();
       if (!still.mask) throw new Error('no print mask from renderer');
       check = checkGpuDither(still, method, 'print');
       print = await printData(still.mask, still.printWidth, still.printHeight, signal);

@@ -464,8 +464,8 @@ describe('oil-renderer: 회색조 유화 (8단계, 가짜 WebGL2)', () => {
     assert.deepEqual(fake.liveCount(), ZERO, '입력 회색조 텍스처도 지운다');
   });
 
-  it('미리보기 패스 수: 회색조 유화 = 회색조 + 1 (입력 회색조만 더한다), 화소는 읽지 않는다', () => {
-    const draws = (outputMode) => {
+  it('미리보기 패스 수: 회색조 유화 = 회색조 + 1 (입력 회색조만 더한다). 인쇄 경로 준비(축소·디더)는 용지·점 방식이 바뀔 때 한 번만, 화소는 읽지 않는다', () => {
+    const draws = (outputMode, changes = []) => {
       const fake = createFakeWebGL2();
       let n = 0;
       let reads = 0;
@@ -473,12 +473,21 @@ describe('oil-renderer: 회색조 유화 (8단계, 가짜 WebGL2)', () => {
       fake.gl.drawArrays = (...args) => { n += 1; return original(...args); };
       fake.onReadPixels(() => { reads += 1; });
       const renderer = createOilRenderer({ canvas: fake.canvas });
-      renderer.render({}, { ...small, settings: grayOil({ outputMode }) });
+      const counts = [];
+      for (const over of [{}, {}, ...changes]) {
+        n = 0;
+        renderer.render({}, { ...small, settings: grayOil({ outputMode, ...over }) });
+        counts.push(n);
+      }
       renderer.dispose();
       assert.equal(reads, 0, outputMode);
-      return n;
+      assert.deepEqual(fake.liveCount(), ZERO);
+      return counts;
     };
-    assert.equal(draws('gray-oil'), draws('gray') + 1);
+    const [gray] = draws('gray');
+    const [first, second, paper, same, dither] = draws('gray-oil', [{ paperDots: 256 }, { paperDots: 256 }, { paperDots: 256, dither: 'bayer' }]);
+    assert.equal(second, gray + 1);
+    assert.deepEqual([first, paper, same, dither], [gray + 3, gray + 3, gray + 1, gray + 3], '준비는 축소 + 디더 2패스, 바뀔 때만');
   });
 
   it('결과(pixels): 결과 크기 화소 + 같은 합성 그림에서 만든 인쇄용 회색·GPU 점(톤 점 경로). 흑백 스타일은 쓰지 않는다', () => {
