@@ -14,6 +14,8 @@
 // - FS_COMPOSE: 법선 세기를 uRelief(= 강도 × s)로, 캔버스 결 주기를 px / uPxScale로 계산한다
 // - 출력 단계 FS_OUTPUT을 하나 더 둔다 (컬러 그대로 또는 회색조·레벨)
 // - 감열지 출력 단계 FS_THERMAL_REDUCE·FS_THERMAL_DITHER·FS_THERMAL_SHOW (6-1, 원본에 없음. 계산은 core/thermal.js와 같다)
+// - 흑백 스타일 (7-1, 원본에 없음): VS_STROKE·FS_STROKE가 높이 텍스처의 G에 "붓 결 선" 값을 더 쓴다(합성은 R만 읽어 색은 같다),
+//   FS_BW_PREP(붓 높이 조명), FS_THERMAL_REDUCE의 국소 대비, FS_THERMAL_SCREEN(흐름 선·붓 결 선 문턱)
 
 export const VS = `#version 300 es
 const vec2 P[3] = vec2[3](vec2(-1.,-1.), vec2(3.,-1.), vec2(-1.,3.));
@@ -95,7 +97,7 @@ layout(location=0) in vec4 aS;                 // 중심 x,y (0~1), 난수 2개
 uniform sampler2D uGrade, uTFM, uCanvas;
 uniform vec2 uRes;
 uniform float uLen, uWid, uLod, uDetMin, uJit, uErrT, uCell;
-out vec2 vSt; out vec3 vCol; out float vR;
+out vec2 vSt; out vec3 vCol; out float vR; out vec2 vSize; // vSize: 획 길이·굵기 px (붓 결 선, 7-1)
 const int NSEG = 6;
 void main(){
   int sec = gl_VertexID / 2; float side = (gl_VertexID % 2 == 0) ? -1. : 1.;
@@ -137,12 +139,17 @@ void main(){
   vSt = vec2(t + .5, side);
   vCol = clamp(col*(1. + (aS.z - .5)*uJit*2.)*vec3(1. + (aS.w - .5)*uJit, 1., 1. - (aS.w - .5)*uJit), 0., 1.);
   vR = aS.z*37.1 + aS.w*11.3;
+  vSize = vec2(L, W);
 }`;
 
 // 유화 붓 한 획: 길이 방향 붓털 홈, 끝에서 물감이 갈라진다. 색(0번)과 높이(1번)를 함께 쓴다.
+// 높이 텍스처의 G·B는 흑백 스타일(7-1)이 쓴다. 합성(FS_COMPOSE)은 R만 읽으므로 색 그림은 원본과 같다.
+// - G "붓 결 선": 획 가로 위치를 선 주기(uLinePx)로 나눈 삼각파(0~1). 획마다 위상이 다르고 길이 방향으로 조금 흔들린다
+// - B "획 볼록": 획 가운데 1, 가장자리·양 끝 0인 획 단위 높이. 원본 높이(R)는 붓털 무늬(약 2px)라 인쇄 해상도에서 평균되어 사라지므로,
+//   흑백 준비(FS_BW_PREP)는 이 높이로 조명을 더한다
 export const FS_STROKE = SBR_HEAD + `
-in vec2 vSt; in vec3 vCol; in float vR;
-uniform float uBrisLen, uBrisWid;
+in vec2 vSt; in vec3 vCol; in float vR; in vec2 vSize;
+uniform float uBrisLen, uBrisWid, uLinePx;
 layout(location=0) out vec4 oC; layout(location=1) out vec4 oH;
 void main(){
   float u = vSt.x, av = abs(vSt.y);
@@ -154,7 +161,9 @@ void main(){
   col *= .92 + .16*bris;
   h = .3 + .6*bris*edge;
   a = clamp(a, 0., 1.);
-  oC = vec4(col, a); oH = vec4(vec3(h), a);
+  float ph = vSt.y*vSize.y*.5/uLinePx + fract(vR*.618) + .35*(vnoise(vec2(u*vSize.x/(uLinePx*3.), vR*7.)) - .5);
+  float dome = (1. - av*av)*smoothstep(0., .25, u)*smoothstep(1., .75, u);
+  oC = vec4(col, a); oH = vec4(h, abs(2.*fract(ph) - 1.), dome, a);
 }`;
 
 // 밑칠: 아주 흐린 색 보정 이미지, 높이 0.5
@@ -214,11 +223,23 @@ void main(){
 // 감열지 1: 합성 결과(W×H) → 회색조·레벨 → 인쇄 해상도로 면적 평균. 출력은 (Pw/4)×Ph RGBA8에 가로 4점씩 묶는다
 // (텍셀 i의 r·g·b·a = 점 4i..4i+3). 화소로 읽을 때 4분의 1만 옮기고, 읽은 바이트가 그대로 점 순서다.
 // 점 하나가 덮는 원본 구간 [x·s, (x+1)·s)와 겹친 넓이로 가중 평균한다(s = 원본/인쇄, 576이면 1.875). 위아래는 GL 방향(아래 원점)
+// 흑백 스타일(7-1)이 톤 점이 아니면 합성 결과 대신 FS_BW_PREP의 밝기(uPrep, 밉)를 읽고 국소 대비를 더한다:
+// v + uLocal·(v − 밉 uLocalLod의 v). 흐린 쪽은 밉(상자 평균 + 삼선형)이라 GPU에서만 계산한다(회색을 읽어 CPU가 점을 다시 확인한다)
 export const FS_THERMAL_REDUCE = `#version 300 es
 precision highp float; precision highp int;
 out vec4 o;
-uniform sampler2D uImage; uniform vec2 uScale;
+uniform sampler2D uImage, uPrep; uniform vec2 uScale; uniform float uUsePrep, uLocal, uLocalLod;
 ${LEVELS}
+float levels1(float v){
+  v = clamp((v - .5)*uContrast + .5 + uBrightness, 0., 1.);
+  return pow(v, 1./uGamma);
+}
+float srcGray(int sx, int sy, ivec2 n){
+  if (uUsePrep < .5) return levels(texelFetch(uImage, ivec2(sx, sy), 0).rgb);
+  float v = texelFetch(uPrep, ivec2(sx, sy), 0).r;
+  float m = textureLod(uPrep, (vec2(sx, sy) + .5)/vec2(n), uLocalLod).r;
+  return levels1(v + uLocal*(v - m));
+}
 float dotGray(int x, int y){
   vec2 a = vec2(float(x), float(y))*uScale, b = a + uScale;
   ivec2 n = textureSize(uImage, 0);
@@ -231,7 +252,7 @@ float dotGray(int x, int y){
     for (int i = 0; i < 12; i++){
       int sx = x0 + i; if (sx >= x1) break;
       float w = wy*(min(b.x, float(sx + 1)) - max(a.x, float(sx)));
-      sum += w*levels(texelFetch(uImage, ivec2(sx, sy), 0).rgb);
+      sum += w*srcGray(sx, sy, n);
       wsum += w;
     }
   }
@@ -246,21 +267,96 @@ void main(){
 // 감열지 2 (문턱값 디더, GPU): 8비트 회색 g와 8비트 문턱 t(core/thermal.js thresholdMap)를 정수로 비교해 g >= t면 흰 점.
 // 문턱 지도는 위 줄부터 올리므로 점 좌표도 위 원점(y = Ph-1-행)으로 읽는다. CPU ditherThreshold와 비트 단위로 같다.
 // 출력은 회색과 같은 묶음((Pw/4)×Ph, 4점씩, 0/1, GL 방향). 결과 사진은 이것을 읽고, 화면은 FS_THERMAL_SHOW로 확대한다
+// uFull 1이면 문턱이 타일이 아니라 인쇄 해상도 전체(FS_THERMAL_SCREEN 결과, 같은 묶음)다 (흐름 선·붓 결 선, 7-1)
 export const FS_THERMAL_DITHER = `#version 300 es
 precision highp float; precision highp int;
 out vec4 o;
-uniform sampler2D uGray, uThr;
+uniform sampler2D uGray, uThr; uniform float uFull;
+float packed(sampler2D s, int x, int yGL){
+  return dot(texelFetch(s, ivec2(x >> 2, yGL), 0), vec4(equal(ivec4(x & 3), ivec4(0, 1, 2, 3))));
+}
 float white(int x, int yGL){
   int h = textureSize(uGray, 0).y;
   ivec2 n = textureSize(uThr, 0);
-  vec4 v = texelFetch(uGray, ivec2(x >> 2, yGL), 0);
-  float g = floor(dot(v, vec4(equal(ivec4(x & 3), ivec4(0, 1, 2, 3))))*255. + .5);
-  float t = floor(texelFetch(uThr, ivec2(x % n.x, (h - 1 - yGL) % n.y), 0).r*255. + .5);
+  float g = floor(packed(uGray, x, yGL)*255. + .5);
+  float t = uFull > .5 ? floor(packed(uThr, x, yGL)*255. + .5)
+    : floor(texelFetch(uThr, ivec2(x % n.x, (h - 1 - yGL) % n.y), 0).r*255. + .5);
   return g >= t ? 1. : 0.;
 }
 void main(){
   ivec2 f = ivec2(gl_FragCoord.xy);
   o = vec4(white(f.x*4, f.y), white(f.x*4 + 1, f.y), white(f.x*4 + 2, f.y), white(f.x*4 + 3, f.y));
+}`;
+
+// 흑백 스타일 준비 (7-1, 톤 점이 아닐 때): 합성 결과의 밝기에 획 볼록(높이 B)의 조명을 곱한다(그리는 해상도, 밉을 만든다).
+// 빛은 합성과 같은 왼쪽 위. 기울기는 uStep 텍셀 떨어진 차이로 잰다(획 크기 무늬). 평평하면 1이라 톤은 거의 그대로다
+export const FS_BW_PREP = SBR_HEAD + `
+in vec2 vUV; out vec4 o;
+uniform sampler2D uImage, uHgt; uniform vec2 uTexel; uniform float uRelief, uStep;
+void main(){
+  float v = lum(texture(uImage, vUV).rgb);
+  vec2 d = uTexel*uStep;
+  float hx = texture(uHgt, vUV + vec2(d.x, 0.)).b - texture(uHgt, vUV - vec2(d.x, 0.)).b;
+  float hy = texture(uHgt, vUV + vec2(0., d.y)).b - texture(uHgt, vUV - vec2(0., d.y)).b;
+  vec3 n = normalize(vec3(-hx*uRelief, -hy*uRelief, 1.));
+  vec3 L = normalize(vec3(-.5, .65, .8));
+  v *= (.84 + .26*dot(n, L))/(.84 + .26*L.z);
+  o = vec4(vec3(clamp(v, 0., 1.)), 1.);
+}`;
+
+// 흑백 스타일 문턱 (7-1, 흐름 선·붓 결 선): 인쇄 점마다 8비트 문턱 t(1..255)를 만든다. 출력 묶음은 회색과 같다((Pw/4)×Ph, 4점씩, GL 방향).
+// - 붓 결 선(uStyle 1): 높이 텍스처 G(FS_STROKE의 획 가로 삼각파)를 점 가운데에서 읽는다
+// - 흐름 선(uStyle 0): 흐름장(tfm)을 따라 앞뒤로 uSteps점씩 값 잡음(주기 uLine점)을 평균한다(LIC). 평균은 0.5 둘레에 몰리므로
+//   표준편차 uLicSigma로 정규 분포 누적함수를 근사해 0~1에 고르게 편다
+// 두 경우 모두 선 값 u에 블루 노이즈 문턱 b를 (1−uMix):uMix로 섞고, 두 균일 분포 합의 누적함수로 다시 고르게 편다(톤 보존).
+// 그래서 회색 g의 흰 점 비율 ≈ g/255이고, 선은 어두울수록 굵어진다. 회색 비교는 FS_THERMAL_DITHER(uFull 1)가 한다
+export const FS_THERMAL_SCREEN = SBR_HEAD + `
+out vec4 o;
+uniform sampler2D uHgt, uTFM, uBlue; uniform vec2 uPrint; uniform float uStyle, uLine, uMix, uLicSigma, uSteps;
+float uniformSum(float w, float a){ // a·U1 + (1−a)·U2의 누적함수 (a ≥ 0.5)
+  float c = 1. - a;
+  if (c <= 0.) return w;
+  if (w < c) return w*w/(2.*a*c);
+  if (w < a) return (w - c*.5)/a;
+  return 1. - (1. - w)*(1. - w)/(2.*a*c);
+}
+float normCdf(float z){ return 1./(1. + exp(-1.5976*z - .07056*z*z*z)); } // 정규 분포 누적함수 근사
+float blueAt(vec2 q){ // 블루 노이즈 문턱 지도(0~1)를 쌍선형으로 읽는다 (타일). 낮은 주파수가 없어 결이 고른 간격으로 남는다
+  ivec2 n = textureSize(uBlue, 0);
+  vec2 f = q - .5, i = floor(f), t = f - i;
+  ivec2 a = (ivec2(i) % n + n) % n, b = (a + 1) % n;
+  float v00 = texelFetch(uBlue, a, 0).r, v10 = texelFetch(uBlue, ivec2(b.x, a.y), 0).r;
+  float v01 = texelFetch(uBlue, ivec2(a.x, b.y), 0).r, v11 = texelFetch(uBlue, b, 0).r;
+  return mix(mix(v00, v10, t.x), mix(v01, v11, t.x), t.y);
+}
+float flowLine(vec2 p){ // p: 인쇄 점 좌표 (GL 방향)
+  vec2 d0 = texture(uTFM, p/uPrint).xy;
+  float sc = 2./uLine; // 블루 노이즈 주기(약 2텍셀)를 선 간격에 맞춘다
+  float sum = blueAt(p*sc), n = 1.;
+  for (int s = -1; s <= 1; s += 2) {
+    vec2 q = p, d = d0*float(s);
+    for (int k = 0; k < 16; k++) {
+      if (float(k) >= uSteps) break;
+      vec2 v = texture(uTFM, q/uPrint).xy;
+      if (dot(v, d) < 0.) v = -v;
+      d = v; q += d;
+      sum += blueAt(q*sc); n += 1.;
+    }
+  }
+  return normCdf((sum/n - .5)/uLicSigma);
+}
+float threshold(int x, int yGL){
+  vec2 p = vec2(float(x), float(yGL)) + .5;
+  float u = uStyle > .5 ? texelFetch(uHgt, ivec2(p/uPrint*vec2(textureSize(uHgt, 0))), 0).g : flowLine(p);
+  ivec2 bn = textureSize(uBlue, 0);
+  int yTop = int(uPrint.y) - 1 - yGL;
+  float b = (texelFetch(uBlue, ivec2(x % bn.x, yTop % bn.y), 0).r*255. - .5)/255.;
+  float t = uniformSum(clamp(u, 0., 1.)*(1. - uMix) + b*uMix, max(uMix, 1. - uMix));
+  return clamp(1. + floor(t*255.), 1., 255.)/255.;
+}
+void main(){
+  ivec2 f = ivec2(gl_FragCoord.xy);
+  o = vec4(threshold(f.x*4, f.y), threshold(f.x*4 + 1, f.y), threshold(f.x*4 + 2, f.y), threshold(f.x*4 + 3, f.y));
 }`;
 
 // 감열지 3 (화면 표시): 마스크 묶음((Pw/4)×Ph, 4점씩, GL 방향. GPU 디더 결과 또는 CPU 디더 마스크를 올린 것)

@@ -20,8 +20,8 @@ import { config } from '../config/config.js';
 import { errorLog } from '../core/log-limit.js';
 import { resultSizeFor } from '../core/oil-paint.js';
 import {
-  dither, ditherThreshold, encodeOneBitPng, grayLevelsInPlace, isGpuDither, packPrintBits, printSizeFor,
-  readPngHeader, reduceToPrintGray, thresholdMap, upscaleSharp,
+  bwStyleOf, dither, ditherThreshold, ditherWithThresholds, encodeOneBitPng, grayLevelsInPlace, isGpuDither, packPrintBits,
+  printSizeFor, readPngHeader, reduceToPrintGray, screenOf, thresholdMap, upscaleSharp,
 } from '../core/thermal.js';
 
 // 화면용 확대를 한 번에 몇 줄씩 할지 (1080 폭이면 한 묶음 약 2ms)
@@ -126,7 +126,8 @@ export function createPhotoEffect({
     };
   }
 
-  // 효과를 그리지 못했을 때: 원본 사진에 같은 출력 단계를 CPU로 (감열지면 인쇄 데이터도). 실패하면 원본 컬러 사진
+  // 효과를 그리지 못했을 때: 원본 사진에 같은 출력 단계를 CPU로 (감열지면 인쇄 데이터도). 실패하면 원본 컬러 사진.
+  // 흑백 스타일(7-1)은 쓰지 않는다: 획·흐름장·획 볼록이 없으므로 톤 점(설정한 점 방식)으로 찍는다
   async function rawResult(canvas, settings, reason, t0, signal) {
     log.warn('effect-capture', `photo effect not applied -> raw photo (${reason})`);
     fellBack += 1;
@@ -137,7 +138,8 @@ export function createPhotoEffect({
         const { width: Pw, height: Ph } = printSizeFor(settings.paperDots, size.width, size.height);
         const gray = reduceToPrintGray(readRgba(canvas), canvas.width, canvas.height, Pw, Ph, settings);
         const out = await thermalResult(dither(gray, Pw, Ph, settings.dither), Pw, Ph, size.width, size.height, signal);
-        last = { status: 'raw', mode, reason, width: Pw, height: Ph, dither: settings.dither, print: describePrint(out.print), ms: now() - t0 };
+        const style = bwStyleOf(settings) === 'tone' ? '' : ` (style ${bwStyleOf(settings)} -> tone)`;
+        last = { status: 'raw', mode, reason: `${reason}${style}`, width: Pw, height: Ph, dither: settings.dither, print: describePrint(out.print), ms: now() - t0 };
         return out;
       }
       if (mode === 'gray') {
@@ -199,11 +201,12 @@ export function createPhotoEffect({
     }
 
     // 감열지: 화면에 보이던 점 그림(GPU 디더면 GPU가 만든 마스크)이 정본이다
-    const { mask, gray, printWidth: Pw, printHeight: Ph } = still;
-    const method = still.settings.dither;
+    const { mask, gray, thr, printWidth: Pw, printHeight: Ph } = still;
+    const method = screenOf(still.settings); // 점 방식, 또는 흐름 선·붓 결 선 (7-1)
     let check = 'cpu dither';
-    if (isGpuDither(method) && gray) { // GPU 문턱값 디더 = CPU 같은 식인지 (비트 단위). 다르면 화면에 보이던 GPU 쪽을 쓴다
-      const cpu = ditherThreshold(gray, Pw, Ph, thresholdMap(method));
+    if ((thr || isGpuDither(method)) && gray) { // GPU 문턱값 디더 = CPU 같은 식인지 (비트 단위). 다르면 화면에 보이던 GPU 쪽을 쓴다
+      // 흐름 선·붓 결 선은 GPU가 만든 점별 문턱(thr)으로 비교만 다시 한다(문턱 자체는 획·흐름장에서 GPU로만 만든다)
+      const cpu = thr ? ditherWithThresholds(gray, thr) : ditherThreshold(gray, Pw, Ph, thresholdMap(method));
       let diff = 0;
       for (let i = 0; i < cpu.length; i += 1) if (cpu[i] !== mask[i]) diff += 1;
       check = diff === 0 ? 'gpu=cpu' : `GPU != CPU (${diff} dots)`;

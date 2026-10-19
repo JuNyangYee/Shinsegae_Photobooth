@@ -174,7 +174,8 @@ export function createEffectPreview({
    * 출력 모드는 그 그림의 설정을 따른다: off·gray면 pixels(결과 크기 RGBA), thermal이면 인쇄 해상도의 gray·mask (6-1).
    * @returns {{ mode: string, settings: object, width: number, height: number, seed: number, tick: number,
    *   sameAsPreview: boolean, ms: number, pixels?: Uint8ClampedArray,
-   *   gray?: Uint8Array, mask?: Uint8Array, printWidth?: number, printHeight?: number }}
+   *   gray?: Uint8Array, mask?: Uint8Array, thr?: Uint8Array, printWidth?: number, printHeight?: number }}
+   *   thr: 흐름 선·붓 결 선의 점별 문턱 (7-1, 결과 단계가 GPU 점 그림을 다시 확인한다)
    */
   function renderStill() {
     if (!renderer || (status !== EffectStatus.RUNNING && status !== EffectStatus.WAITING_CAMERA)) {
@@ -200,7 +201,7 @@ export function createEffectPreview({
     return {
       mode, settings: drawing.settings, width: v.resultWidth, height: v.resultHeight, seed: drawing.seed, tick: drawing.tick,
       sameAsPreview: reuse, ms: now() - t0, pixels: out.pixels,
-      gray: out.gray, mask: out.mask, printWidth: out.printWidth, printHeight: out.printHeight,
+      gray: out.gray, mask: out.mask, thr: out.thr, printWidth: out.printWidth, printHeight: out.printHeight,
     };
   }
 
@@ -264,6 +265,8 @@ export function createEffectPreview({
         // 출력 단계 (6-1): 지금 설정과 마지막 그림의 인쇄 해상도·화소 읽기·CPU 디더 시간 (문턱값 디더면 읽지 않아 null)
         outputMode: settings.outputMode,
         dither: settings.dither,
+        bwStyle: settings.bwStyle, // 흑백 스타일 (7-1)과 실제로 점을 정하는 것(점 방식 또는 선)
+        screen: s?.screen || settings.dither,
         printWidth: s?.printWidth ?? 0,
         printHeight: s?.printHeight ?? 0,
         readMs: s?.readMs ?? null,

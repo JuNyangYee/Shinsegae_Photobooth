@@ -8,16 +8,18 @@
 // 출력 단계 (6-1, settings.outputMode): 'off' 그대로, 'gray' 회색조·레벨, 'thermal' 회색조·레벨 → 인쇄 해상도로 면적 평균
 //   → 1비트 디더(문턱값은 GPU, 오차 확산은 화소를 읽어 CPU) → 캔버스(결과 크기, 종이색·잉크색). 화면 확대는 정수배 최근접 +
 //   경계 1화소만 넓이 비율로 섞는다(FS_THERMAL_SHOW, 화면 표시 전용).
+// 흑백 스타일 (7-1, settings.bwStyle): 'tone'은 6-1 그대로. 'texture'는 붓 높이 조명(FS_BW_PREP)·국소 대비를 더한 회색에 점 방식,
+//   'flow'·'stroke'는 회색은 'texture'와 같고 문턱을 인쇄 해상도 전체로 만든다(FS_THERMAL_SCREEN: 흐름장 LIC 또는 획 가로 삼각파).
 // 이미지·프레임을 밖으로 내보내거나 저장하지 않는다. 캔버스에 그리거나 결과 사진용 화소를 돌려주기만 한다.
 //
 // GPU 자원은 만드는 즉시 owned에 넣는다. 만들다 실패하면(텍스처·프레임버퍼·셰이더) 그때까지 만든 것을 지우고,
 // dispose()는 owned 전체를 지운다 (5단계 검수 2·3). 그림마다 GL 오류·컨텍스트 손실을 확인해 실패를 성공으로 넘기지 않는다 (검수 1).
 
 import { createStrokeBuilder, resolveOilDrawing } from '../core/oil-paint.js';
-import { ditherErrorDiffusion, isGpuDither, printSizeFor, thresholdMap } from '../core/thermal.js';
+import { bwStyleOf, ditherErrorDiffusion, isGpuDither, printSizeFor, screenOf, thresholdMap } from '../core/thermal.js';
 import {
-  FS_BLUR, FS_COMPOSE, FS_GRADE, FS_OUTPUT, FS_SST, FS_STROKE, FS_TFM, FS_THERMAL_DITHER, FS_THERMAL_REDUCE, FS_THERMAL_SHOW,
-  FS_UNDER, VS, VS_STROKE,
+  FS_BLUR, FS_BW_PREP, FS_COMPOSE, FS_GRADE, FS_OUTPUT, FS_SST, FS_STROKE, FS_TFM, FS_THERMAL_DITHER, FS_THERMAL_REDUCE,
+  FS_THERMAL_SCREEN, FS_THERMAL_SHOW, FS_UNDER, VS, VS_STROKE,
 } from './oil-shaders.js';
 
 /** 만들기·그리기 실패 원인 (D 화면에 그대로 보인다) */
@@ -43,6 +45,17 @@ export class EffectError extends Error {
 const CONTEXT_ATTRIBUTES = Object.freeze({
   alpha: false, depth: false, stencil: false, antialias: false, premultipliedAlpha: true, preserveDrawingBuffer: false,
 });
+
+// 흑백 스타일 상수 (7-1, 합성 시험 이미지로 정한 값. 로그 2026-10-19-04)
+const BW_RELIEF = 2; // 질감 세기 1일 때 획 볼록 조명 세기 (높이 차 → 법선 기울기 배율)
+const BW_RELIEF_STEP = 2; // 획 볼록 기울기를 재는 거리 (기준 해상도 px, × px 비례 s)
+const BW_LOCAL = 0.6; // 질감 세기 1일 때 국소 대비 (v + k·(v − 흐린 v))
+const BW_LOCAL_LOD = 2.5; // 국소 대비의 흐린 쪽 밉 단계 (기준 해상도, 약 6px 평균)
+const BW_LINE_MIX = 0.25; // 선 값에 섞는 블루 노이즈 비율 (가는 선의 계단을 깬다)
+const BW_LIC_STEPS = 10; // 흐름 선: 앞뒤로 따라가는 점 수
+// 흐름 선: LIC 평균의 표준편차 (정규 분포 누적함수로 고르게 펴는 데 쓴다). 선 간격이 넓을수록 잡음을 늘려 읽어 이웃 표본이 닮아
+// 커진다. 합성 시험 이미지 두 장에서 선 간격 2~8로 잰 값에 맞춘 식이다
+const licSigma = (lineSpacing) => 0.028 * lineSpacing ** 0.4;
 
 // 감열지 화면 표시 색 기본값 (보통 config.thermalDisplay를 넘겨받는다)
 const DEFAULT_DISPLAY = Object.freeze({ paper: [255, 255, 255], ink: [0, 0, 0] });
@@ -97,6 +110,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
       grade: compile(FS_GRADE), sst: compile(FS_SST), blur: compile(FS_BLUR), tfm: compile(FS_TFM),
       stroke: compile(FS_STROKE, VS_STROKE), under: compile(FS_UNDER), compose: compile(FS_COMPOSE), output: compile(FS_OUTPUT),
       reduce: compile(FS_THERMAL_REDUCE), dither: compile(FS_THERMAL_DITHER), show: compile(FS_THERMAL_SHOW),
+      prep: compile(FS_BW_PREP), screen: compile(FS_THERMAL_SCREEN),
     };
 
     // 소스 텍스처: 영상 프레임을 그림마다 올린다 (크기는 texImage2D가 정한다)
@@ -122,7 +136,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
   const queries = []; // GPU 시간 측정 중인 질의 (결과가 나오면 꺼낸다)
   const stats = {
     draws: 0, cpuMs: 0, gpuMs: null, strokes: 0, width: 0, height: 0, pxScale: 0, timer: Boolean(timer),
-    outputMode: 'off', dither: '', printWidth: 0, printHeight: 0, readMs: null, ditherMs: null,
+    outputMode: 'off', dither: '', bwStyle: '', screen: '', printWidth: 0, printHeight: 0, readMs: null, ditherMs: null,
   };
 
   function track(set, object) {
@@ -220,7 +234,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
     }
   }
 
-  const TARGET_KEYS = ['grade', 'sst', 'sst2', 'tfm', 'paint', 'hgt', 'paintC', 'composed', 'out'];
+  const TARGET_KEYS = ['grade', 'sst', 'sst2', 'tfm', 'paint', 'hgt', 'paintC', 'composed', 'out', 'bw'];
 
   function freeTargets(set) {
     for (const key of TARGET_KEYS) {
@@ -255,7 +269,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
   function allocate(W, H) {
     const fw = Math.round(W / 2);
     const fh = Math.round(H / 2);
-    const set = { mrt: null, out: null }; // out: 결과 사진(화면 밖) 출력. 처음 쓸 때 만든다
+    const set = { mrt: null, out: null, bw: null }; // out: 결과 사진(화면 밖) 출력, bw: 흑백 스타일 밝기(7-1). 처음 쓸 때 만든다
     try {
       set.grade = tex(W, H, { mip: true });
       set.sst = tex(fw, fh, { float: true });
@@ -313,7 +327,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
     return entry;
   }
 
-  const PRINT_KEYS = ['gray', 'bits', 'mask'];
+  const PRINT_KEYS = ['gray', 'bits', 'mask', 'thr'];
 
   function freePrintTargets(set) {
     for (const key of PRINT_KEYS) {
@@ -324,15 +338,15 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
     }
   }
 
-  // 인쇄 해상도 묶음: 모두 (Pw/4)×Ph에 가로 4점씩, GL 방향. gray 회색, bits GPU 디더 0/1, mask CPU 디더 마스크를 올린 것.
-  // bits·mask는 처음 쓸 때 만든다. 만들다 실패하면 그 텍스처만 지운다(tex·dataTexture)
+  // 인쇄 해상도 묶음: 모두 (Pw/4)×Ph에 가로 4점씩, GL 방향. gray 회색, bits GPU 디더 0/1, mask CPU 디더 마스크를 올린 것,
+  // thr 흐름 선·붓 결 선의 점별 문턱(7-1). bits·mask·thr는 처음 쓸 때 만든다. 만들다 실패하면 그 텍스처만 지운다(tex·dataTexture)
   function usePrintTargets(Pw, Ph) {
     const key = `${Pw}x${Ph}`;
     let set = printTargets.get(key);
     if (set) {
       printTargets.delete(key); // 최근 사용 순서로
     } else {
-      set = { w: Pw, h: Ph, gray: tex(Pw / 4, Ph, { nearest: true }), bits: null, mask: null };
+      set = { w: Pw, h: Ph, gray: tex(Pw / 4, Ph, { nearest: true }), bits: null, mask: null, thr: null };
       while (printTargets.size >= MAX_TARGET_SETS) {
         const [oldKey, oldSet] = printTargets.entries().next().value;
         freePrintTargets(oldSet);
@@ -368,23 +382,48 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
    * 감열지 출력 단계. composed(그리는 해상도) → 인쇄 해상도 Pw×Ph → (canvas면) 화면 크기 Dw×Dh로 확대.
    * canvas: 문턱값 디더는 GPU 마스크(bits)를, 오차 확산은 회색을 읽어 CPU로 디더한 마스크를 올려 FS_THERMAL_SHOW로 그린다.
    * print: 화면은 건드리지 않고 gray·mask(위 줄부터, 1바이트/점)를 돌려준다. 문턱값 디더면 mask는 화면과 같은 bits를 읽는다.
+   *   흐름 선·붓 결 선이면 점별 문턱 thr도 읽어 돌려준다(CPU가 gray ≥ thr로 다시 확인한다, 7-1).
+   * 흑백 스타일(7-1)이 톤 점이 아니면 먼저 붓 높이 조명을 더한 밝기(bw, 밉)를 만들고 축소에서 국소 대비를 더한다.
    */
-  function thermalStage(settings, width, height, output, Dw, Dh) {
-    const method = settings.dither;
+  function thermalStage(settings, D, output, Dw, Dh) {
+    const { width, height } = D;
+    const style = bwStyleOf(settings);
+    const screen = screenOf(settings);
     const { width: Pw, height: Ph } = printSizeFor(settings.paperDots, width, height);
     const P = usePrintTargets(Pw, Ph);
-    pass(PR.reduce, P.gray, { uImage: T.composed }, { uScale: [width / Pw, height / Ph], ...levelUniforms(settings) });
-    const result = { printWidth: Pw, printHeight: Ph, readMs: null, ditherMs: null, gray: null, mask: null };
-    const gpu = isGpuDither(method);
+    const texture = style === 'tone' ? 0 : settings.bwTexture ?? 0;
+    let prep = T.composed;
+    if (style !== 'tone') {
+      if (!T.bw) T.bw = tex(width, height, { mip: true });
+      pass(PR.prep, T.bw, { uImage: T.composed, uHgt: T.hgt }, { uRelief: texture * BW_RELIEF, uStep: Math.max(1, BW_RELIEF_STEP * D.pxScale) });
+      prep = T.bw;
+    }
+    pass(PR.reduce, P.gray, { uImage: T.composed, uPrep: prep }, {
+      uScale: [width / Pw, height / Ph], uUsePrep: style === 'tone' ? 0 : 1, uLocal: texture * BW_LOCAL,
+      uLocalLod: Math.max(0, BW_LOCAL_LOD + Math.log2(D.pxScale)), ...levelUniforms(settings),
+    });
+    const result = { printWidth: Pw, printHeight: Ph, readMs: null, ditherMs: null, gray: null, mask: null, thr: null };
+    const lines = screen === 'flow-lines' || screen === 'stroke-lines';
+    const gpu = lines || isGpuDither(screen);
     let shown = null; // 화면에 확대할 마스크 묶음
     if (gpu) {
       if (!P.bits) P.bits = tex(Pw / 4, Ph, { nearest: true });
-      pass(PR.dither, P.bits, { uGray: P.gray, uThr: thresholdTexture(method) });
+      let thr = null;
+      if (lines) {
+        if (!P.thr) P.thr = tex(Pw / 4, Ph, { nearest: true });
+        pass(PR.screen, P.thr, { uHgt: T.hgt, uTFM: T.tfm, uBlue: thresholdTexture('blue-noise') }, {
+          uPrint: [Pw, Ph], uStyle: screen === 'stroke-lines' ? 1 : 0, uLine: settings.lineSpacing ?? 3, uMix: BW_LINE_MIX,
+          uLicSigma: licSigma(settings.lineSpacing ?? 3), uSteps: BW_LIC_STEPS,
+        });
+        thr = P.thr;
+      }
+      pass(PR.dither, P.bits, { uGray: P.gray, uThr: thr ?? thresholdTexture(screen) }, { uFull: thr ? 1 : 0 });
       shown = P.bits;
     }
     if (output === 'print' || !gpu) { // 결과 사진 또는 오차 확산: 회색을 읽는다 (동기)
       const r0 = performance.now();
       result.gray = readRows(P.gray, Pw, Ph);
+      if (output === 'print' && lines) result.thr = readRows(P.thr, Pw, Ph);
       result.readMs = performance.now() - r0;
     }
     if (gpu && output === 'print') {
@@ -392,7 +431,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
     } else if (!gpu) {
       const d0 = performance.now();
       if (!errorWork || errorWork.length < Pw * Ph) errorWork = new Float32Array(Pw * Ph);
-      result.mask = ditherErrorDiffusion(result.gray, Pw, Ph, method, errorWork);
+      result.mask = ditherErrorDiffusion(result.gray, Pw, Ph, screen, errorWork);
       result.ditherMs = performance.now() - d0;
       if (output === 'canvas') {
         if (!P.mask) P.mask = dataTexture(Pw / 4, Ph, { rgba: true });
@@ -464,7 +503,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
   }
 
   // 원본 paintStrokes()의 oil2f 경로 (sbr 1 = 유화)
-  function paintStrokes(D, seed) {
+  function paintStrokes(D, seed, linePx) {
     const { width: W, height: H } = D;
     gl.bindFramebuffer(gl.FRAMEBUFFER, T.mrt);
     gl.viewport(0, 0, W, H);
@@ -491,6 +530,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
     gl.uniform1i(U(pr, 'uCanvas'), 2);
     gl.uniform2f(U(pr, 'uRes'), W, H);
     gl.uniform1f(U(pr, 'uJit'), D.jitter);
+    gl.uniform1f(U(pr, 'uLinePx'), linePx); // 붓 결 선 주기 (그리는 해상도 px, 7-1). 색 그림에는 영향이 없다
     gl.bindVertexArray(strokeVAO);
     let count = 0;
     for (const layer of D.layers) {
@@ -577,11 +617,12 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
       pass(PR.blur, T.sst2, { uTex: T.sst }, { uDir: [1 / T.sst.w, 0], uSigma: D.flowSigma });
       pass(PR.blur, T.sst, { uTex: T.sst2 }, { uDir: [0, 1 / T.sst.h], uSigma: D.flowSigma });
       pass(PR.tfm, T.tfm, { uTex: T.sst });
-      count = paintStrokes(D, seed);
+      // 붓 결 선 주기: 선 간격(인쇄 점) × 인쇄 점 하나의 그리는 해상도 px (감열지가 아니어도 같은 식, 색에는 영향 없음)
+      count = paintStrokes(D, seed, (settings.lineSpacing ?? 3) * (width / (settings.paperDots ?? 576)));
       pass(PR.compose, T.composed, { uPaint: T.paint, uHgt: T.hgt }, { uStr: D.strength, uRelief: D.relief, uPxScale: D.pxScale });
       const outputUniforms = { uGray: mode === 'gray' ? 1 : 0, ...levelUniforms(settings) };
       if (mode === 'thermal') {
-        thermal = thermalStage(settings, width, height, output, displayWidth, displayHeight);
+        thermal = thermalStage(settings, D, output, displayWidth, displayHeight);
         checkGl(output === 'canvas' ? 'preview render' : 'photo render'); // 화소 읽기까지 끝난 뒤
       } else if (output === 'pixels') {
         if (!T.out) T.out = tex(width, height, { nearest: true });
@@ -608,13 +649,14 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
     if (output === 'canvas') {
       Object.assign(stats, {
         draws: stats.draws + 1, cpuMs, strokes: count, width, height, pxScale: D.pxScale, outputMode: mode,
-        dither: mode === 'thermal' ? settings.dither : '', printWidth: thermal?.printWidth ?? 0, printHeight: thermal?.printHeight ?? 0,
+        dither: mode === 'thermal' ? settings.dither : '', bwStyle: mode === 'thermal' ? bwStyleOf(settings) : '',
+        screen: mode === 'thermal' ? screenOf(settings) : '', printWidth: thermal?.printWidth ?? 0, printHeight: thermal?.printHeight ?? 0,
         readMs: thermal?.readMs ?? null, ditherMs: thermal?.ditherMs ?? null,
       });
     }
     if (output === 'print') {
-      const { gray, mask, printWidth, printHeight } = thermal;
-      return { strokes: count, cpuMs, gray, mask, printWidth, printHeight };
+      const { gray, mask, thr, printWidth, printHeight } = thermal;
+      return { strokes: count, cpuMs, gray, mask, thr, printWidth, printHeight };
     }
     return { strokes: count, cpuMs, pixels };
   }

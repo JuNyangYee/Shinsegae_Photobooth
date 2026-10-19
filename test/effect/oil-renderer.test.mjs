@@ -16,12 +16,12 @@ const small = { settings, width: 20, height: 36, seed: 3 };
 const ZERO = { program: 0, shader: 0, texture: 0, framebuffer: 0, buffer: 0, vertexArray: 0 };
 
 describe('oil-renderer: GPU 자원 정리 (검수 2·3)', () => {
-  it('dispose는 만든 프로그램 11개(유화 8 + 감열지 3)를 그 객체로 지우고, 텍스처·프레임버퍼·버퍼·VAO도 모두 지운다', () => {
+  it('dispose는 만든 프로그램 13개(유화 8 + 감열지 3 + 흑백 스타일 2)를 그 객체로 지우고, 텍스처·프레임버퍼·버퍼·VAO도 모두 지운다', () => {
     const fake = createFakeWebGL2();
     const renderer = createOilRenderer({ canvas: fake.canvas });
     renderer.render({}, small); // 미리보기 묶음
     renderer.render(null, { ...small, width: 30, height: 54, output: 'pixels' }); // 결과 묶음 + out
-    assert.equal(fake.created.program.length, 11);
+    assert.equal(fake.created.program.length, 13);
     renderer.dispose();
     assert.deepEqual(fake.liveCount(), ZERO);
     for (const program of fake.created.program) {
@@ -164,7 +164,8 @@ describe('촬영 결과·미리보기 경로 (실제 미리보기·렌더러 + �
 });
 
 describe('oil-renderer: 감열지 출력 단계 (6-1, 가짜 WebGL2)', () => {
-  const thermal = (over = {}) => normalizeEffectSettings({ ...config.effect, outputMode: 'thermal', paperDots: 128, ...over }, config.effect).settings;
+  // 6-1 경로는 흑백 스타일 톤 점으로 본다. 흑백 스타일은 아래 7-1 테스트
+  const thermal = (over = {}) => normalizeEffectSettings({ ...config.effect, outputMode: 'thermal', paperDots: 128, bwStyle: 'tone', ...over }, config.effect).settings;
   const P = { w: 128, h: 230 }; // 20x36 그림 → 용지 128점: 세로 round(128 * 36 / 20) = 230
 
   // readPixels 흉내: 4점씩 묶은 대상(P.w/4 x P.h)을 GL 방향(아래 줄부터)으로 채운다. fill(바이트 = 점 x, 위에서 y) → 값
@@ -264,6 +265,65 @@ describe('oil-renderer: 감열지 출력 단계 (6-1, 가짜 WebGL2)', () => {
   });
 });
 
+describe('oil-renderer: 흑백 스타일 (7-1, 가짜 WebGL2)', () => {
+  const style = (bwStyle, over = {}) => normalizeEffectSettings({ ...config.effect, outputMode: 'thermal', paperDots: 128, bwStyle, ...over }, config.effect).settings;
+  const P = { w: 128, h: 230 };
+  function countReads(fake) {
+    const reads = [];
+    fake.onReadPixels((f, [, , w, h, , , buf]) => {
+      reads.push([w, h]);
+      buf.fill([100, 50, 255][reads.length - 1] ?? 0); // 결과: 회색 100, 문턱 50, GPU 점 흰색
+    });
+    return reads;
+  }
+
+  it('붓 결 선·흐름 선 결과(print): 회색·점별 문턱·GPU 점 그림을 읽는다 (3번, 4점씩 묶음)', () => {
+    for (const bwStyle of ['stroke', 'flow']) {
+      const fake = createFakeWebGL2();
+      const renderer = createOilRenderer({ canvas: fake.canvas });
+      const reads = countReads(fake);
+      const out = renderer.render({}, { ...small, settings: style(bwStyle), output: 'print' });
+      assert.deepEqual(reads, [[P.w / 4, P.h], [P.w / 4, P.h], [P.w / 4, P.h]], bwStyle);
+      assert.deepEqual([out.gray[0], out.thr[0], out.mask[0], out.thr.length], [100, 50, 1, P.w * P.h]);
+      renderer.dispose();
+      assert.deepEqual(fake.liveCount(), ZERO);
+    }
+  });
+
+  it('미리보기: 흐름 선·붓 결 선·질감 강조 점(블루 노이즈)은 화소를 읽지 않는다. D용 상태에 스타일과 점을 정하는 것', () => {
+    const fake = createFakeWebGL2();
+    const renderer = createOilRenderer({ canvas: fake.canvas });
+    const reads = countReads(fake);
+    for (const [bwStyle, screen] of [['stroke', 'stroke-lines'], ['flow', 'flow-lines'], ['texture', 'blue-noise']]) {
+      renderer.render({}, { ...small, settings: style(bwStyle, { dither: 'blue-noise' }), displayWidth: 270, displayHeight: 480 });
+      const stats = renderer.getStats();
+      assert.deepEqual([stats.bwStyle, stats.screen, stats.readMs], [bwStyle, screen, null]);
+    }
+    assert.equal(reads.length, 0);
+    renderer.render({}, { ...small, settings: style('texture', { dither: 'atkinson' }) }); // 질감 강조 + 오차 확산은 회색을 읽는다
+    assert.deepEqual(reads, [[P.w / 4, P.h]]);
+    renderer.dispose();
+    assert.deepEqual(fake.liveCount(), ZERO, '흑백 스타일 밝기(bw)·점별 문턱(thr)도 지운다');
+  });
+
+  it('톤 점이 아닌 스타일은 흑백 준비·문턱 패스를 더 쓰고, 톤 점은 6-1과 같은 패스 수', () => {
+    const draws = (bwStyle) => {
+      const fake = createFakeWebGL2();
+      let n = 0;
+      const original = fake.gl.drawArrays;
+      fake.gl.drawArrays = (...args) => { n += 1; return original(...args); };
+      const renderer = createOilRenderer({ canvas: fake.canvas });
+      renderer.render({}, { ...small, settings: style(bwStyle, { dither: 'blue-noise' }) });
+      renderer.dispose();
+      return n;
+    };
+    const tone = draws('tone');
+    assert.equal(draws('texture'), tone + 1, '흑백 준비(FS_BW_PREP)');
+    assert.equal(draws('stroke'), tone + 2, '흑백 준비 + 점별 문턱(FS_THERMAL_SCREEN)');
+    assert.equal(draws('flow'), tone + 2);
+  });
+});
+
 describe('촬영 결과 감열지 경로 (실제 미리보기·렌더러·결과 단계 + 가짜 WebGL2, 6-1)', () => {
   const canvas2d = (w = 0, h = 0) => ({
     width: w, height: h, getContext: () => ({
@@ -284,7 +344,7 @@ describe('촬영 결과 감열지 경로 (실제 미리보기·렌더러·결과
     let time = 10000;
     const preview = createEffectPreview({
       canvas, video: { videoWidth: 54, videoHeight: 96 }, camera: { isReady: () => true }, stageAspect: 9 / 16, mirror: true,
-      settings: { ...config.effect, previewScale: 0.25, outputMode: 'thermal', paperDots: 128, ...over },
+      settings: { ...config.effect, previewScale: 0.25, outputMode: 'thermal', paperDots: 128, bwStyle: 'tone', ...over },
       raf: (fn) => { queued = fn; return 1; }, cancelRaf: () => {}, now: () => time, log: { warn() {}, clear() {} },
     });
     const run = (frames) => { for (let i = 0; i < frames; i += 1) { time += 1000 / 60; const fn = queued; queued = null; fn?.(); } };
@@ -310,6 +370,27 @@ describe('촬영 결과 감열지 경로 (실제 미리보기·렌더러·결과
     assert.equal(last.status, 'applied');
     assert.equal(last.check, 'gpu=cpu');
     assert.equal(last.sameAsPreview, true);
+  });
+
+  it('붓 결 선(7-1): 결과는 GPU 점 그림이고, 읽은 점별 문턱으로 CPU가 다시 비교한다 (같으면 gpu=cpu)', async () => {
+    const t = setup({ bwStyle: 'stroke' });
+    const reads = [];
+    t.fake.onReadPixels((f, [, , w, h, , , buf]) => { reads.push(w); buf.fill([100, 50, 255][reads.length - 1] ?? 0); });
+    const out = await t.photo.apply(t.raw);
+    assert.equal(reads.length, 3);
+    assert.equal(out.print.blackRatio, 0);
+    const { last } = t.photo.getStats();
+    assert.deepEqual([last.status, last.check, last.dither], ['applied', 'gpu=cpu', 'stroke-lines']);
+  });
+
+  it('붓 결 선(7-1): 효과를 그리지 못하면 원본 사진에 톤 점(설정한 점 방식)으로 감열지 (획이 없으므로)', async () => {
+    const t = setup({ bwStyle: 'stroke', dither: 'bayer' });
+    t.fake.onReadPixels((f) => f.lose());
+    const out = await t.photo.apply(t.raw);
+    assert.deepEqual([out.print.width, out.print.height], [128, 228]);
+    const { last } = t.photo.getStats();
+    assert.deepEqual([last.status, last.mode, last.dither], ['raw', 'thermal', 'bayer']);
+    assert.match(last.reason, /context-lost.*\(style stroke -> tone\)/);
   });
 
   it('결과 화소 읽기 직전 손실 → 원본 사진에 같은 출력 단계를 CPU로 (인쇄 데이터도 만든다)', async () => {

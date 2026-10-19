@@ -11,7 +11,7 @@ import { createPhotoEffect } from '../../src/web/effect/photo-effect.js';
 import { EffectError, EffectFault } from '../../src/web/effect/oil-renderer.js';
 
 const colorSettings = normalizeEffectSettings({ ...config.effect, outputMode: 'off' }, config.effect).settings;
-const thermalSettings = normalizeEffectSettings({ ...config.effect, outputMode: 'thermal', dither: 'bayer', paperDots: 128 }, config.effect).settings;
+const thermalSettings = normalizeEffectSettings({ ...config.effect, outputMode: 'thermal', dither: 'bayer', paperDots: 128, bwStyle: 'tone' }, config.effect).settings;
 
 function fakeCanvas(width = 0, height = 0, { noContext = false, fill = 255 } = {}) {
   const ops = [];
