@@ -113,6 +113,19 @@ describe('guest-screen: 결과 출력물', () => {
     assert.equal(el('result-timer-fill').animations.length, 1);
   });
 
+  it('1비트 점 사진(감열지)만 is-dots(1:1 폭), 회색조 유화 등 연속 톤 사진은 절반 폭 (8단계)', () => {
+    const { screen, el, snapshot } = setup();
+    screen.renderSession(snapshot(SessionState.RESULT, { photo: { url: 'blob:a', dots: false }, endsAt: 11000 }));
+    assert.equal(el('result-card').classList.contains('is-dots'), false);
+    screen.renderSession(snapshot(SessionState.COOLDOWN, { endsAt: 16000 }));
+    screen.renderSession(snapshot(SessionState.RESULT, { photo: { url: 'blob:b', dots: true }, endsAt: 31000 }));
+    assert.equal(el('result-card').classList.contains('is-dots'), true);
+    screen.renderSession(snapshot(SessionState.COOLDOWN, { endsAt: 36000 }));
+    assert.equal(el('result-card').classList.contains('is-dots'), false, '결과가 끝나면 지운다');
+    screen.renderSession(snapshot(SessionState.RESULT, { photo: { url: 'blob:c' }, endsAt: 51000 }));
+    assert.equal(el('result-card').classList.contains('is-dots'), false, 'dots가 없으면 연속 톤');
+  });
+
   it('결과가 끝나면 사진 src를 지우고 카드·막대를 내린다', () => {
     const { screen, el, log, snapshot } = setup();
     screen.renderSession(snapshot(SessionState.RESULT, { photo: { url: 'blob:a' }, endsAt: 11000 }));

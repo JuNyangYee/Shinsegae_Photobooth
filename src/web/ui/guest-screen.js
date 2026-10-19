@@ -82,11 +82,13 @@ export function createGuestScreen({ root, text, countdownSeconds, now = () => pe
     if (url !== shownUrl) {
       if (url) resultImage.src = url;
       else resultImage.removeAttribute('src');
+      // 1비트 점 사진(감열지)은 인쇄 점 = 화면 화소 1:1 폭, 회색조 유화 등 연속 톤 사진은 정확히 절반 폭 (8단계, CSS .result-card)
+      resultCard.classList.toggle('is-dots', url !== null && s.photo.dots === true);
       shownUrl = url;
       shownEndsAt = undefined;
       if (url) {
-        // 출력물이 조용히 떠오른다. 회전·확대는 쓰지 않는다: 흑백 점 사진을 회전·비정수 배율로 그리면 다시 보간돼
-        // 점이 뭉개진다 (6-3, CSS .result-card). 끝나면 변형이 없어 사진 폭이 화면 화소와 1:1로 놓인다
+        // 출력물이 조용히 떠오른다. 회전·확대는 쓰지 않는다: 사진을 회전·비정수 배율로 그리면 다시 보간돼
+        // 점·붓 결이 뭉개진다 (6-3, CSS .result-card). 끝나면 변형이 없어 사진이 정한 배율(1:1 또는 1/2) 그대로 놓인다
         resultCard.animate([
           { opacity: 0, transform: 'translateY(1.6cqw)' },
           { opacity: 1, transform: 'translateY(0)' },
