@@ -20,12 +20,12 @@ import {
 const defaults = config.effect;
 
 describe('normalizeEffectSettings', () => {
-  it('기본값(oil2f 사용자 세팅)은 그대로 통과한다', () => {
+  it('기본값(oil2f 사용자 세팅, boil만 0.05)은 그대로 통과한다', () => {
     const { settings, issues } = normalizeEffectSettings(defaults, defaults);
     assert.deepEqual(issues, []);
     assert.equal(settings.strength, 0.1);
     assert.equal(settings.size, 1.25);
-    assert.equal(settings.boil, 0.1);
+    assert.equal(settings.boil, 0.05, '사용자 결정 2026-10-19 (oil2f는 0.1)');
     assert.equal(settings.fps, 24);
     assert.equal(settings.grade, 1);
     assert.deepEqual(settings.layers, [[36, 15, 84, 3.8, 0, 1], [18, 8, 44, 2.6, 0.02, 1], [8, 4, 20, 1.4, 0.06, 1]]);
@@ -102,7 +102,7 @@ describe('효과 조절값 (E 화면·파일, 5-2)', () => {
   it('조절값은 16개(5-2의 7개 + 출력 단계 6개 + 흑백 스타일 3개), 보완 층 문턱은 refine[4]', () => {
     assert.deepEqual(Object.keys(effectTunables(base)), [...EFFECT_TUNABLE_KEYS]);
     assert.deepEqual(effectTunables(base), {
-      strength: 0.1, size: 1.25, boil: 0.1, fps: 24, grade: 1, refineThreshold: 0.22, previewScale: 1,
+      strength: 0.1, size: 1.25, boil: 0.05, fps: 24, grade: 1, refineThreshold: 0.22, previewScale: 1,
       outputMode: 'thermal', dither: defaults.dither, brightness: 0, contrast: 1, gamma: 1, paperDots: 576,
       bwStyle: defaults.bwStyle, bwTexture: defaults.bwTexture, lineSpacing: defaults.lineSpacing,
     });
@@ -166,13 +166,23 @@ describe('효과 조절값 (E 화면·파일, 5-2)', () => {
     const r = parseStoredEffectSettings(old, defaults);
     assert.equal(r.source, 'stored');
     assert.deepEqual([r.settings.dither, r.settings.paperDots, r.settings.gamma], ['bayer', 384, 1.2]);
+    assert.equal(r.settings.boil, 0.1, '파일에 저장된 boil이 기본값(0.05)보다 앞선다');
     assert.deepEqual([r.settings.bwStyle, r.settings.bwTexture, r.settings.lineSpacing], [defaults.bwStyle, defaults.bwTexture, defaults.lineSpacing]);
     assert.deepEqual(r.issues, ['bwStyle', 'bwTexture', 'lineSpacing'].map((k) => `${k}: missing -> default`));
   });
 });
 
 describe('흑백 스타일 설정 (7-1)', () => {
-  it('기본값은 가안 붓 결 선·질감 세기 1·선 간격 4점, 스타일은 목록에 없으면 기본값, 세기·간격은 범위로', () => {
+  it('boil이 없는 파일은 새 기본값 0.05, 있으면 파일 값 (사용자 결정 2026-10-19)', () => {
+    const missing = parseStoredEffectSettings(JSON.stringify({ version: 1, settings: { fps: 12 } }), defaults);
+    assert.equal(missing.settings.boil, 0.05);
+    assert.ok(missing.issues.includes('boil: missing -> default'));
+    for (const boil of [0.1, 0, 0.3]) {
+      assert.equal(parseStoredEffectSettings(JSON.stringify({ version: 1, settings: { boil } }), defaults).settings.boil, boil);
+    }
+  });
+
+  it('기본값은 붓 결 선·질감 세기 1·선 간격 4점(사용자 결정), 스타일은 목록에 없으면 기본값, 세기·간격은 범위로', () => {
     const { settings, issues } = normalizeEffectSettings(defaults, defaults);
     assert.deepEqual(issues, []);
     assert.deepEqual([settings.bwStyle, settings.bwTexture, settings.lineSpacing], ['stroke', 1, 4]);

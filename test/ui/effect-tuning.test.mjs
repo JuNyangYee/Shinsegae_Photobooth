@@ -90,7 +90,7 @@ describe('effect-tuning (E)', () => {
     assert.equal(t.running().boil, 0.5);
     t.tuning.close();
     assert.equal(t.tuning.isOpen(), false);
-    assert.equal(t.running().boil, 0.1);
+    assert.equal(t.running().boil, 0.05);
     assert.deepEqual(t.opens, [true, false]);
   });
 
