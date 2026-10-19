@@ -525,15 +525,18 @@ async function runScenarios(app, origin) {
     expect(dev.get('delegate') && dev.get('delegate') !== '-', `delegate ${dev.get('delegate')}`);
     expect(dev.get('guidance') === 'none', `guidance ${dev.get('guidance')}`);
     expect((await app.status()) === '', 'visitor status message shown');
-    // 관람객 화면 서체·장식 에셋 (6-2): 서체 두 개가 로드되고, 받은 에셋이 모두 200
-    const assets = await app.evaluate(`(async () => { await document.fonts.ready;
-      const fonts = [...document.fonts].map((f) => f.family.replace(/"/g, '') + ' ' + f.status);
+    // 화면 서체 (7-2): 서체 세 개(Pretendard 400·500, Noto Serif KR 300)를 실제로 불러 쓸 수 있고, 받은 에셋이 모두 200.
+    // 세리프·Medium은 숨겨진 화면(카운트다운·준비 중·운영자 패널)에서만 쓰여 아직 안 불렸을 수 있어 document.fonts.load로 부른다
+    const assets = await app.evaluate(`(async () => {
+      await Promise.all(['400 16px Pretendard', '500 16px Pretendard', '300 16px "Noto Serif KR"'].map((f) => document.fonts.load(f, '준비 3')));
+      const fonts = [...document.fonts].map((f) => f.family.replace(/"/g, '') + ' ' + f.weight + ' ' + f.status);
       const files = performance.getEntriesByType('resource').filter((e) => new URL(e.name).pathname.startsWith('/assets/'))
         .map((e) => ({ path: new URL(e.name).pathname, status: e.responseStatus }));
       return { fonts, files }; })()`);
-    expect(assets.fonts.includes('Gowun Batang loaded') && assets.fonts.includes('Gowun Dodum loaded'), `fonts ${assets.fonts.join(', ')}`);
+    const wanted = ['Pretendard 400 loaded', 'Pretendard 500 loaded', 'Noto Serif KR 300 loaded'];
+    expect(wanted.every((f) => assets.fonts.includes(f)), `fonts ${assets.fonts.join(', ')}`);
     const failed = assets.files.filter((f) => f.status !== 200);
-    expect(assets.files.length >= 5 && failed.length === 0, `assets ${JSON.stringify(failed.length ? failed : assets.files)}`);
+    expect(assets.files.length >= 3 && failed.length === 0, `assets ${JSON.stringify(failed.length ? failed : assets.files)}`);
     return `delegate ${dev.get('delegate')}, ${dev.get('video')}, detect @ ${parseFps(dev.get('detect'))}fps, settings ${dev.get('settings')};`
       + ` fonts loaded, ${assets.files.length} assets 200`;
   });

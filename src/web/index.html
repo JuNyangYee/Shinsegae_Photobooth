@@ -8,9 +8,9 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; img-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Shinsegae Christmas Photobooth</title>
-  <!-- 서체는 숨겨진 화면(카운트다운·결과)에서 처음 쓰여도 바로 보이도록 미리 받는다 -->
-  <link rel="preload" href="assets/fonts/GowunBatang-Bold.woff" as="font" type="font/woff" crossorigin>
-  <link rel="preload" href="assets/fonts/GowunDodum-Regular.woff" as="font" type="font/woff" crossorigin>
+  <!-- 서체는 숨겨진 화면(카운트다운·준비 중)에서 처음 쓰여도 바로 보이도록 미리 받는다 -->
+  <link rel="preload" href="assets/fonts/Pretendard-Regular.subset.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/fonts/NotoSerifKR-Light.subset.woff" as="font" type="font/woff" crossorigin>
   <link rel="stylesheet" href="style.css">
   <script type="module" src="main.js"></script>
 </head>
@@ -20,44 +20,34 @@
     <!-- 사진 효과 미리보기 (유화 · 획). 영상 위를 덮는다. 효과를 쓸 수 없으면 숨겨 원본 미리보기가 보인다. -->
     <canvas id="effect" class="effect" hidden></canvas>
 
-    <!-- ---- 관람객 화면 (6-2, ui/guest-screen.js). 문구는 config/guest-text.js ---- -->
-    <!-- 결과: 출력물 카드 (결과 사진), 안내, 남은 시간 -->
+    <!-- ---- 관람객 화면 (7-2 미니멀, ui/guest-screen.js). 문구는 config/guest-text.js.
+         미리보기가 주인공이다: 글자·숫자는 아래 가장자리 여백(9:16 영역 아래 15% 안)에만 두고 가운데를 가리지 않는다 ---- -->
+    <!-- 결과: 출력물(가는 테두리·여백), 안내 한 줄, 남은 시간 진행선 -->
     <div id="result-view" class="result-view" hidden>
-      <p id="result-title" class="result-title"></p>
       <div id="result-card" class="result-card">
         <div class="result-photo"><img id="result" class="result" alt="" decoding="async" hidden></div>
       </div>
       <p id="result-note" class="result-note"></p>
-      <div id="result-timer" class="result-timer">
-        <span class="result-timer-track"><span id="result-timer-fill" class="result-timer-fill"></span></span>
-      </div>
-      <p id="result-back" class="result-back"></p>
+      <div id="result-timer" class="result-timer"><span id="result-timer-fill" class="result-timer-fill"></span></div>
     </div>
-    <!-- 준비 중·직원 문의 안내의 바탕 막. 장식 프레임은 그 위에 보인다 (안내 글자는 아래 #status) -->
+    <!-- 준비 중·직원 문의 안내의 바탕 막 (안내 글자는 아래 #status) -->
     <div id="status-veil" class="status-veil" hidden></div>
-    <!-- 장식 프레임: 가장자리 띠, 솔가지 가랜드·리본, 인식되면 밝아지는 테두리 빛 -->
+    <!-- 가장자리: 아래 글자를 읽히게 하는 얇은 그라데이션 띠, 가는 선 프레임 (인식되면 선이 또렷해진다) -->
     <div class="frame" aria-hidden="true">
-      <div class="frame-glow"></div>
-      <div class="frame-band"></div>
-      <div class="frame-top"></div>
-      <div class="frame-bottom"></div>
+      <div class="frame-shade"></div>
+      <div class="frame-line"></div>
     </div>
     <!-- 대기 안내 -->
     <p id="guide" class="guide" hidden></p>
-    <!-- 3·2·1: 숫자, 원형 진행(두 반원), 안내 -->
+    <!-- 3·2·1: 작은 숫자, 가는 진행선, 안내 한 줄 (아래 가장자리) -->
     <div id="countdown" class="countdown" hidden>
-      <div id="countdown-dial" class="countdown-dial">
-        <span class="countdown-ring">
-          <span class="ring-half is-right"><span id="countdown-ring-a" class="ring-fill"></span></span>
-          <span class="ring-half is-left"><span id="countdown-ring-b" class="ring-fill"></span></span>
-        </span>
-        <p id="countdown-number" class="countdown-number"></p>
-      </div>
+      <p id="countdown-number" class="countdown-number"></p>
+      <span class="countdown-progress"><span id="countdown-progress-fill" class="countdown-progress-fill"></span></span>
       <p id="countdown-caption" class="countdown-caption"></p>
     </div>
-    <!-- 쿨타임 문구 -->
+    <!-- 쿨타임 문구 (대기 안내와 같은 자리) -->
     <p id="notice" class="notice" hidden></p>
-    <!-- 촬영 순간 플래시 -->
+    <!-- 촬영 순간 짧은 흰 페이드 -->
     <div id="flash" class="flash"></div>
     <canvas id="dev-overlay" class="dev-overlay" hidden></canvas>
     <!-- 운영자용 인식 영역 편집 (R 키). 관람객 화면에는 보이지 않는다. -->
@@ -98,18 +88,18 @@
     <div class="op-body">
       <fieldset class="op-group">
         <legend>영역</legend>
-        <p class="op-help">화면의 금빛 사각형을 끌어 옮기고, 모서리·변으로 크기를 바꾼다. 얼굴 중심이 이 안에 있어야 인정한다.</p>
+        <p class="op-help">화면의 흰 사각형을 끌어 옮기고, 모서리·변으로 크기를 바꾼다. 얼굴 중심이 이 안에 있어야 인정한다.</p>
         <p class="op-readout" data-region-text></p>
       </fieldset>
       <fieldset class="op-group">
         <legend>얼굴 크기 <small>화면 높이 대비</small></legend>
         <label class="op-row">
-          <span class="op-label"><i class="op-swatch is-min"></i>최소 얼굴 크기<small>청록 가이드보다 작으면 멀리 있는 것으로 보고 뺀다</small></span>
+          <span class="op-label"><i class="op-swatch is-min"></i>최소 얼굴 크기<small>파란 가이드보다 작으면 멀리 있는 것으로 보고 뺀다</small></span>
           <input type="range" data-key="minFaceHeight">
           <span class="op-value"><output data-key="minFaceHeight"></output><span class="op-unit">비율</span></span>
         </label>
         <label class="op-row">
-          <span class="op-label"><i class="op-swatch is-max"></i>최대 얼굴 크기<small>분홍 가이드보다 크면 잘못 잡은 것으로 보고 뺀다</small></span>
+          <span class="op-label"><i class="op-swatch is-max"></i>최대 얼굴 크기<small>붉은 가이드보다 크면 잘못 잡은 것으로 보고 뺀다</small></span>
           <input type="range" data-key="maxFaceHeight">
           <span class="op-value"><output data-key="maxFaceHeight"></output><span class="op-unit">비율</span></span>
         </label>
