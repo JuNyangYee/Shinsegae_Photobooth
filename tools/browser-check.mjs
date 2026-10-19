@@ -298,6 +298,9 @@ function createApp(cdp, origin) {
     /** E 화면 선택 상자를 고른다 (change 이벤트) */
     choose: (key, value) => evaluate(`(() => { const s = document.querySelector('#effect-panel select[data-key="${key}"]');
       s.value = '${value}'; s.dispatchEvent(new Event('change')); return s.value; })()`),
+    /** E 화면 슬라이더를 움직인다 (input 이벤트) */
+    slide: (key, value) => evaluate(`(() => { const i = document.querySelector('#effect-panel input[data-key="${key}"]');
+      i.value = '${value}'; i.dispatchEvent(new Event('input')); return i.value; })()`),
     /** 관람객 안내 문구 (없으면 '') */
     status: () => evaluate("(() => { const s = document.getElementById('status'); return s.hidden ? '' : s.textContent; })()"),
     async waitFor(label, predicate, timeoutMs) {
@@ -396,6 +399,16 @@ async function withAutoPaused(app, run) {
 }
 
 /**
+ * E 화면에서 미리보기 처리 해상도를 1로 둔다 (열린 E 화면에서 부른다. 저장하지 않으면 닫을 때 되돌아간다).
+ * 결과가 셔터 순간 미리보기와 화소까지 같은지는 미리보기가 결과와 같은 크기일 때만 볼 수 있다. 기본값 0.5에서는 같은 그림을
+ * 낮은 해상도로 그려 화소가 다르다 (docs/SYSTEM.md 6절, 2026-10-19 기본값 변경).
+ */
+async function previewScaleOne(app) {
+  await app.slide('previewScale', 1);
+  await app.waitFor('preview x1', async () => /\(preview x1,/.test((await app.dev()).get('effect') ?? ''), 5000);
+}
+
+/**
  * 감열지 S 한 장: 효과 캔버스 그림을 기록하고 S → 결과 화면용 이미지(무손실 PNG, 1080x1920)가 셔터 직전 그림과 화소까지 같고,
  * 다른 그림과는 다르며, 종이색·잉크색과 그 사이(경계 화소)뿐이고, 인쇄 데이터가 576x1024 1비트인지 본다 (6-1).
  * withAutoPaused 안에서 부른다.
@@ -428,11 +441,13 @@ async function thermalShot(app, { method, check }) {
 }
 
 /**
- * 회색조 유화 S 한 장 (8단계 기본값): 결과(JPEG 1080x1920)가 셔터 직전 미리보기 그림과 10x10 블록 평균으로 가장 가깝고(1/255 미만),
+ * 회색조 유화 S 한 장 (8단계 기본값): 결과(JPEG 1080x1920)가 셔터 직전 미리보기 그림과 같은 영역의 블록 평균(결과 10x10)으로 가장 가깝고,
  * 미리보기 그림이 무채색(R=G=B)이며 결과도 무채색에 가깝고(JPEG), 인쇄 데이터가 576x1024 1비트이고, 결과 폭이 영역의 정확히 절반인지 본다.
+ * 미리보기가 결과와 같은 크기(처리 해상도 1)면 차이 1/255 미만이어야 한다. 기본값 0.5(540x960, 2026-10-19)는 같은 그림을 낮은 해상도로
+ * 그려 화소가 다르므로(docs/SYSTEM.md 6절 "원본과의 차이") 셔터 직전 그림이 다른 그림보다 가까운지와 상한만 본다.
  * withAutoPaused 안에서 부른다.
  */
-async function grayOilShot(app, { method = 'blue-noise', check = 'gpu=cpu' } = {}) {
+async function grayOilShot(app, { method = 'blue-noise', check = 'gpu=cpu', previewSize = '540x960' } = {}) {
   await app.evaluate(EFFECT_READER);
   await app.evaluate('window.__fxReader.drawings.length = 0; window.__fxReader.pinned = null; true');
   await sleep(500);
@@ -445,16 +460,17 @@ async function grayOilShot(app, { method = 'blue-noise', check = 'gpu=cpu' } = {
   expect(image.startsWith('1080x1920') && /image\/jpeg/.test(dev.get('capture') ?? ''), `result ${image}, capture ${dev.get('capture')}`);
   const print = dev.get('print') ?? '';
   expect(/^576x1024 1-bit, raster 72B\/row 73728B, png \d+B \(IHDR depth 1 color 0\)/.test(print), `print ${print}`);
-  expect(c.size === '1080x1920' && c.previewSize === '1080x1920' && c.shutterIndex >= 0, `compare ${JSON.stringify(c)}`);
+  expect(c.size === '1080x1920' && c.previewSize === previewSize && c.shutterIndex >= 0, `compare ${JSON.stringify(c)}`);
   const atShutter = c.drawings[c.shutterIndex];
   const others = c.drawings.filter((_, i) => i !== c.shutterIndex);
-  expect(atShutter.diff < 1 && others.length > 0 && others.every((d) => d.diff > atShutter.diff), `block diff: ${JSON.stringify(c.drawings)}`);
+  const limit = previewSize === c.size ? 1 : SCALED_PREVIEW_DIFF_LIMIT;
+  expect(atShutter.diff < limit && others.length > 0 && others.every((d) => d.diff > atShutter.diff), `block diff (limit ${limit}): ${JSON.stringify(c.drawings)}`);
   // 무채색: 미리보기 그림은 화소마다 R=G=B, 결과는 JPEG라 1 이하 허용
   expect(c.drawings.every((d) => d.chroma === 0), `preview chroma ${c.drawings.map((d) => d.chroma).join('/')}`);
   expect(c.resultChroma <= 1, `result chroma ${c.resultChroma}`);
   // 연속 톤 사진은 영역 폭의 정확히 절반 (1080 화면 1/2, 4K 1:1, 8단계)
   expect(!c.box.dots && Math.abs(c.box.ratio - 0.5) < 0.001, `result box ${JSON.stringify(c.box)}`);
-  return { fx, print, compare: `shutter drawing block diff ${atShutter.diff}/255, other drawings ${others.map((d) => d.diff).join('/')},`
+  return { fx, print, compare: `preview ${c.previewSize}, shutter drawing block diff ${atShutter.diff}/255, other drawings ${others.map((d) => d.diff).join('/')},`
     + ` max chroma preview 0 / result ${c.resultChroma}, result ${c.box.width}px = ${c.box.ratio} of stage` };
 }
 
@@ -488,7 +504,11 @@ const EFFECT_READER = `(() => {
   return true;
 })()`;
 
-// 결과 사진(#result)과 기록한 그림들을 10x10 블록 평균(RGB)으로 비교한다. 셔터 직전 그림 = 셔터 전에 마지막으로 그린 것
+// 미리보기가 결과보다 작을 때(처리 해상도 0.5 등) 셔터 직전 그림과 결과의 블록 평균 차이 상한 (/255). 측정값은 로그 2026-10-19-07
+const SCALED_PREVIEW_DIFF_LIMIT = 4;
+
+// 결과 사진(#result)과 기록한 그림들을 10x10 블록 평균(RGB)으로 비교한다. 셔터 직전 그림 = 셔터 전에 마지막으로 그린 것.
+// 미리보기가 결과보다 작으면(처리 해상도 < 1) 같은 영역의 블록(0.5배면 5x5)끼리 비교한다. 블록이 정수 화소가 아닌 크기는 건너뛴다.
 const EFFECT_COMPARE = `(() => {
   const r = window.__fxReader;
   const img = document.getElementById('result');
@@ -496,14 +516,14 @@ const EFFECT_COMPARE = `(() => {
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const x = cv.getContext('2d', { willReadFrequently: true }); x.drawImage(img, 0, 0);
   const res = x.getImageData(0, 0, W, H).data; cv.width = 0;
-  const grid = (get) => { const g = new Float64Array(gw * gh * 3);
-    for (let y = 0; y < gh * B; y++) for (let xx = 0; xx < gw * B; xx++) { const i = get(xx, y), k = (Math.floor(y / B) * gw + Math.floor(xx / B)) * 3;
+  const grid = (get, b = B) => { const g = new Float64Array(gw * gh * 3);
+    for (let y = 0; y < gh * b; y++) for (let xx = 0; xx < gw * b; xx++) { const i = get(xx, y), k = (Math.floor(y / b) * gw + Math.floor(xx / b)) * 3;
       g[k] += i[0]; g[k + 1] += i[1]; g[k + 2] += i[2]; }
-    for (let k = 0; k < g.length; k++) g[k] /= B * B; return g; };
+    for (let k = 0; k < g.length; k++) g[k] /= b * b; return g; };
   const resGrid = grid((xx, y) => { const i = (y * W + xx) * 4; return [res[i], res[i + 1], res[i + 2]]; });
   const diff = (a, b) => { let s = 0; for (let k = 0; k < a.length; k++) s += Math.abs(a[k] - b[k]); return s / a.length; };
   // 화소가 정확히 다른 수 (감열지 결과는 무손실 PNG라 셔터 직전 그림과 0이어야 한다, 6-1)
-  const mismatch = (d) => { let c = 0; for (let y = 0; y < H; y++) for (let xx = 0; xx < W; xx++) { const i = (y * W + xx) * 4, j = ((d.H - 1 - y) * d.W + xx) * 4;
+  const mismatch = (d) => { if (d.W !== W || d.H !== H) return null; let c = 0; for (let y = 0; y < H; y++) for (let xx = 0; xx < W; xx++) { const i = (y * W + xx) * 4, j = ((d.H - 1 - y) * d.W + xx) * 4;
     if (res[i] !== d.buf[j] || res[i + 1] !== d.buf[j + 1] || res[i + 2] !== d.buf[j + 2]) c++; } return c; };
   // 감열지 화면은 종이색·잉크색 두 색과 그 사이(경계 화소)뿐이다: 화소마다 R로 비율을 구해 G·B가 같은 비율인지, 순수 두 색 비율
   const ends = (() => { const c = new Map(); for (let i = 0; i < res.length; i += 4) { const k = res[i] + ',' + res[i + 1] + ',' + res[i + 2]; c.set(k, (c.get(k) ?? 0) + 1); }
@@ -516,9 +536,10 @@ const EFFECT_COMPARE = `(() => {
   // 채도(무채색 확인, 8단계): 화소마다 RGB 최댓값 − 최솟값의 최댓값
   const chroma = (a) => { let m = 0; for (let i = 0; i < a.length; i += 4) { const hi = Math.max(a[i], a[i + 1], a[i + 2]), lo = Math.min(a[i], a[i + 1], a[i + 2]); if (hi - lo > m) m = hi - lo; } return m; };
   const list = r.pinned && !r.drawings.includes(r.pinned) ? [r.pinned, ...r.drawings] : r.drawings;
-  const out = list.filter((d) => d.W === W && d.H === H).map((d) => ({
+  const blockOf = (d) => d.W * B / W; // 미리보기 그림에서 결과 10x10과 같은 영역의 블록 크기
+  const out = list.filter((d) => d.W * H === d.H * W && Number.isInteger(blockOf(d))).map((d) => ({
     beforeShutter: d.at < r.shutterAt, msFromShutter: Math.round(d.at - r.shutterAt),
-    diff: +diff(resGrid, grid((xx, y) => { const i = ((d.H - 1 - y) * d.W + xx) * 4; return [d.buf[i], d.buf[i + 1], d.buf[i + 2]]; })).toFixed(3),
+    diff: +diff(resGrid, grid((xx, y) => { const i = ((d.H - 1 - y) * d.W + xx) * 4; return [d.buf[i], d.buf[i + 1], d.buf[i + 2]]; }, blockOf(d))).toFixed(3),
     mismatch: mismatch(d), chroma: chroma(d.buf),
   }));
   // 결과 출력물 폭: 9:16 영역 대비 비율, 1비트 점 사진 표시(is-dots)
@@ -587,7 +608,7 @@ async function runScenarios(app, origin) {
     return `${dev.get('capture')?.split(',')[0]}; result image ${image}; ${dev.get('resources')}`;
   });
 
-  await scenario('사진 효과 미리보기: 캔버스 표시, 초당 그림 = fps, 컨텍스트 손실 → 원본 미리보기 → 복구', async () => {
+  await scenario('사진 효과 미리보기: 캔버스 표시, 기본값 540x960·초당 그림 12, 초당 그림 = fps, 컨텍스트 손실 → 원본 미리보기 → 복구', async () => {
     const line = await app.waitFor('effect running', async () => {
       const value = (await app.dev()).get('effect') ?? '';
       return /^running, \d+x\d+/.test(value) ? value : null;
@@ -596,6 +617,8 @@ async function runScenarios(app, origin) {
     const running = (await app.dev()).get('effect') ?? '';
     const m = /fps (\d+) -> (\d+) drawings\/s/.exec(running);
     expect(m && Math.abs(Number(m[2]) - Number(m[1])) <= 1, `drawings/s: ${running}`);
+    // 조절값 파일이 없으면 기본값: 처리 해상도 0.5 → 540x960, 초당 그림 12 (사용자 결정 2026-10-19)
+    expect(/^running, 540x960 \(preview x0\.5,/.test(running) && m[1] === '12', `defaults: ${running}`);
     const layout = await app.evaluate(`(() => { const c = document.getElementById('effect'), v = document.getElementById('preview');
       const box = (e) => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map(Math.round).join(','); };
       return { hidden: c.hidden, canvas: box(c), video: box(v), canvasTransform: getComputedStyle(c).transform, videoMirrored: v.classList.contains('is-mirrored') }; })()`);
@@ -616,7 +639,7 @@ async function runScenarios(app, origin) {
     return `${line.split(', fps')[0]}; ${m[2]} drawings/s at fps ${m[1]}; context lost → camera preview → restored`;
   });
 
-  await scenario('촬영 결과(회색조 유화 기본값): 1080x1920 JPEG = 셔터 순간 미리보기 그림, 미리보기·결과 무채색, 인쇄 데이터 576x1024 1비트(블루 노이즈, GPU = CPU), 결과 폭 1/2', async () => withAutoPaused(app, async () => {
+  await scenario('촬영 결과(회색조 유화 기본값): 1080x1920 JPEG = 셔터 순간 미리보기 그림(540x960, 같은 영역 블록 비교), 미리보기·결과 무채색, 인쇄 데이터 576x1024 1비트(블루 노이즈, GPU = CPU), 결과 폭 1/2', async () => withAutoPaused(app, async () => {
     const output = subLine(await app.devText(), 'output');
     expect(/^gray-oil \(input luma Rec\.709 -> oil2f -> gray\), print data on photo: paper 576 blue-noise/.test(output), `output ${output}`);
     const { fx, print, compare } = await grayOilShot(app);
@@ -652,13 +675,14 @@ async function runScenarios(app, origin) {
     }
   });
 
-  await scenario('출력 모드 전환(E, 기본값 밖의 세 모드): 끔 1080x1920 JPEG, 회색조 1080x1920 JPEG, 감열지 Atkinson(CPU) PNG = 미리보기, 용지 384점·감마 저장 → 새로고침 유지', async () => {
+  await scenario('출력 모드 전환(E, 기본값 밖의 세 모드, 처리 해상도 1): 끔 1080x1920 JPEG, 회색조 1080x1920 JPEG, 감열지 Atkinson(CPU) PNG = 미리보기, 용지 384점·감마 저장 → 새로고침 유지', async () => {
     const details = [];
     try {
       await app.open();
       await waitReady(app);
       await app.key('KeyE');
       await app.waitFor('effect panel open', () => app.evaluate("!document.getElementById('effect-panel').hidden"), 5000);
+      await previewScaleOne(app);
       for (const mode of ['off', 'gray']) {
         await app.choose('outputMode', mode);
         await app.waitFor(`output ${mode}`, async () => subLine(await app.devText(), 'output') === mode, 5000);
@@ -787,7 +811,7 @@ async function runScenarios(app, origin) {
       + ` CPU dither 576x1024: atkinson ${t.atkinson}ms, floyd-steinberg ${t['floyd-steinberg']}ms, bayer ${t.bayer}ms, blue-noise ${t['blue-noise']}ms`;
   });
 
-  await scenario('흑백 스타일 4가지(E, 감열지): 미리보기 캔버스 1080x1920·D 표시, 붓 결 선·흐름 선·질감 강조 점 결과 = 셔터 순간 그림(화면용 PNG 화소까지, 인쇄 576x1024), 저장 → 새로고침 유지 (파일은 원래대로)', async () => {
+  await scenario('흑백 스타일 4가지(E, 감열지, 처리 해상도 1): 미리보기 캔버스 1080x1920·D 표시, 붓 결 선·흐름 선·질감 강조 점 결과 = 셔터 순간 그림(화면용 PNG 화소까지, 인쇄 576x1024), 저장 → 새로고침 유지 (파일은 원래대로)', async () => {
     const details = [];
     try {
       await app.open();
@@ -795,6 +819,7 @@ async function runScenarios(app, origin) {
       await app.key('KeyE');
       await app.waitFor('effect panel open', () => app.evaluate("!document.getElementById('effect-panel').hidden"), 5000);
       await app.choose('outputMode', 'thermal'); // 흑백 스타일은 감열지에서만 (8단계부터 기본 모드는 회색조 유화)
+      await previewScaleOne(app);
       for (const [style, screen] of [['tone', 'blue-noise'], ['texture', 'blue-noise'], ['flow', 'flow-lines'], ['stroke', 'stroke-lines']]) {
         await app.choose('bwStyle', style);
         await app.waitFor(`style ${style}`, async () => new RegExp(`^thermal 576x1024 ${screen} \\(style ${style}\\)`).test(subLine(await app.devText(), 'output')), 5000);
@@ -838,18 +863,18 @@ async function runScenarios(app, origin) {
       await waitReady(app);
       await app.key('KeyE');
       await app.waitFor('effect panel open', () => app.evaluate("!document.getElementById('effect-panel').hidden"), 5000);
-      await app.evaluate(`(() => { const i = document.querySelector('#effect-panel input[data-key="fps"]'); i.value = '12'; i.dispatchEvent(new Event('input')); return true; })()`);
+      await app.slide('fps', 18); // 기본값(12)과 다른 값
       await sleep(2000);
       const live = (await app.dev()).get('effect') ?? '';
-      expect(/fps 12 -> 1[1-3] drawings\/s/.test(live), `after slider: ${live}`);
+      expect(/fps 18 -> 1[7-9] drawings\/s/.test(live), `after slider: ${live}`);
       await app.evaluate("document.querySelector('#effect-panel button[data-action=\"save\"]').click(); true");
       await app.waitFor('saved message', () => app.evaluate("document.querySelector('#effect-panel [data-message]').textContent === '파일에 저장했습니다.'"), 5000);
       await app.key('KeyE');
       await app.open(); // 새로고침
       await waitReady(app);
-      const kept = await app.waitFor('fps 12 after reload', async () => {
+      const kept = await app.waitFor('fps 18 after reload', async () => {
         const value = (await app.dev()).get('effect') ?? '';
-        return /fps 12 ->/.test(value) ? value : null;
+        return /fps 18 ->/.test(value) ? value : null;
       }, 10000);
       const api = await app.evaluate(`(async () => {
         const url = '${EFFECT_SETTINGS_API}';
@@ -859,9 +884,9 @@ async function runScenarios(app, origin) {
         const other = await fetch('/local-api/Effect-Settings', { cache: 'no-store' });
         return { get: get.status, fps: body.settings.fps, version: body.version, noHeader: noHeader.status, other: other.status };
       })()`);
-      expect(api.get === 200 && api.fps === 12 && api.version === 1, `GET ${JSON.stringify(api)}`);
+      expect(api.get === 200 && api.fps === 18 && api.version === 1, `GET ${JSON.stringify(api)}`);
       expect(api.noHeader === 403 && api.other === 404, `rejects ${JSON.stringify(api)}`);
-      return `slider fps 12 applied live; saved; after reload ${kept.split(', boil')[0].replace(/^running, /, '')}; API GET 200, no header 403, other case 404`;
+      return `slider fps 18 applied live; saved; after reload ${kept.split(', boil')[0].replace(/^running, /, '')}; API GET 200, no header 403, other case 404`;
     } finally {
       const restored = restoreSettings('after effect settings scenario');
       if (!restored.ok) throw new Error(`could not restore settings files: ${restored.detail}`);
