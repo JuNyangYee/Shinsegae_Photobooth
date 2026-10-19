@@ -34,9 +34,10 @@ describe('normalizeEffectSettings', () => {
     assert.ok(Object.isFrozen(settings) && Object.isFrozen(settings.layers[0]) && Object.isFrozen(settings.refine));
   });
 
-  it('출력 단계 기본값: 감열지, 80mm 576점, 레벨 중립 (6-1 사용자 결정)', () => {
+  it('출력 단계 기본값: 회색조 유화(8단계 사용자 결정), 80mm 576점, 레벨 중립 (6-1 사용자 결정)', () => {
     const { settings } = normalizeEffectSettings(defaults, defaults);
-    assert.equal(settings.outputMode, 'thermal');
+    assert.equal(settings.outputMode, 'gray-oil');
+    assert.deepEqual([...OUTPUT_MODES], ['gray-oil', 'thermal', 'gray', 'off'], '기존 모드 3개는 남긴다');
     assert.equal(settings.paperDots, 576);
     assert.ok(DITHER_METHODS.includes(settings.dither));
     assert.deepEqual([settings.brightness, settings.contrast, settings.gamma], [0, 1, 1]);
@@ -103,7 +104,7 @@ describe('효과 조절값 (E 화면·파일, 5-2)', () => {
     assert.deepEqual(Object.keys(effectTunables(base)), [...EFFECT_TUNABLE_KEYS]);
     assert.deepEqual(effectTunables(base), {
       strength: 0.1, size: 1.25, boil: 0.05, fps: 24, grade: 1, refineThreshold: 0.22, previewScale: 1,
-      outputMode: 'thermal', dither: defaults.dither, brightness: 0, contrast: 1, gamma: 1, paperDots: 576,
+      outputMode: 'gray-oil', dither: defaults.dither, brightness: 0, contrast: 1, gamma: 1, paperDots: 576,
       bwStyle: defaults.bwStyle, bwTexture: defaults.bwTexture, lineSpacing: defaults.lineSpacing,
     });
   });
@@ -146,14 +147,14 @@ describe('효과 조절값 (E 화면·파일, 5-2)', () => {
     assert.deepEqual(parseStoredEffectSettings(null, defaults).issues, []);
   });
 
-  it('5-2 파일(같은 버전 1, 조절값 7개만)을 읽으면 그 값은 쓰고 출력 단계는 기본값(감열지)으로 채운다', () => {
+  it('5-2 파일(같은 버전 1, 조절값 7개만)을 읽으면 그 값은 쓰고 출력 단계는 기본값(회색조 유화)으로 채운다', () => {
     const old = JSON.stringify({ version: 1, settings: {
       strength: 0.3, size: 1, boil: 0.2, fps: 12, grade: 0.5, refineThreshold: 0.3, previewScale: 0.75,
     } }, null, 2);
     const r = parseStoredEffectSettings(old, defaults);
     assert.equal(r.source, 'stored');
     assert.deepEqual([r.settings.strength, r.settings.fps, r.settings.refine[4], r.settings.previewScale], [0.3, 12, 0.3, 0.75]);
-    assert.deepEqual([r.settings.outputMode, r.settings.paperDots, r.settings.dither], ['thermal', 576, defaults.dither]);
+    assert.deepEqual([r.settings.outputMode, r.settings.paperDots, r.settings.dither], ['gray-oil', 576, defaults.dither]);
     assert.deepEqual(r.issues, ['outputMode', 'dither', 'brightness', 'contrast', 'gamma', 'paperDots', 'bwStyle', 'bwTexture', 'lineSpacing']
       .map((k) => `${k}: missing -> default`));
   });
@@ -166,6 +167,7 @@ describe('효과 조절값 (E 화면·파일, 5-2)', () => {
     const r = parseStoredEffectSettings(old, defaults);
     assert.equal(r.source, 'stored');
     assert.deepEqual([r.settings.dither, r.settings.paperDots, r.settings.gamma], ['bayer', 384, 1.2]);
+    assert.equal(r.settings.outputMode, 'thermal', '파일에 저장된 모드가 새 기본값(회색조 유화)보다 앞선다 (8단계)');
     assert.equal(r.settings.boil, 0.1, '파일에 저장된 boil이 기본값(0.05)보다 앞선다');
     assert.deepEqual([r.settings.bwStyle, r.settings.bwTexture, r.settings.lineSpacing], [defaults.bwStyle, defaults.bwTexture, defaults.lineSpacing]);
     assert.deepEqual(r.issues, ['bwStyle', 'bwTexture', 'lineSpacing'].map((k) => `${k}: missing -> default`));
@@ -200,5 +202,41 @@ describe('흑백 스타일 설정 (7-1)', () => {
     assert.deepEqual(back.issues, []);
     assert.deepEqual([back.settings.bwStyle, back.settings.bwTexture, back.settings.lineSpacing], ['flow', 0.5, 6]);
     assert.ok(!sameEffectSettings(back.settings, base));
+  });
+});
+
+describe('회색조 유화 설정 (8단계)', () => {
+  it('7단계 파일(조절값 16개, 감열지·붓 결 선)은 그대로 읽는다: 모드는 파일 값, 알림 없음', () => {
+    const stage7 = JSON.stringify({ version: 1, settings: {
+      strength: 0.1, size: 1.25, boil: 0.05, fps: 24, grade: 1, refineThreshold: 0.22, previewScale: 1,
+      outputMode: 'thermal', dither: 'blue-noise', brightness: 0, contrast: 1, gamma: 1, paperDots: 576,
+      bwStyle: 'stroke', bwTexture: 1, lineSpacing: 4,
+    } }, null, 2);
+    const r = parseStoredEffectSettings(stage7, defaults);
+    assert.equal(r.source, 'stored');
+    assert.deepEqual(r.issues, []);
+    assert.deepEqual([r.settings.outputMode, r.settings.bwStyle], ['thermal', 'stroke']);
+    for (const mode of ['gray', 'off']) {
+      const file = JSON.stringify({ version: 1, settings: { ...JSON.parse(stage7).settings, outputMode: mode } });
+      assert.equal(parseStoredEffectSettings(file, defaults).settings.outputMode, mode);
+    }
+  });
+
+  it('회색조 유화 저장 → 읽기 왕복, 버전은 1 그대로', () => {
+    const base = normalizeEffectSettings({ ...defaults, outputMode: 'thermal' }, defaults).settings;
+    const changed = applyEffectTunables(base, { outputMode: 'gray-oil', dither: 'atkinson', paperDots: 384 }, defaults).settings;
+    const text = serializeEffectSettings(changed);
+    assert.equal(JSON.parse(text).version, 1);
+    assert.equal(JSON.parse(text).settings.outputMode, 'gray-oil');
+    const back = parseStoredEffectSettings(text, defaults);
+    assert.deepEqual(back.issues, []);
+    assert.deepEqual([back.settings.outputMode, back.settings.dither, back.settings.paperDots], ['gray-oil', 'atkinson', 384]);
+  });
+
+  it('모드 값이 틀린 파일은 그 항목만 기본값(회색조 유화)으로', () => {
+    const r = parseStoredEffectSettings(JSON.stringify({ version: 1, settings: { outputMode: 'grey-oil', fps: 12 } }), defaults);
+    assert.equal(r.settings.outputMode, 'gray-oil');
+    assert.equal(r.settings.fps, 12);
+    assert.ok(r.issues.includes('outputMode: "grey-oil" -> default'));
   });
 });

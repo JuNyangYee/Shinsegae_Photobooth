@@ -152,8 +152,12 @@ describe('effect-tuning (E)', () => {
   it('출력 단계 (6-1): 모드·점 방식·용지 폭은 선택 상자, 밝기·대비·감마는 슬라이더로 바로 반영, 저장에 들어간다', async () => {
     const t = current = setup();
     t.tuning.toggle();
-    assert.equal(t.select('outputMode').value, 'thermal', '기본값은 감열지');
+    assert.equal(t.select('outputMode').value, 'gray-oil', '기본값은 회색조 유화 (8단계)');
     assert.equal(t.select('paperDots').value, '576');
+    // 회색조 유화: 점 방식·용지 폭은 결과의 인쇄 데이터에 쓰여 열고, 흑백 스타일 항목은 막는다. 레벨은 쓴다
+    assert.deepEqual([t.select('dither').disabled, t.select('paperDots').disabled, t.input('gamma').disabled], [false, false, false]);
+    assert.deepEqual([t.select('bwStyle').disabled, t.input('bwTexture').disabled, t.input('lineSpacing').disabled], [true, true, true]);
+    t.choose('outputMode', 'thermal');
     assert.deepEqual([t.input('gamma').min, t.input('gamma').max, t.input('brightness').min], ['0.4', '2.5', '-0.5']);
     t.choose('bwStyle', 'tone'); // 점 방식은 톤 점·질감 강조 점에서 쓴다 (7-1)
     t.choose('dither', 'atkinson');
@@ -182,7 +186,8 @@ describe('effect-tuning (E)', () => {
   it('흑백 스타일 (7-1): 스타일 선택 상자, 질감 세기·선 간격 슬라이더. 스타일·모드에 따라 쓰지 않는 항목을 막고 저장에 들어간다', async () => {
     const t = current = setup();
     t.tuning.toggle();
-    assert.equal(t.select('bwStyle').value, 'stroke', '가안 기본값');
+    assert.equal(t.select('bwStyle').value, 'stroke', '감열지를 고를 때의 기본값 (7-1 사용자 결정)');
+    t.choose('outputMode', 'thermal'); // 흑백 스타일은 감열지에서만 쓴다 (8단계부터 기본 모드는 회색조 유화)
     assert.deepEqual([t.input('lineSpacing').min, t.input('lineSpacing').max, t.input('bwTexture').max], ['2', '8', '2']);
     assert.equal(t.output('lineSpacing'), '4.0');
     // 붓 결 선·흐름 선: 점 방식은 쓰지 않는다
@@ -197,6 +202,9 @@ describe('effect-tuning (E)', () => {
     assert.deepEqual([t.running().bwStyle, t.running().lineSpacing, t.running().bwTexture], ['flow', 6, 1.5]);
     t.choose('outputMode', 'gray');
     assert.deepEqual([t.select('bwStyle').disabled, t.input('lineSpacing').disabled, t.input('bwTexture').disabled], [true, true, true]);
+    t.choose('outputMode', 'gray-oil');
+    assert.deepEqual([t.select('bwStyle').disabled, t.input('lineSpacing').disabled, t.select('dither').disabled], [true, true, false],
+      '회색조 유화는 선 스타일이 골라져 있어도 점 방식을 쓴다(인쇄 데이터)');
     t.choose('outputMode', 'thermal');
     t.click('save');
     const saved = t.saves[0].settings;

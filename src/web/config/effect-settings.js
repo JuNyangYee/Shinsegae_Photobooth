@@ -11,7 +11,7 @@
 //     "outputMode", "dither", "brightness", "contrast", "gamma", "paperDots", "bwStyle", "bwTexture", "lineSpacing" } }
 // 운영자가 조절하는 값(EFFECT_TUNABLE_KEYS)만 저장한다. 붓 층 모양 등은 config.effect 기본값을 쓴다.
 // 출력 단계 값 6개는 6-1에서, 흑백 스타일 값 3개는 7-1에서 더했다. 버전은 1 그대로이고, 예전 파일(5-2의 앞 7개, 6-1의 13개)을
-// 읽으면 없는 값은 기본값으로 채운다.
+// 읽으면 없는 값은 기본값으로 채운다. 8단계는 출력 모드에 값 'gray-oil'만 더했다(키·버전 그대로). 파일에 저장된 모드가 있으면 그 값을 쓴다.
 
 export const effectLimits = Object.freeze({
   strength: Object.freeze({ min: 0, max: 1.6, step: 0.05 }), // 강도: 요철·광택·색 흔들림
@@ -32,8 +32,11 @@ export const effectLimits = Object.freeze({
   lineSpacing: Object.freeze({ min: 2, max: 8, step: 0.5 }),
 });
 
-/** 출력 모드: 감열지(1비트 점) / 회색조만 / 끔(컬러 유화) */
-export const OUTPUT_MODES = Object.freeze(['thermal', 'gray', 'off']);
+/**
+ * 출력 모드: 회색조 유화(8단계 기본값: 입력 회색조 → 유화 → 회색조 화면, 인쇄 1비트는 결과에서 따로) /
+ * 감열지(1비트 점) / 회색조만(컬러 유화를 회색조로) / 끔(컬러 유화)
+ */
+export const OUTPUT_MODES = Object.freeze(['gray-oil', 'thermal', 'gray', 'off']);
 /** 점 방식: 문턱값(GPU·CPU 같은 결과) 2개, 오차 확산(CPU) 2개 */
 export const DITHER_METHODS = Object.freeze(['blue-noise', 'bayer', 'atkinson', 'floyd-steinberg']);
 /**

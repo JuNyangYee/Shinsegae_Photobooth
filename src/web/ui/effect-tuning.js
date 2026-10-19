@@ -4,6 +4,7 @@
 // 저장하지 않고 닫으면 저장된 값으로 되돌리고(실행 중인 값 = 다시 시작했을 때의 값), 저장 중에 닫으면 저장이 끝난 뒤 닫는다.
 // 출력 단계(6-1): 모드(감열지·회색조·끔)·점 방식·용지 폭은 선택 상자, 밝기·대비·감마는 슬라이더. 기능만 넣었다(디자인은 6-3).
 // 흑백 스타일(7-1): 스타일은 선택 상자, 질감 세기·선 간격은 슬라이더. 감열지에서만 쓰고, 스타일에 따라 쓰지 않는 항목을 막는다.
+// 회색조 유화(8단계 기본 모드): 흑백 스타일 항목은 막고, 점 방식·용지 폭은 결과의 인쇄용 1비트 데이터에 쓰므로 연다.
 // Node 테스트: test/ui/effect-tuning.test.mjs
 
 import {
@@ -39,19 +40,28 @@ const SELECTS = [
   ['paperDots', Number],
   ['bwStyle', String],
 ];
-const LEVEL_KEYS = new Set(['brightness', 'contrast', 'gamma']); // 회색조·감열지에서 쓴다
-const THERMAL_KEYS = new Set(['dither', 'paperDots', 'bwStyle', 'bwTexture', 'lineSpacing']); // 감열지에서만 쓴다
+const LEVEL_KEYS = new Set(['brightness', 'contrast', 'gamma']); // 회색조 유화·회색조·감열지에서 쓴다
+const PRINT_KEYS = new Set(['dither', 'paperDots']); // 1비트를 만드는 감열지·회색조 유화(결과의 인쇄 데이터, 8단계)에서 쓴다
+const BW_STYLE_KEYS = new Set(['bwStyle', 'bwTexture', 'lineSpacing']); // 감열지에서만 쓴다
 const LINE_STYLES = new Set(['flow', 'stroke']); // 점 방식 대신 선으로 점을 정하는 흑백 스타일 (7-1)
 
-/** 이 값들에서 쓰지 않는 항목인지 (막는다): 회색조·끔이면 감열지 항목, 톤 점이면 질감 세기, 선 스타일이 아니면 선 간격, 선 스타일이면 점 방식 */
+/**
+ * 이 값들에서 쓰지 않는 항목인지 (막는다): 감열지가 아니면 흑백 스타일 항목, 회색조·끔이면 점 방식·용지 폭도.
+ * 감열지에서는 톤 점이면 질감 세기, 선 스타일이 아니면 선 간격, 선 스타일이면 점 방식
+ */
 export function isUnusedTunable(key, values) {
-  if (THERMAL_KEYS.has(key) && values.outputMode !== 'thermal') return true;
+  const mode = values.outputMode;
+  if (BW_STYLE_KEYS.has(key) && mode !== 'thermal') return true;
+  if (PRINT_KEYS.has(key) && mode !== 'thermal' && mode !== 'gray-oil') return true;
   if (key === 'bwTexture') return values.bwStyle === 'tone';
   if (key === 'lineSpacing') return !LINE_STYLES.has(values.bwStyle);
-  if (key === 'dither') return LINE_STYLES.has(values.bwStyle);
+  if (key === 'dither') return mode === 'thermal' && LINE_STYLES.has(values.bwStyle);
   return false;
 }
-const OUTPUT_LABELS = Object.freeze({ thermal: '감열지', gray: '회색조', off: '컬러' });
+const OUTPUT_LABELS = Object.freeze({ 'gray-oil': '회색조 유화', thermal: '감열지', gray: '회색조', off: '컬러' });
+const DITHER_LABELS = Object.freeze({
+  'blue-noise': '블루 노이즈', bayer: 'Bayer', atkinson: 'Atkinson', 'floyd-steinberg': 'Floyd–Steinberg',
+});
 
 /**
  * @param {{ panel: HTMLElement, preview: { setSettings: Function, getState: Function }, defaults: object,
@@ -127,9 +137,13 @@ export function createEffectTuning({ panel, preview, defaults, initial, saveSett
     const e = preview.getState();
     const ms = e.cpuAvgMs === null ? '-' : `${e.cpuAvgMs.toFixed(1)}ms`;
     const fmt = (value) => (value === null || value === undefined ? '-' : `${value.toFixed(1)}ms`);
-    const output = e.outputMode === 'thermal' && e.printWidth
-      ? ` · 감열지 ${e.printWidth}x${e.printHeight} ${e.screen ?? e.dither}${e.readMs === null ? '' : ` (읽기 ${fmt(e.readMs)}, 디더 ${fmt(e.ditherMs)})`}`
-      : ` · ${OUTPUT_LABELS[e.outputMode] ?? ''}`;
+    let output = ` · ${OUTPUT_LABELS[e.outputMode] ?? ''}`;
+    if (e.outputMode === 'thermal' && e.printWidth) {
+      output = ` · 감열지 ${e.printWidth}x${e.printHeight} ${e.screen ?? e.dither}${e.readMs === null ? '' : ` (읽기 ${fmt(e.readMs)}, 디더 ${fmt(e.ditherMs)})`}`;
+    } else if (e.outputMode === 'gray-oil') {
+      // 인쇄용 1비트는 촬영 결과에서만 만든다(화면에는 보이지 않는다)
+      output += ` · 인쇄 데이터 ${current.paperDots}점 폭 ${DITHER_LABELS[current.dither] ?? current.dither} (촬영 때)`;
+    }
     liveText.textContent = e.status === 'running'
       ? `미리보기 ${e.width}x${e.height} · 초당 ${e.drawingsPerSecond}장 (설정 ${e.fps}) · 그리기 ${ms}${output}`
       : `미리보기 효과 ${e.status}${e.fault ? ` (${e.fault})` : ''} — 원본 미리보기 중입니다. 값은 저장할 수 있습니다.`;

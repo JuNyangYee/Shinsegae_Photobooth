@@ -1,4 +1,5 @@
 // 감열지 흑백 출력 단계의 순수 계산 (6-1): 회색조·레벨, 인쇄 해상도, 면적 평균 축소, 1비트 디더링, 인쇄용 비트·1비트 PNG.
+// 회색조 유화(8단계)의 입력 회색조 계수도 여기에 둔다.
 // 브라우저 API를 쓰지 않는다 (PNG 압축 함수는 주입받는다). Node 테스트: test/core/thermal.test.mjs
 //
 // 감열지는 흰 바탕에 검은 점(1비트)으로 찍힌다. 화면에 보이는 점 이미지가 곧 인쇄 데이터다 (docs/SYSTEM.md 6절 "출력 단계").
@@ -10,6 +11,30 @@
 
 // 회색조 가중치 (Rec.601. 셰이더의 lum()과 같다)
 const LUMA = [0.299, 0.587, 0.114];
+
+/**
+ * 입력 회색조 가중치 (8단계 회색조 유화: 카메라 프레임을 유화 앞에서 단순 흑백으로). Rec.709(= sRGB 원색) luma.
+ * 카메라·OBS 영상은 sRGB/BT.709 원색이라 이 계수가 그 원색의 밝기 비율에 맞는다. Rec.601(위 LUMA)은 옛 NTSC 원색 기준이라
+ * 빨강을 밝게(0.299 vs 0.2126), 초록을 어둡게 본다. 감마 보정된 값에 바로 곱하는 luma다(선형 휘도가 아님). 합이 1이라 회색은 그대로다.
+ * 셰이더 FS_INPUT_GRAY는 이 값을 uniform으로 받는다(같은 숫자를 두 곳에 쓰지 않게)
+ */
+export const INPUT_LUMA = Object.freeze([0.2126, 0.7152, 0.0722]);
+
+/** RGB(0~255) → 입력 회색조(0~255 정수). GPU가 RGBA8에 쓰는 것과 같이 반올림한다 */
+export function inputGrayOf(r, g, b) {
+  return Math.round(INPUT_LUMA[0] * r + INPUT_LUMA[1] * g + INPUT_LUMA[2] * b);
+}
+
+/** RGBA를 입력 회색조로 바꾼다 (제자리). 회색조 유화에서 효과를 그리지 못해 원본 사진으로 대신할 때 */
+export function inputGrayInPlace(rgba) {
+  for (let i = 0; i < rgba.length; i += 4) {
+    const v = inputGrayOf(rgba[i], rgba[i + 1], rgba[i + 2]);
+    rgba[i] = v;
+    rgba[i + 1] = v;
+    rgba[i + 2] = v;
+  }
+  return rgba;
+}
 
 /**
  * 회색조 값(0~1)에 대비 → 밝기 → 감마를 적용한다. 셰이더 levels()와 같은 식.

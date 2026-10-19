@@ -185,18 +185,19 @@
         </label>
       </fieldset>
       <fieldset class="op-group">
-        <legend>출력 단계 <small>화면에 보이는 것이 곧 출력물</small></legend>
+        <legend>출력 단계 <small>화면 표시와 인쇄용 1비트</small></legend>
         <label class="op-row">
-          <span class="op-label">출력 모드<small>감열지 = 흰 종이에 검은 점(1비트)</small></span>
+          <span class="op-label">출력 모드<small>회색조 유화 = 흑백 위에 유화(인쇄 1비트는 촬영 때 따로). 감열지 = 화면도 1비트 점</small></span>
           <select data-key="outputMode">
+            <option value="gray-oil">회색조 유화 (흑백 → 유화)</option>
             <option value="thermal">감열지 (1비트 점)</option>
-            <option value="gray">회색조</option>
+            <option value="gray">회색조 (컬러 유화를 회색으로)</option>
             <option value="off">끔 (컬러 유화)</option>
           </select>
           <span class="op-value"><output data-key="outputMode"></output></span>
         </label>
         <label class="op-row">
-          <span class="op-label">점 방식<small>톤 점·질감 강조 점에서 쓴다. 오차 확산(CPU)은 지글거리고 무겁다</small></span>
+          <span class="op-label">점 방식<small>회색조 유화의 인쇄 데이터, 감열지 톤 점·질감 강조 점. 오차 확산(CPU)은 지글거리고 무겁다</small></span>
           <select data-key="dither">
             <option value="blue-noise">블루 노이즈 (GPU)</option>
             <option value="bayer">Bayer 순서 디더 (GPU)</option>
@@ -234,12 +235,12 @@
           <span class="op-value"><output data-key="lineSpacing"></output><span class="op-unit">점</span></span>
         </label>
         <label class="op-row">
-          <span class="op-label">밝기<small>회색조에 더한다 (회색조·감열지)</small></span>
+          <span class="op-label">밝기<small>회색조에 더한다 (끔 제외)</small></span>
           <input type="range" data-key="brightness">
           <span class="op-value"><output data-key="brightness"></output><span class="op-unit">±</span></span>
         </label>
         <label class="op-row">
-          <span class="op-label">대비<small>0.5를 중심으로 늘린다 (회색조·감열지)</small></span>
+          <span class="op-label">대비<small>0.5를 중심으로 늘린다 (끔 제외)</small></span>
           <input type="range" data-key="contrast">
           <span class="op-value"><output data-key="contrast"></output><span class="op-unit">배</span></span>
         </label>

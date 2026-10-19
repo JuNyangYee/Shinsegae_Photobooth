@@ -223,8 +223,8 @@ describe('createEffectPreview', () => {
     const still = t.preview.renderStill();
     const call = t.renderer.calls.at(-1);
     assert.equal(call.source, null, '소스를 다시 올리지 않는다 = 미리보기가 그린 프레임');
-    assert.equal(call.output, 'print', '기본 출력 모드는 감열지 (6-1)');
-    assert.equal(still.mode, 'thermal');
+    assert.equal(call.output, 'pixels', '기본 출력 모드는 회색조 유화 (8단계): 결과 크기 화소 + 인쇄 데이터');
+    assert.equal(still.mode, 'gray-oil');
     assert.equal(call.seed, shown.seed);
     assert.equal(call.settings, shown.settings);
     assert.deepEqual([call.width, call.height], [1080, 1920]);
@@ -241,7 +241,7 @@ describe('createEffectPreview', () => {
     t.run(100);
     const first = t.renderer.calls.at(-1);
     assert.deepEqual([first.width, first.displayWidth, first.displayHeight], [540, 1080, 1920]);
-    for (const mode of ['off', 'gray']) {
+    for (const mode of ['off', 'gray', 'gray-oil']) {
       t.preview.setSettings({ outputMode: mode });
       t.run(50);
       assert.equal(t.renderer.calls.at(-1).settings.outputMode, mode);

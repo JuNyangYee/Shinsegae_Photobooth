@@ -5,13 +5,36 @@ import { describe, it } from 'node:test';
 import { deflateSync, inflateSync } from 'node:zlib';
 
 import {
-  applyLevels, bayerRanks, blueNoiseRanks, bwStyleOf, crc32, dither, ditherErrorDiffusion, ditherThreshold, ditherWithThresholds,
-  encodeOneBitPng, grayLevelsInPlace, isGpuDither, levelOf, maskToRgba, packPrintBits, printSizeFor, readPngHeader, reduceToPrintGray,
+  INPUT_LUMA, applyLevels, bayerRanks, blueNoiseRanks, bwStyleOf, crc32, dither, ditherErrorDiffusion, ditherThreshold, ditherWithThresholds,
+  encodeOneBitPng, grayLevelsInPlace, inputGrayInPlace, inputGrayOf, isGpuDither, levelOf, maskToRgba, packPrintBits, printSizeFor, readPngHeader, reduceToPrintGray,
   screenOf, sharpAxis, thresholdMap, upscaleSharp,
 } from '../../src/web/core/thermal.js';
 
 const NEUTRAL = { brightness: 0, contrast: 1, gamma: 1 };
 const deflate = async (raw) => deflateSync(raw);
+
+describe('입력 회색조 (8단계 회색조 유화)', () => {
+  it('계수는 Rec.709 luma(0.2126, 0.7152, 0.0722)이고 합이 1이라 회색은 그대로', () => {
+    assert.deepEqual([...INPUT_LUMA], [0.2126, 0.7152, 0.0722]);
+    assert.ok(Object.isFrozen(INPUT_LUMA));
+    assert.ok(Math.abs(INPUT_LUMA.reduce((a, b) => a + b, 0) - 1) < 1e-12);
+    for (let v = 0; v <= 255; v += 1) assert.equal(inputGrayOf(v, v, v), v);
+  });
+
+  it('원색은 계수만큼, 결과는 0~255 정수로 반올림', () => {
+    assert.equal(inputGrayOf(255, 0, 0), 54); // 54.213
+    assert.equal(inputGrayOf(0, 255, 0), 182); // 182.376
+    assert.equal(inputGrayOf(0, 0, 255), 18); // 18.411
+    assert.equal(inputGrayOf(255, 255, 255), 255);
+    assert.equal(inputGrayOf(200, 150, 100), 157); // 42.52 + 107.28 + 7.22 = 157.02
+  });
+
+  it('제자리 변환은 RGB를 같은 회색으로, 알파는 그대로', () => {
+    const rgba = new Uint8ClampedArray([255, 0, 0, 255, 10, 20, 30, 128]);
+    inputGrayInPlace(rgba);
+    assert.deepEqual([...rgba], [54, 54, 54, 255, 19, 19, 19, 128]);
+  });
+});
 
 describe('회색조·레벨', () => {
   it('중립 레벨은 Rec.601 회색조 그대로', () => {

@@ -314,10 +314,14 @@ function effectDevLines() {
     + ` style ${t.bwStyle} texture ${t.bwTexture} lines ${t.lineSpacing}`
     + ` brightness ${t.brightness} contrast ${t.contrast} gamma ${t.gamma}`
     + ` (${effectTuning ? effectTuning.describeSettingsSource() : 'loading'}, ${config.effectSettingsFile.url})`;
-  // 출력 단계 (6-1): 감열지면 인쇄 해상도, 점을 정하는 것(점 방식 또는 흐름·붓 결 선, 7-1)·흑백 스타일, 화소 읽기·CPU 디더 시간(오차 확산만)
-  const output = e.outputMode === 'thermal'
-    ? `thermal ${e.printWidth}x${e.printHeight} ${e.screen} (style ${e.bwStyle}), read ${ms(e.readMs)}, dither ${ms(e.ditherMs)}`
-    : e.outputMode;
+  // 출력 단계 (6-1): 감열지면 인쇄 해상도, 점을 정하는 것(점 방식 또는 흐름·붓 결 선, 7-1)·흑백 스타일, 화소 읽기·CPU 디더 시간(오차 확산만).
+  // 회색조 유화(8단계)는 입력 회색조 계수와, 촬영 결과에서 만드는 인쇄 데이터의 용지 폭·점 방식
+  let output = e.outputMode;
+  if (e.outputMode === 'thermal') {
+    output = `thermal ${e.printWidth}x${e.printHeight} ${e.screen} (style ${e.bwStyle}), read ${ms(e.readMs)}, dither ${ms(e.ditherMs)}`;
+  } else if (e.outputMode === 'gray-oil') {
+    output = `gray-oil (input luma Rec.709 -> oil2f -> gray), print data on photo: paper ${t.paperDots} ${t.dither}`;
+  }
   const p = photoEffect.getStats();
   let photo = '-';
   const mode = p.last?.mode && p.last.mode !== 'off' ? `${p.last.mode} ` : '';
@@ -336,7 +340,7 @@ function effectDevLines() {
   const printLine = `print      : ${pr
     ? `${pr.width}x${pr.height} 1-bit, raster ${pr.bytesPerRow}B/row ${pr.rasterBytes}B, png ${pr.pngBytes}B`
       + ` (IHDR depth ${pr.pngBitDepth} color ${pr.pngColorType}), black ${(pr.blackRatio * 100).toFixed(1)}%`
-    : '-'}`;
+    : p.last?.printError ? `none (${p.last.printError})` : '-'}`;
   if (e.status === EffectStatus.DISABLED) return ['effect     : disabled (config.effect.enabled) -> camera preview', photoLine, printLine];
   if (e.status === EffectStatus.FALLBACK || e.status === EffectStatus.CONTEXT_LOST) {
     return [`effect     : ${e.status} (${e.fault || '-'}) -> camera preview${losses}`, values, photoLine, printLine];
