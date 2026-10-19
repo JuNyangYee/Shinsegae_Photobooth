@@ -92,7 +92,7 @@
 
 ### 정리
 
-- 확인 도구는 자신이 띄운 서버·Chrome·임시 프로필을 정리했고 조절값 파일은 "removed (did not exist before)"로 되돌렸다. 임시 하네스도 Chrome·서버를 종료하고 프로필을 지웠다(`profile removed true`). 하네스 스크립트(`%TEMP%\pb07`)는 끝에 지운다.
+- 확인 도구는 자신이 띄운 서버·Chrome·임시 프로필을 정리했고 조절값 파일은 "removed (did not exist before)"로 되돌렸다. 임시 하네스도 Chrome·서버를 종료하고 프로필을 지웠다(`profile removed true`). 하네스·편집 스크립트 폴더(`%TEMP%\pb07`)도 지웠다.
 - 저장소 루트 `config/`·`logs/` 없음.
 
 ### 미검증
