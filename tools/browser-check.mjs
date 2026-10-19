@@ -574,8 +574,8 @@ async function runScenarios(app, origin) {
     return `${line.split(', fps')[0]}; ${m[2]} drawings/s at fps ${m[1]}; context lost → camera preview → restored`;
   });
 
-  await scenario('촬영 결과(감열지 기본값): 화면용 1080x1920 PNG가 셔터 순간 미리보기 점 그림과 화소까지 같음, 인쇄 데이터 576x1024 1비트', async () => withAutoPaused(app, async () => {
-    const { fx, print, compare } = await thermalShot(app, { method: 'blue-noise', check: 'gpu=cpu' });
+  await scenario('촬영 결과(감열지 기본값, 흑백 스타일 붓 결 선): 화면용 1080x1920 PNG가 셔터 순간 미리보기 점 그림과 화소까지 같음, 인쇄 데이터 576x1024 1비트', async () => withAutoPaused(app, async () => {
+    const { fx, print, compare } = await thermalShot(app, { method: 'stroke-lines', check: 'gpu=cpu' });
     return `${fx.split(' (applied')[0]}; ${compare}; print ${print.split(', black')[0]}`;
   }));
 
@@ -627,8 +627,9 @@ async function runScenarios(app, origin) {
         details.push(`${mode} ${image.split(' ')[0]} jpeg`);
       }
       await app.choose('outputMode', 'thermal');
+      await app.choose('bwStyle', 'tone'); // 점 방식은 톤 점·질감 강조 점에서 쓴다 (7-1)
       await app.choose('dither', 'bayer');
-      await app.waitFor('bayer', async () => /^thermal 576x1024 bayer/.test(subLine(await app.devText(), 'output')), 5000);
+      await app.waitFor('bayer', async () => /^thermal 576x1024 bayer \(style tone\)/.test(subLine(await app.devText(), 'output')), 5000);
       const bayerCanvas = await app.evaluate("(() => { const c = document.getElementById('effect'); return c.width + 'x' + c.height; })()");
       expect(bayerCanvas === '1080x1920', `bayer canvas ${bayerCanvas}`);
       await app.choose('dither', 'atkinson');
@@ -661,6 +662,43 @@ async function runScenarios(app, origin) {
     }
   });
 
+  await scenario('흑백 스타일(7-1) GPU = CPU·결정성·그림 사이 바뀐 점 (합성 이미지, 붓 결 선·흐름 선·질감 강조 점, 용지 576·384)', async () => {
+    const outcome = await app.evaluate(`(async () => {
+      const R = await import('/effect/oil-renderer.js'); const T = await import('/core/thermal.js');
+      const C = await import('/config/config.js'); const S = await import('/config/effect-settings.js');
+      // 합성 시험 이미지 (카메라 영상 아님): 동심원 + 방사 띠 + 경사 (흐름장이 생기게)
+      const src = new OffscreenCanvas(1080, 1920); const x = src.getContext('2d');
+      const g = x.createLinearGradient(0, 0, 1080, 1920); g.addColorStop(0, '#203040'); g.addColorStop(1, '#f0d0a0'); x.fillStyle = g; x.fillRect(0, 0, 1080, 1920);
+      for (let i = 0; i < 14; i++) { x.strokeStyle = i % 2 ? '#401010' : '#e0e8f0'; x.lineWidth = 18; x.beginPath(); x.arc(540, 700, 40 + i * 32, 0, 7); x.stroke(); }
+      for (let i = 0; i < 24; i++) { x.fillStyle = i % 2 ? '#a03030' : '#30a040'; x.fillRect(i * 45, 1300, 45, 500); }
+      const r = R.createOilRenderer({ canvas: new OffscreenCanvas(4, 4), display: C.config.thermalDisplay });
+      const rows = []; let first = true;
+      try {
+        for (const paperDots of [576, 384]) for (const [bwStyle, dither] of [['stroke', 'blue-noise'], ['flow', 'blue-noise'], ['texture', 'blue-noise'], ['texture', 'bayer']]) {
+          const settings = S.normalizeEffectSettings({ ...C.config.effect, outputMode: 'thermal', bwStyle, dither, paperDots }, C.config.effect).settings;
+          const opt = { settings, width: 1080, height: 1920, seed: 11, output: 'print' };
+          const out = r.render(first ? src : null, opt); first = false;
+          const again = r.render(null, opt);
+          const next = r.render(null, { ...opt, seed: 12 });
+          const cpu = out.thr ? T.ditherWithThresholds(out.gray, out.thr) : T.ditherThreshold(out.gray, out.printWidth, out.printHeight, T.thresholdMap(dither));
+          let diff = 0, repeat = 0, changed = 0, white = 0;
+          for (let i = 0; i < cpu.length; i++) { diff += cpu[i] !== out.mask[i]; repeat += again.mask[i] !== out.mask[i]; changed += next.mask[i] !== out.mask[i]; white += out.mask[i]; }
+          rows.push({ size: out.printWidth + 'x' + out.printHeight, style: bwStyle + (bwStyle === 'texture' ? '/' + dither : ''), dots: cpu.length, diff, repeat,
+            changed: +(changed / cpu.length * 100).toFixed(2), white: +(white / cpu.length).toFixed(3), thr: Boolean(out.thr) });
+        }
+      } finally { r.dispose(); }
+      return rows;
+    })()`, { timeout: 60000 });
+    for (const row of outcome) {
+      expect(row.diff === 0, `${row.size} ${row.style}: GPU != CPU in ${row.diff} of ${row.dots} dots`);
+      expect(row.repeat === 0, `${row.size} ${row.style}: same seed and frame differ in ${row.repeat} dots`);
+      expect(row.thr === !row.style.startsWith('texture'), `${row.size} ${row.style}: thresholds ${row.thr}`);
+      expect(row.white > 0.05 && row.white < 0.95, `${row.size} ${row.style}: white ${row.white}`);
+      expect(row.changed > 0 && row.changed < 30, `${row.size} ${row.style}: changed ${row.changed}%`);
+    }
+    return outcome.map((r) => `${r.size} ${r.style} 0/${r.dots} differ, repeat 0, next drawing ${r.changed}%`).join('; ');
+  });
+
   await scenario('GPU 문턱값 디더 = CPU (비트 단위, 합성 이미지, 용지 576·384), 1비트 PNG 왕복, 방식별 CPU 디더 시간', async () => {
     const outcome = await app.evaluate(`(async () => {
       const R = await import('/effect/oil-renderer.js'); const T = await import('/core/thermal.js'); const PE = await import('/effect/photo-effect.js');
@@ -675,7 +713,7 @@ async function runScenarios(app, origin) {
       const rows = []; let first = true;
       try {
         for (const paperDots of [576, 384]) for (const dither of ['bayer', 'blue-noise']) {
-          const settings = S.normalizeEffectSettings({ ...C.config.effect, outputMode: 'thermal', dither, paperDots, gamma: 1.2, contrast: 1.1 }, C.config.effect).settings;
+          const settings = S.normalizeEffectSettings({ ...C.config.effect, outputMode: 'thermal', bwStyle: 'tone', dither, paperDots, gamma: 1.2, contrast: 1.1 }, C.config.effect).settings;
           const out = r.render(first ? src : null, { settings, width: 1080, height: 1920, seed: 11, output: 'print' }); first = false;
           const cpu = T.ditherThreshold(out.gray, out.printWidth, out.printHeight, T.thresholdMap(dither));
           let diff = 0, white = 0; for (let i = 0; i < cpu.length; i++) { diff += cpu[i] !== out.mask[i] ? 1 : 0; white += out.mask[i]; }
@@ -701,6 +739,50 @@ async function runScenarios(app, origin) {
     const t = outcome[0].times;
     return `${outcome.map((r) => `${r.size} ${r.dither} 0/${r.dots} differ`).join(', ')}; PNG depth 1 round-trip 0 differ (${outcome[0].png.bytes}B);`
       + ` CPU dither 576x1024: atkinson ${t.atkinson}ms, floyd-steinberg ${t['floyd-steinberg']}ms, bayer ${t.bayer}ms, blue-noise ${t['blue-noise']}ms`;
+  });
+
+  await scenario('흑백 스타일 4가지(E): 미리보기 캔버스 1080x1920·D 표시, 흐름 선·질감 강조 점 결과 = 셔터 순간 그림, 저장 → 새로고침 유지 (파일은 원래대로)', async () => {
+    const details = [];
+    try {
+      await app.open();
+      await waitReady(app);
+      await app.key('KeyE');
+      await app.waitFor('effect panel open', () => app.evaluate("!document.getElementById('effect-panel').hidden"), 5000);
+      for (const [style, screen] of [['tone', 'blue-noise'], ['texture', 'blue-noise'], ['flow', 'flow-lines'], ['stroke', 'stroke-lines']]) {
+        await app.choose('bwStyle', style);
+        await app.waitFor(`style ${style}`, async () => new RegExp(`^thermal 576x1024 ${screen} \\(style ${style}\\)`).test(subLine(await app.devText(), 'output')), 5000);
+        const canvas = await app.evaluate("(() => { const c = document.getElementById('effect'); return c.width + 'x' + c.height + (c.hidden ? ' hidden' : ''); })()");
+        expect(canvas === '1080x1920', `${style}: canvas ${canvas}`);
+        const disabled = await app.evaluate(`['dither', 'bwTexture', 'lineSpacing'].map((k) => document.querySelector('#effect-panel [data-key="' + k + '"]:is(select, input)').disabled).join(',')`);
+        const want = { tone: 'false,true,true', texture: 'false,false,true', flow: 'true,false,false', stroke: 'true,false,false' }[style];
+        expect(disabled === want, `${style}: disabled dither,bwTexture,lineSpacing ${disabled}`);
+        details.push(`${style} ${screen}`);
+      }
+      for (const [style, method] of [['flow', 'flow-lines'], ['texture', 'blue-noise']]) {
+        await app.choose('bwStyle', style);
+        const shot = await withAutoPaused(app, () => thermalShot(app, { method, check: 'gpu=cpu' }));
+        details.push(`${style} shot: ${shot.compare.split(',')[0]}`);
+      }
+      // 흐름 선·간격 6점 저장 → 새로고침
+      await app.choose('bwStyle', 'flow');
+      await app.evaluate(`(() => { const i = document.querySelector('#effect-panel input[data-key="lineSpacing"]'); i.value = '6'; i.dispatchEvent(new Event('input')); return true; })()`);
+      await app.evaluate("document.querySelector('#effect-panel button[data-action=\"save\"]').click(); true");
+      await app.waitFor('saved message', () => app.evaluate("document.querySelector('#effect-panel [data-message]').textContent === '파일에 저장했습니다.'"), 5000);
+      await app.key('KeyE');
+      await app.open();
+      await waitReady(app);
+      const kept = await app.waitFor('kept after reload', async () => {
+        const text = await app.devText();
+        return /^thermal 576x1024 flow-lines \(style flow\)/.test(subLine(text, 'output')) && /style flow texture 1 lines 6/.test(subLine(text, 'values')) ? subLine(text, 'values') : null;
+      }, 10000);
+      const api = await app.evaluate(`(async () => (await (await fetch('${EFFECT_SETTINGS_API}', { cache: 'no-store' })).json()))()`);
+      expect(api.version === 1 && api.settings.bwStyle === 'flow' && api.settings.lineSpacing === 6, `file ${JSON.stringify(api)}`);
+      details.push(`saved → reload: ${/style flow texture 1 lines 6/.exec(kept)[0]}, file version 1`);
+      return details.join('; ');
+    } finally {
+      const restored = restoreSettings('after bw style scenario');
+      if (!restored.ok) throw new Error(`could not restore settings files: ${restored.detail}`);
+    }
   });
 
   await scenario('효과 조절(E) → 즉시 반영 → 저장 → 새로고침 뒤 유지, 효과 조절값 API (파일은 원래대로)', async () => {
