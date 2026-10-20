@@ -138,6 +138,21 @@ describe('createStrokeBuilder', () => {
     }
   });
 
+  it('해상도가 달라도 고정 획 순서는 한 번만 정렬하고, 목록은 전부 새로 만들어 정렬한 것과 같다 (첫 촬영 멈춤 수정)', () => {
+    const builder = createStrokeBuilder();
+    // 미리보기 0.5배·0.75배·결과 1080 (간격은 비례, 획 수는 같다). 0.75배는 위치가 1080과 비트까지 같지 않을 수 있다
+    for (const s of [0.5, 1, 0.75]) {
+      const args = { layer: 3, spacing: 3.75 * 1.1 * s, width: Math.round(W * s), height: Math.round(H * s), boil: 0.05, seed: 7 };
+      const got = builder.build(args);
+      assert.ok(sameArray(got.data.subarray(0, got.n * 4), naiveStrokes(args)), `scale ${s}`);
+    }
+    assert.equal(builder.sortCount(), 1);
+    // 획 수나 boil이 다르면 따로 정렬한다
+    builder.build({ layer: 3, spacing: 7, width: W, height: H, boil: 0.05, seed: 7 });
+    builder.build({ layer: 3, spacing: 3.75 * 1.1, width: W, height: H, boil: 0.1, seed: 7 });
+    assert.equal(builder.sortCount(), 3);
+  });
+
   it('캐시는 정해진 수만 남긴다', () => {
     const builder = createStrokeBuilder({ maxCacheEntries: 2 });
     for (const seedLayer of [0, 1, 2, 3]) builder.build({ layer: seedLayer, spacing: 50, width: 200, height: 300, boil: 0.1, seed: 0 });

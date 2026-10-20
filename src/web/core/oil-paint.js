@@ -47,42 +47,58 @@ export function isBoilingStroke(index, layer, boil) {
  *
  * 원본처럼 고정 획은 한 번만 만들어 정렬해 두고(캐시), 그림마다 바뀌는 획만 새로 만들어 정렬한 뒤 합친다.
  * 결과는 모든 획을 새로 만들어 (열쇠, 번호) 순으로 정렬한 것과 같다 (테스트로 확인).
+ * 고정 획의 순서(어느 획이 고정인지, 열쇠)는 획 번호·층·boil로만 정해지고 해상도와 관계없다. 그래서 순서는 (층, 획 수, boil)마다
+ * 한 번만 정렬하고, 해상도가 다르면(미리보기 0.5배와 결과 1080) 위치만 다시 계산한다. 정렬이 대부분의 시간이라(보완 층 19만 개
+ * 약 35ms) 결과 크기 목록을 처음 만들 때 멈춤이 줄어든다 (첫 촬영 멈춤 수정, 로그 2026-10-19-07).
  * 돌려주는 data는 다음 build 호출 때 다시 쓰는 버퍼일 수 있다. 바로 GPU에 올리고 들고 있지 않는다.
  */
 export function createStrokeBuilder({ maxCacheEntries = 16 } = {}) {
   const cache = new Map();
+  const orders = new Map(); // `층|획 수|boil` → 고정 획 번호·열쇠 ((열쇠, 번호) 순), 바뀌는 획 번호
+  let sorts = 0; // 정렬한 횟수 (테스트용)
 
-  function cached(layer, spacing, width, height, boil) {
-    const key = `${layer}|${spacing}|${width}|${height}|${boil}`;
-    let entry = cache.get(key);
+  function remember(map, key, entry) {
+    map.set(key, entry);
+    if (map.size > maxCacheEntries) map.delete(map.keys().next().value);
+    return entry;
+  }
+
+  function fixedOrder(layer, n, boil) {
+    const key = `${layer}|${n}|${boil}`;
+    const entry = orders.get(key);
     if (entry) return entry;
-    const gw = Math.ceil(width / spacing);
-    const gh = Math.ceil(height / spacing);
-    const n = gw * gh;
     const base = layerSeedBase(layer);
     const fixed = [];
     const vary = [];
     for (let i = 0; i < n; i += 1) (ihash(i, base, 1) >= boil ? fixed : vary).push(i);
     const m = fixed.length;
-    const d = new Float32Array(m * 4);
     const k = new Float32Array(m);
     const ord = new Uint32Array(m);
     for (let j = 0; j < m; j += 1) {
-      k[j] = put(fixed[j], base, d, j * 4, gw, spacing, width, height);
+      k[j] = Math.fround(ihash(fixed[j], base, 6)); // put()이 돌려주는 열쇠와 같은 값
       ord[j] = j;
     }
     ord.sort((a, b) => k[a] - k[b] || a - b);
-    const F = { data: new Float32Array(m * 4), key: new Float32Array(m), id: new Uint32Array(m) };
-    for (let j = 0; j < m; j += 1) {
-      const s = ord[j];
-      F.key[j] = k[s];
-      F.id[j] = fixed[s];
-      for (let c = 0; c < 4; c += 1) F.data[j * 4 + c] = d[s * 4 + c];
-    }
-    entry = { F, vary: Uint32Array.from(vary), out: new Float32Array(n * 4), n, gw };
-    cache.set(key, entry);
-    if (cache.size > maxCacheEntries) cache.delete(cache.keys().next().value);
-    return entry;
+    sorts += 1;
+    return remember(orders, key, {
+      key: Float32Array.from(ord, (s) => k[s]), id: Uint32Array.from(ord, (s) => fixed[s]), vary: Uint32Array.from(vary),
+    });
+  }
+
+  function cached(layer, spacing, width, height, boil) {
+    const key = `${layer}|${spacing}|${width}|${height}|${boil}`;
+    const entry = cache.get(key);
+    if (entry) return entry;
+    const gw = Math.ceil(width / spacing);
+    const gh = Math.ceil(height / spacing);
+    const n = gw * gh;
+    const order = fixedOrder(layer, n, boil);
+    const base = layerSeedBase(layer);
+    const m = order.id.length;
+    const data = new Float32Array(m * 4);
+    for (let j = 0; j < m; j += 1) put(order.id[j], base, data, j * 4, gw, spacing, width, height);
+    const F = { data, key: order.key, id: order.id };
+    return remember(cache, key, { F, vary: order.vary, out: new Float32Array(n * 4), n, gw });
   }
 
   /**
@@ -118,7 +134,7 @@ export function createStrokeBuilder({ maxCacheEntries = 16 } = {}) {
     return { data: out, n };
   }
 
-  return { build, cacheSize: () => cache.size };
+  return { build, cacheSize: () => cache.size, sortCount: () => sorts };
 }
 
 /** i번 획 → d[o..o+3]. 돌려주는 값 = 그리는 순서 열쇠(float32). 원본 put 그대로 */
