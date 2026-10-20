@@ -32,6 +32,34 @@ describe('oil-renderer: GPU 자원 정리 (검수 2·3)', () => {
     assert.deepEqual(renderer.liveResources(), { programs: 0, textures: 0, framebuffers: 0, buffers: 0, arrays: 0 });
   });
 
+  it('warm (결과 사진 준비): 결과와 같은 대상을 만들고 화소는 읽지 않으며 통계를 건드리지 않는다. 뒤 결과 렌더는 새 자원을 만들지 않는다', () => {
+    const modes = [
+      ['off', {}, 'pixels'], ['gray', {}, 'pixels'], ['gray-oil', {}, 'pixels'],
+      ['thermal', { dither: 'blue-noise', bwStyle: 'tone' }, 'print'], ['thermal', { dither: 'atkinson', bwStyle: 'tone' }, 'print'],
+      ['thermal', { bwStyle: 'texture' }, 'print'], ['thermal', { bwStyle: 'flow' }, 'print'], ['thermal', { bwStyle: 'stroke' }, 'print'],
+    ];
+    for (const [outputMode, over, output] of modes) {
+      const label = `${outputMode} ${JSON.stringify(over)}`;
+      const fake = createFakeWebGL2();
+      let reads = 0;
+      fake.onReadPixels(() => { reads += 1; });
+      const renderer = createOilRenderer({ canvas: fake.canvas });
+      const s = normalizeEffectSettings({ ...config.effect, outputMode, paperDots: 128, ...over }, config.effect).settings;
+      renderer.render({}, { ...small, settings: s, displayWidth: 40, displayHeight: 72 }); // 미리보기 20x36
+      const stats = renderer.getStats();
+      const readsBefore = reads;
+      const result = { settings: s, width: 40, height: 72, seed: 3 };
+      assert.deepEqual(Object.keys(renderer.render(null, { ...result, output: 'warm' })).sort(), ['cpuMs', 'strokes'], label);
+      assert.equal(reads, readsBefore, `${label}: warm reads no pixels`);
+      assert.deepEqual(renderer.getStats(), stats, `${label}: stats`);
+      const prepared = fake.liveCount();
+      renderer.render(null, { ...result, output });
+      assert.deepEqual(fake.liveCount(), prepared, `${label}: no new GPU objects at shutter`);
+      renderer.dispose();
+      assert.deepEqual(fake.liveCount(), ZERO, label);
+    }
+  });
+
   it('셰이더 컴파일이 실패하면 그때까지 만든 프로그램·버퍼·VAO·셰이더를 모두 지우고 예외', () => {
     for (const at of [1, 7, 16]) {
       const fake = createFakeWebGL2();
@@ -118,11 +146,14 @@ describe('촬영 결과·미리보기 경로 (실제 미리보기·렌더러 + �
     });
     let queued = null;
     let time = 10000;
+    const idles = []; // requestIdleCallback 흉내 (flushIdle로 돌린다)
     const preview = createEffectPreview({
       canvas, video: { videoWidth: 54, videoHeight: 96 }, camera: { isReady: () => true }, stageAspect: 9 / 16, mirror: true,
       settings: { ...config.effect, previewScale: 0.25, outputMode: 'off' },
       raf: (fn) => { queued = fn; return 1; }, cancelRaf: () => {}, now: () => time, log: { warn() {}, clear() {} },
+      idle: (fn) => idles.push(fn), cancelIdle: (id) => { idles[id - 1] = null; },
     });
+    const flushIdle = () => { for (let i = 0; i < idles.length; i += 1) { const fn = idles[i]; idles[i] = null; fn?.(); } };
     const run = (frames) => { for (let i = 0; i < frames; i += 1) { time += 1000 / 60; const fn = queued; queued = null; fn?.(); } };
     const canvas2d = () => ({ width: 0, height: 0, getContext: () => ({ putImageData() {}, drawImage() {}, set imageSmoothingQuality(v) {} }) });
     const photo = createPhotoEffect({ preview, createCanvas: canvas2d, createImageData: (p, w, h) => ({ p, w, h }), log: { warn() {}, clear() {} } });
@@ -130,7 +161,7 @@ describe('촬영 결과·미리보기 경로 (실제 미리보기·렌더러 + �
     run(3);
     assert.equal(preview.getState().status, EffectStatus.RUNNING);
     const raw = { ...canvas2d(), width: 1080, height: 1920 };
-    return { fake, preview, photo, run, raw };
+    return { fake, preview, photo, run, raw, flushIdle };
   }
 
   it('결과 화소를 읽기 직전 컨텍스트 손실 → 원본 사진, 상태는 applied가 아님', async () => {
@@ -161,6 +192,37 @@ describe('촬영 결과·미리보기 경로 (실제 미리보기·렌더러 + �
     assert.equal(s.status, EffectStatus.FALLBACK);
     assert.match(s.fault, /GL error 0x502 during preview render/);
     assert.deepEqual(t.fake.liveCount(), ZERO, '버린 렌더러의 자원도 지운다');
+  });
+
+  it('결과 사진 준비 (첫 촬영 멈춤 수정): 대기 중에 결과 크기 대상을 만들어 두면 첫 결과 사진은 새 GPU 자원을 만들지 않는다', async () => {
+    const t = setup();
+    let reads = 0;
+    t.fake.onReadPixels(() => { reads += 1; });
+    const before = t.fake.liveCount();
+    t.flushIdle();
+    const prepared = t.fake.liveCount();
+    assert.ok(prepared.texture > before.texture && prepared.framebuffer > before.framebuffer, '결과 크기 묶음·out');
+    assert.equal(reads, 0, '준비는 화소를 읽지 않는다');
+    assert.equal(t.preview.getState().resultPrepare, 'ready');
+    assert.equal(t.preview.getState().pxScale, 0.25, 'D 화면 통계는 미리보기 그림 그대로');
+    t.run(30);
+    assert.deepEqual(t.fake.liveCount(), prepared, '미리보기가 계속 그려도 결과 묶음은 남는다 (묶음 최근 2개)');
+    assert.notEqual(await t.photo.apply(t.raw), t.raw);
+    assert.equal(t.photo.getStats().last.status, 'applied');
+    assert.deepEqual(t.fake.liveCount(), prepared, '결과 사진은 준비한 것을 쓴다');
+    t.preview.stop();
+    assert.deepEqual(t.fake.liveCount(), ZERO, '준비한 자원도 dispose로 모두 지운다');
+  });
+
+  it('준비 전에 셔터가 눌리면 결과 사진이 그 자리에서 대상을 만든다 (예전과 같다)', async () => {
+    const t = setup();
+    const before = t.fake.liveCount();
+    assert.notEqual(await t.photo.apply(t.raw), t.raw);
+    assert.equal(t.photo.getStats().last.status, 'applied');
+    const after = t.fake.liveCount();
+    assert.ok(after.texture > before.texture);
+    t.flushIdle();
+    assert.deepEqual(t.fake.liveCount(), after, '이미 있으니 다시 준비하지 않는다');
   });
 });
 
@@ -343,11 +405,14 @@ describe('촬영 결과 감열지 경로 (실제 미리보기·렌더러·결과
     });
     let queued = null;
     let time = 10000;
+    const idles = []; // requestIdleCallback 흉내 (flushIdle로 돌린다)
     const preview = createEffectPreview({
       canvas, video: { videoWidth: 54, videoHeight: 96 }, camera: { isReady: () => true }, stageAspect: 9 / 16, mirror: true,
       settings: { ...config.effect, previewScale: 0.25, outputMode: 'thermal', paperDots: 128, bwStyle: 'tone', ...over },
       raf: (fn) => { queued = fn; return 1; }, cancelRaf: () => {}, now: () => time, log: { warn() {}, clear() {} },
+      idle: (fn) => idles.push(fn), cancelIdle: (id) => { idles[id - 1] = null; },
     });
+    const flushIdle = () => { for (let i = 0; i < idles.length; i += 1) { const fn = idles[i]; idles[i] = null; fn?.(); } };
     const run = (frames) => { for (let i = 0; i < frames; i += 1) { time += 1000 / 60; const fn = queued; queued = null; fn?.(); } };
     const photo = createPhotoEffect({
       preview, createCanvas: () => canvas2d(), createImageData: (p, w, h) => ({ p, w, h }), log: { warn() {}, clear() {} },
@@ -564,11 +629,14 @@ describe('촬영 결과 회색조 유화 경로 (실제 미리보기·렌더러�
     const canvas = Object.assign(fake.canvas, { hidden: true, style: {}, addEventListener() {}, removeEventListener() {} });
     let queued = null;
     let time = 10000;
+    const idles = []; // requestIdleCallback 흉내 (flushIdle로 돌린다)
     const preview = createEffectPreview({
       canvas, video: { videoWidth: 54, videoHeight: 96 }, camera: { isReady: () => true }, stageAspect: 9 / 16, mirror: true,
       settings: { ...config.effect, previewScale: 0.25, paperDots: 128, ...over },
       raf: (fn) => { queued = fn; return 1; }, cancelRaf: () => {}, now: () => time, log: { warn() {}, clear() {} },
+      idle: (fn) => idles.push(fn), cancelIdle: (id) => { idles[id - 1] = null; },
     });
+    const flushIdle = () => { for (let i = 0; i < idles.length; i += 1) { const fn = idles[i]; idles[i] = null; fn?.(); } };
     const run = (frames) => { for (let i = 0; i < frames; i += 1) { time += 1000 / 60; const fn = queued; queued = null; fn?.(); } };
     const warnings = [];
     const photo = createPhotoEffect({

@@ -26,7 +26,7 @@ function fakeCanvas() {
   };
 }
 
-function fakeRenderer({ failRender = null } = {}) {
+function fakeRenderer({ failRender = null, failWarm = null } = {}) {
   const calls = [];
   let lost = false;
   return {
@@ -35,6 +35,7 @@ function fakeRenderer({ failRender = null } = {}) {
     lose() { lost = true; },
     render(source, options) {
       if (failRender) throw failRender;
+      if (failWarm && options.output === 'warm') throw failWarm;
       calls.push({ source, ...options });
       return { strokes: 10, cpuMs: 1 };
     },
@@ -52,6 +53,8 @@ function setup({ ready = true, renderer = fakeRenderer(), createRenderer, settin
   const canvas = fakeCanvas();
   const warnings = [];
   let changes = 0;
+  const idles = []; // requestIdleCallback 흉내: 번호 = 순번 + 1, 취소하면 null
+  let lastIdle = 0;
   const preview = createEffectPreview({
     canvas, video, camera, stageAspect: STAGE, mirror: true, settings,
     createRenderer: createRenderer ?? (() => renderer),
@@ -60,10 +63,22 @@ function setup({ ready = true, renderer = fakeRenderer(), createRenderer, settin
     now: () => time,
     log: { warn: (...args) => warnings.push(args.join(' ')), clear: () => {} },
     onChange: () => { changes += 1; },
+    idle: (fn) => idles.push(fn),
+    cancelIdle: (id) => { idles[id - 1] = null; },
   });
   return {
     preview, camera, video, canvas, renderer, warnings,
     changes: () => changes,
+    /** 아직 돌지 않은 idle 호출 수 */
+    pendingIdle: () => idles.slice(lastIdle).filter(Boolean).length,
+    /** 브라우저가 한가해졌다: 기다리던 idle 호출을 돌린다 */
+    flushIdle() {
+      while (lastIdle < idles.length) {
+        const fn = idles[lastIdle];
+        lastIdle += 1;
+        fn?.();
+      }
+    },
     /** ms만큼 지나며 60Hz 화면 갱신을 돌린다 */
     run(ms, step = 1000 / 60) {
       for (let t = 0; t < ms; t += step) {
@@ -296,5 +311,140 @@ describe('createEffectPreview', () => {
     assert.equal(t.canvas.hidden, true);
     assert.equal(t.canvas.listeners.size, 0);
     assert.equal(t.renderer.disposed, true);
+  });
+});
+
+describe('결과 사진 준비 (첫 촬영 멈춤 수정, 로그 2026-10-19-07)', () => {
+  const warms = (renderer) => renderer.calls.filter((c) => c.output === 'warm');
+
+  it('미리보기가 그려진 뒤 한가할 때 결과 크기로 한 번 미리 그린다 (같은 소스·seed·설정, 화소는 읽지 않는 warm)', () => {
+    const t = setup();
+    t.preview.start();
+    t.run(200);
+    assert.equal(warms(t.renderer).length, 0, '그리는 갱신 안에서는 하지 않는다');
+    assert.equal(t.pendingIdle(), 1);
+    assert.equal(t.preview.getState().resultPrepare, 'pending');
+    t.flushIdle();
+    const [warm] = warms(t.renderer);
+    const shown = t.renderer.calls.filter((c) => c.output !== 'warm').at(-1);
+    assert.equal(warm.source, null, '미리보기가 올린 프레임을 다시 쓴다');
+    assert.deepEqual([warm.width, warm.height], [1080, 1920]);
+    assert.equal(warm.seed, shown.seed);
+    assert.equal(warm.settings, shown.settings);
+    assert.deepEqual(warm.sourceScale, shown.sourceScale);
+    const s = t.preview.getState();
+    assert.equal(s.resultPrepare, 'ready');
+    assert.equal(typeof s.prepareMs, 'number');
+    assert.deepEqual([s.resultWidth, s.resultHeight], [1080, 1920]);
+  });
+
+  it('한 번 준비하면 같은 조건으로 다시 하지 않는다 (그림이 바뀌어도, 결과에 영향 없는 설정을 바꿔도)', () => {
+    const t = setup();
+    t.preview.start();
+    t.run(200);
+    t.flushIdle();
+    t.run(1000);
+    t.preview.setSettings({ strength: 0.5, fps: 8, grade: 0.5 });
+    t.run(500);
+    assert.equal(t.pendingIdle(), 0);
+    t.flushIdle();
+    assert.equal(warms(t.renderer).length, 1);
+    t.preview.renderStill();
+    assert.equal(warms(t.renderer).length, 1);
+  });
+
+  it('처리 해상도(미리보기 크기)·용지 폭·출력 모드·붓 크기·boil이 바뀌면 다시 준비한다', () => {
+    const t = setup();
+    t.preview.start();
+    t.run(200);
+    t.flushIdle();
+    let expected = 1;
+    for (const change of [{ previewScale: 0.75 }, { paperDots: 384 }, { outputMode: 'thermal' }, { dither: 'atkinson' }, { bwStyle: 'flow' },
+      { size: 1.5 }, { boil: 0.2 }]) {
+      t.preview.setSettings(change);
+      t.run(100);
+      assert.equal(t.preview.getState().resultPrepare, 'pending', JSON.stringify(change));
+      t.flushIdle();
+      expected += 1;
+      assert.equal(warms(t.renderer).length, expected, JSON.stringify(change));
+      assert.equal(warms(t.renderer).at(-1).settings, t.preview.getSettings());
+    }
+    // 영상 크기가 바뀌어도 결과는 9:16 영역의 짧은 변 1080이라 같은 크기다: 다시 준비하지 않는다
+    t.video.videoWidth = 1920;
+    t.video.videoHeight = 1080;
+    t.run(100);
+    t.flushIdle();
+    assert.equal(warms(t.renderer).length, expected);
+  });
+
+  it('처리 해상도 1이면 결과가 미리보기 대상 묶음을 그대로 쓰므로 준비하지 않는다', () => {
+    const t = setup();
+    t.preview.start();
+    t.preview.setSettings({ previewScale: 1 });
+    t.run(500);
+    t.flushIdle();
+    assert.equal(warms(t.renderer).length, 0);
+    assert.equal(t.preview.getState().resultPrepare, 'same-size');
+  });
+
+  it('컨텍스트를 잃으면 기다리던 준비를 취소하고, 되살아나면 새 렌더러로 다시 준비한다', () => {
+    const renderers = [];
+    const t = setup({ createRenderer: () => { const r = fakeRenderer(); renderers.push(r); return r; } });
+    t.preview.start();
+    t.run(200);
+    t.flushIdle();
+    assert.equal(warms(renderers[0]).length, 1);
+    t.preview.setSettings({ paperDots: 384 });
+    t.run(100);
+    assert.equal(t.pendingIdle(), 1);
+    t.canvas.fire('webglcontextlost');
+    assert.equal(t.pendingIdle(), 0, '잃은 렌더러로 준비하지 않는다');
+    t.flushIdle();
+    assert.equal(warms(renderers[0]).length, 1);
+    t.canvas.fire('webglcontextrestored');
+    t.run(200);
+    t.flushIdle();
+    assert.equal(renderers.length, 2);
+    assert.equal(warms(renderers[1]).length, 1, '같은 설정이어도 새 렌더러는 다시 준비한다');
+    assert.equal(t.preview.getState().resultPrepare, 'ready');
+  });
+
+  it('준비 전에 셔터가 눌리면 결과 렌더가 그 자리에서 그리고(예전과 같다), 그 뒤 준비는 건너뛴다', () => {
+    const t = setup();
+    t.preview.start();
+    t.run(200);
+    assert.equal(t.pendingIdle(), 1);
+    const still = t.preview.renderStill();
+    assert.equal(t.renderer.calls.at(-1).output, 'pixels');
+    assert.equal(still.sameAsPreview, true);
+    assert.deepEqual([still.width, still.height], [1080, 1920]);
+    assert.equal(t.pendingIdle(), 0, '결과를 그렸으니 결과 크기 대상이 이미 있다');
+    t.flushIdle();
+    assert.equal(warms(t.renderer).length, 0);
+    assert.equal(t.preview.getState().resultPrepare, 'ready');
+  });
+
+  it('준비가 실패하면 미리보기는 그대로 두고 알린 뒤 되풀이하지 않는다 (셔터 때 결과 렌더가 다시 만든다)', () => {
+    const renderer = fakeRenderer({ failWarm: new EffectError(EffectFault.RENDER_FAILED, 'GL error 0x505 during result prepare') });
+    const t = setup({ renderer });
+    t.preview.start();
+    t.run(200);
+    t.flushIdle();
+    assert.equal(t.preview.getState().status, EffectStatus.RUNNING);
+    assert.equal(renderer.disposed, undefined);
+    assert.equal(t.warnings.length, 1);
+    assert.match(t.warnings[0], /effect-prepare result prepare failed -> made at shutter \(render-failed: GL error 0x505/);
+    t.run(500);
+    t.flushIdle();
+    assert.equal(t.warnings.length, 1);
+    assert.equal(t.preview.renderStill().width, 1080);
+  });
+
+  it('stop하면 기다리던 준비를 취소한다', () => {
+    const t = setup();
+    t.preview.start();
+    t.run(200);
+    t.preview.stop();
+    assert.equal(t.pendingIdle(), 0);
   });
 });

@@ -596,7 +596,8 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
    *   output: 'canvas'(화면 캔버스, 크기를 맞춘다), 'pixels'(화면 밖에 그려 RGBA 화소를 위 줄부터 돌려준다.
    *   화면 캔버스는 건드리지 않는다. 결과 사진용, 출력 모드 off·gray·gray-oil. gray-oil이면 인쇄용 gray·mask도. 인쇄 단계만 실패하면
    *   gray·mask 대신 printError), 'print'(감열지 결과 사진용: 인쇄 해상도의
-   *   gray·mask를 위 줄부터 돌려준다. 화면 캔버스는 건드리지 않는다)
+   *   gray·mask를 위 줄부터 돌려준다. 화면 캔버스는 건드리지 않는다), 'warm'(결과 사진 준비: 'pixels'·'print'와 같은 대상·패스를
+   *   결과 크기로 한 번 쓰고 화소는 읽지 않는다. 미리보기 대기 중에 부른다. 화면 캔버스·D 화면 통계는 건드리지 않는다)
    *   출력 단계는 settings의 outputMode·dither·brightness·contrast·gamma·paperDots를 따른다 (outputMode가 없으면 'off')
    *   displayWidth·displayHeight: 감열지 화면 캔버스 크기 (기본값은 그리는 해상도. 미리보기는 결과 크기를 넘긴다)
    * @returns {{ strokes: number, cpuMs: number, pixels?: Uint8ClampedArray,
@@ -610,7 +611,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
     if (gl.isContextLost()) throw new EffectError(EffectFault.CONTEXT_LOST, 'context is lost');
     const t0 = performance.now();
     const mode = settings.outputMode ?? 'off';
-    if ((output === 'print') !== (mode === 'thermal') && output !== 'canvas') {
+    if ((output === 'print') !== (mode === 'thermal') && output !== 'canvas' && output !== 'warm') {
       throw new Error(`output ${output} does not fit outputMode ${mode} (thermal -> print, off/gray/gray-oil -> pixels)`);
     }
     useTargets(width, height);
@@ -651,7 +652,13 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
       const outputUniforms = { uGray: mode === 'gray' || mode === 'gray-oil' ? 1 : 0, ...levelUniforms(settings) };
       if (mode === 'thermal') {
         thermal = thermalStage(settings, D, output, displayWidth, displayHeight);
-        checkGl(output === 'canvas' ? 'preview render' : 'photo render'); // 화소 읽기까지 끝난 뒤
+        checkGl({ canvas: 'preview render', warm: 'result prepare' }[output] ?? 'photo render'); // 화소 읽기까지 끝난 뒤
+      } else if (output === 'warm') {
+        // 결과 사진 준비 (첫 촬영 멈춤 수정): 결과 크기 대상 묶음·out·획 목록·셰이더를 셔터 전에 한 번 쓴다. 화소는 읽지 않는다
+        if (!T.out) T.out = tex(width, height, { nearest: true });
+        pass(PR.output, T.out, { uImage: T.composed }, { uFlipY: 1, ...outputUniforms });
+        if (mode === 'gray-oil') thermalStage({ ...settings, bwStyle: 'tone' }, D, 'warm', width, height);
+        checkGl('result prepare');
       } else if (output === 'pixels') {
         if (!T.out) T.out = tex(width, height, { nearest: true });
         pass(PR.output, T.out, { uImage: T.composed }, { uFlipY: 1, ...outputUniforms });
@@ -693,6 +700,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
         readMs: thermal?.readMs ?? null, ditherMs: thermal?.ditherMs ?? null,
       });
     }
+    if (output === 'warm') return { strokes: count, cpuMs };
     if (thermal && output !== 'canvas') {
       const { gray, mask, thr, printWidth, printHeight } = thermal;
       return { strokes: count, cpuMs, pixels, gray, mask, thr, printWidth, printHeight };

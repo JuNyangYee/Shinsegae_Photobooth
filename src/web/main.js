@@ -308,6 +308,12 @@ function effectDevLines() {
   const e = effect.getState();
   const ms = (value) => (value === null ? '-' : `${value.toFixed(1)}ms`);
   const losses = e.contextLosses ? `, context lost ${e.contextLosses}x` : '';
+  // 결과 사진 준비 (첫 촬영 멈춤 수정): 처리 해상도가 1이 아니면 대기 중에 결과 크기로 미리 한 번 그린다
+  const resultSize = `${e.resultWidth}x${e.resultHeight}`;
+  const prepare = {
+    'same-size': 'same targets as preview', ready: `${resultSize} ready${e.prepareMs === null ? '' : ` (${ms(e.prepareMs)})`}`,
+    pending: `${resultSize} preparing`,
+  }[e.resultPrepare] ?? '-';
   const t = effectTunables(effect.getSettings());
   const values = `  values   : strength ${t.strength} size ${t.size} boil ${t.boil} fps ${t.fps} grade ${t.grade}`
     + ` refine ${t.refineThreshold ?? '-'} scale ${t.previewScale} | output ${t.outputMode} ${t.dither} paper ${t.paperDots}`
@@ -350,7 +356,7 @@ function effectDevLines() {
     `effect     : ${e.status}${e.shown ? '' : ' (hidden)'}, ${e.width}x${e.height} (preview x${e.previewScale}, px scale ${e.pxScale.toFixed(3)}),`
       + ` fps ${e.fps} -> ${e.drawingsPerSecond} drawings/s, boil ${e.boil}, seed ${e.seed ?? '-'}${losses}`,
     `  time     : cpu ${ms(e.cpuMs)} (avg ${ms(e.cpuAvgMs)}), gpu ${e.gpuTimer ? ms(e.gpuMs) : 'n/a'},`
-      + ` strokes ${e.strokes}, ${e.renderer || '-'}`,
+      + ` strokes ${e.strokes}, ${e.renderer || '-'}, result ${prepare}`,
     `  output   : ${output}`,
     values,
     photoLine,
