@@ -405,7 +405,9 @@ async function withAutoPaused(app, run) {
  */
 async function previewScaleOne(app) {
   await app.slide('previewScale', 1);
-  await app.waitFor('preview x1', async () => /\(preview x1,/.test((await app.dev()).get('effect') ?? ''), 5000);
+  // 설정 값(x1)만이 아니라 실제로 1080x1920으로 그린 뒤까지 기다린다. 설정은 바로 보이고 그림은 다음 화면 갱신에 바뀌어, 그 사이에
+  // 캔버스 크기를 읽으면 540x960이었다(실제 카메라 1회, 첫 촬영 멈춤 수정 때)
+  await app.waitFor('preview x1 drawn', async () => /^running, 1080x1920 \(preview x1,/.test((await app.dev()).get('effect') ?? ''), 5000);
 }
 
 /**
@@ -608,7 +610,10 @@ async function runScenarios(app, origin) {
     return `${dev.get('capture')?.split(',')[0]}; result image ${image}; ${dev.get('resources')}`;
   });
 
-  await scenario('사진 효과 미리보기: 캔버스 표시, 기본값 540x960·초당 그림 12, 초당 그림 = fps, 컨텍스트 손실 → 원본 미리보기 → 복구', async () => {
+  // 결과 사진 준비 (첫 촬영 멈춤 수정): 처리 해상도가 1이 아니면 대기 중에 결과 크기로 한 번 미리 그린다. D time 줄의 `result … ready (ms)`
+  const resultReady = (label) => app.waitFor(label, async () => /result 1080x1920 ready(?: \(([\d.]+)ms\))?$/.exec(subLine(await app.devText(), 'time'))?.[0], 5000);
+
+  await scenario('사진 효과 미리보기: 캔버스 표시, 기본값 540x960·초당 그림 12, 초당 그림 = fps, 결과 크기 미리 준비, 컨텍스트 손실 → 원본 미리보기 → 복구 → 다시 준비', async () => {
     const line = await app.waitFor('effect running', async () => {
       const value = (await app.dev()).get('effect') ?? '';
       return /^running, \d+x\d+/.test(value) ? value : null;
@@ -619,6 +624,7 @@ async function runScenarios(app, origin) {
     expect(m && Math.abs(Number(m[2]) - Number(m[1])) <= 1, `drawings/s: ${running}`);
     // 조절값 파일이 없으면 기본값: 처리 해상도 0.5 → 540x960, 초당 그림 12 (사용자 결정 2026-10-19)
     expect(/^running, 540x960 \(preview x0\.5,/.test(running) && m[1] === '12', `defaults: ${running}`);
+    const ready = await resultReady('result prepared');
     const layout = await app.evaluate(`(() => { const c = document.getElementById('effect'), v = document.getElementById('preview');
       const box = (e) => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map(Math.round).join(','); };
       return { hidden: c.hidden, canvas: box(c), video: box(v), canvasTransform: getComputedStyle(c).transform, videoMirrored: v.classList.contains('is-mirrored') }; })()`);
@@ -636,7 +642,8 @@ async function runScenarios(app, origin) {
       return /^running, .*context lost 1x/.test(value) ? value : null;
     }, 8000);
     expect(!(await app.evaluate("document.getElementById('effect').hidden")), 'canvas hidden after restore');
-    return `${line.split(', fps')[0]}; ${m[2]} drawings/s at fps ${m[1]}; context lost → camera preview → restored`;
+    const readyAgain = await resultReady('result prepared after restore');
+    return `${line.split(', fps')[0]}; ${m[2]} drawings/s at fps ${m[1]}; ${ready}; context lost → camera preview → restored → ${readyAgain}`;
   });
 
   await scenario('촬영 결과(회색조 유화 기본값): 1080x1920 JPEG = 셔터 순간 미리보기 그림(540x960, 같은 영역 블록 비교), 미리보기·결과 무채색, 인쇄 데이터 576x1024 1비트(블루 노이즈, GPU = CPU), 결과 폭 1/2', async () => withAutoPaused(app, async () => {
