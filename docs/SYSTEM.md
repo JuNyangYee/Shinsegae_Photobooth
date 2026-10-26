@@ -142,7 +142,7 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 
 ### 브라우저 확인 도구
 
-`tools/browser-check.mjs` (`npm run check:browser`): 개발 PC에서 실제 앱을 headless Chrome으로 띄워 시나리오 16개를 확인한다(한 번에 약 4분). Windows, Chrome, Node 22 이상, 설치 필요 없음.
+`tools/browser-check.mjs` (`npm run check:browser`): 개발 PC에서 실제 앱을 headless Chrome으로 띄워 시나리오 17개를 확인한다(한 번에 약 6분). Windows, Chrome, Node 22 이상, 설치 필요 없음.
 
 ```powershell
 npm run check:browser                              # 가짜 카메라
@@ -156,7 +156,7 @@ npm run check:browser -- --soak 60 --camera real   # 분 지정
 - **정리:** 어떤 끝이든 자신이 띄운 Chrome·서버·임시 프로필만 정리한다(`--keep-profile`이면 프로필을 남김). 사진을 저장하지 않는다. 결과 표를 출력하고 하나라도 실패하면 종료 코드 1.
 - **조절값 파일:** 시작할 때 `config/*.local.json`을 바이트 그대로(또는 "없음") 백업하고, 시나리오 뒤와 마지막에 **파일 시스템으로 직접** 되돌린다(없던 파일·빈 `config/`는 지운다). 그사이 몇 초 시험 값이 들어 있으므로 **현장 키오스크가 같은 저장소에서 도는 PC에서는 실행하지 않는다.**
 - **CDP:** 요청마다 제한 시간 15초. 연결이 끊기면 모든 요청이 바로 실패해 몇 초 안에 끝나고 정리한다(`browser-check-lib.mjs`).
-- **시나리오:** 페이지 로드(서체 포함) · `S` 한 사이클과 자원 정리 · 조절값 API · 감지기 생성 실패 정리 · 권한 거절 → 허용 · 모델 차단 · 효과 미리보기(기본값, 결과 사진 준비, 컨텍스트 손실·복구) · 회색조 유화 기본 촬영(결과 = 셔터 직전 그림, 무채색, 인쇄 576×1024 1비트, 출력물 폭 1/2) · 출력 모드 전환 · 흑백 스타일 4가지 · 흑백 스타일 GPU = CPU · GPU 디더 = CPU·1비트 PNG · 효과 WebGL2 생성 실패 · `E` 저장 유지 · 결과 효과 렌더 실패 · 외부 요청·CSP 위반·예외 0. 확인 값은 `tools/browser-check.mjs`에 있다. 화소 일치 시나리오는 `E`에서 처리 해상도를 1로 두고 실제 `1080x1920`으로 그린 뒤 시작한다.
+- **시나리오:** 페이지 로드(서체 포함) · `S` 한 사이클과 자원 정리 · 조절값 API · 감지기 생성 실패 정리 · 권한 거절 → 허용 · 모델 차단 · 효과 미리보기(기본값, 결과 사진 준비, 컨텍스트 손실·복구) · 회색조 유화 기본 촬영(결과 = 셔터 직전 그림, 무채색, 인쇄 576×1024 1비트, 출력물 폭 1/2) · 출력 모드 전환 · 흑백 스타일 4가지 · 흑백 스타일 GPU = CPU · GPU 디더 = CPU·1비트 PNG · 효과 WebGL2 생성 실패 · `E` 저장 유지 · 좌우 반전 켬·끔(`<video>` CSS, 효과 미리보기·결과 사진 방향, 인식 다시 재기·얼굴이 보이면 화면 x가 `1 - x`로, 저장 유지) · 결과 효과 렌더 실패 · 외부 요청·CSP 위반·예외 0. 확인 값은 `tools/browser-check.mjs`에 있다. 좌우 방향은 효과 그림·결과 사진·같은 순간의 영상을 페이지 안에서 18×32 밝기 격자로 줄여 비대칭 성분(`g - flip(g)`)의 상관 부호로 본다(같은 방향 +, 거울 −, 기준 ±0.3. 가짜 카메라 화면은 거의 좌우 대칭이라 그냥 상관으로는 갈리지 않는다). 페이지 로드 줄에 쓰인 카메라 라벨이 나온다. 화소 일치 시나리오는 `E`에서 처리 해상도를 1로 두고 실제 `1080x1920`으로 그린 뒤 시작한다.
 - **범위 밖:** 가짜 카메라에 얼굴이 없어 자동 시작·이탈 취소·인식 중 `P`는 확인하지 않는다(Node 테스트 `test/core/auto-start.test.mjs`·`test/vision/presence-monitor.test.mjs`와 사람 실측). 키오스크, OBS 시작·중지, 절전 복귀, 4K도 범위 밖. `S` 사이클은 `P`를 켜고 돌려 실제 카메라 앞에 사람이 있어도 된다.
 - **장시간 실측:** `--interval`(기본 20초)마다 대기면 `S`. 1분마다 CSV에 JS 힙·DOM 노드·리스너·문서 수(`Performance.getMetrics`), D 화면 값, 이 프로필 `chrome.exe` 메모리(`PrivatePageCount`·`WorkingSetSize` 합), 콘솔·예외 수. 끝나면 항목별 통계와 시간당 기울기(처음 5분 제외 포함). 통과: 모든 기록에서 카메라 `ready`·감지기 `ok`, `S` 직전마다 사진 자원 0·`taken = released`, 측정값을 모두 읽음, 외부 요청·CSP 위반·예외 0, 완료 1회 이상.
 
@@ -251,7 +251,19 @@ npm run check:browser -- --soak 60 --camera real   # 분 지정
 
 ### 좌우 반전
 
-- 미리보기와 결과 모두 반전한다(확정). 반전은 **웹에서만**(OBS에서 하지 않음, 이중 반전 방지), 경로마다 한 번: `<video>`는 `.preview.is-mirrored { transform: scaleX(-1) }`, 효과는 입력을 읽을 때(효과 캔버스에 CSS 반전 없음, 획이 좌우 대칭이 아니므로 반전된 그림에 칠한다), 캡처는 `capture.js`. 모두 `config.mirror`. 보이는 영역과 캡처 영역이 일치한다.
+- 기본은 미리보기와 결과 모두 반전(켬)이고, 운영자가 `E` 화면 "카메라"의 **좌우 반전**(켬·끔)으로 바꿀 수 있다(현장 카메라 배치·OBS 설정에 따라 필요 없을 수 있다). 값은 효과 조절값의 `mirror` **한 곳**(기본값 `config.effect.mirror` `true`, 저장은 `config/effect.local.json`, 6절 "운영자 조절 화면 `E`")이고, 효과를 끄거나(`enabled: false`) 쓸 수 없어도 이 값을 따른다.
+- 반전은 **웹에서만**(OBS에서 하지 않음, 이중 반전 방지), 경로마다 한 번:
+
+| 경로 | 반전하는 곳 | 값을 읽는 때 |
+|---|---|---|
+| 효과 미리보기 | 입력을 읽을 때(`computeEffectView`의 소스 uv). 효과 캔버스에는 CSS 반전 없음. 획이 좌우 대칭이 아니므로 반전된 그림에 칠한다 | 설정이 바뀌면 다음 화면 갱신에 다시 그린다 |
+| 원본 미리보기(`<video>`, 효과 끔·장애) | `.preview.is-mirrored { transform: scaleX(-1) }` | `main.js` `applyMirror()`가 효과 설정이 바뀔 때마다 맞춘다 |
+| 촬영 결과·인쇄용 1비트 | 효과 결과는 `renderStill`이 그림의 소스 uv로, 원본 대체 사진은 `capture.js`가 캔버스에(`translate` + `scale(-1, 1)`). 인쇄 데이터는 결과 그림에서 만든다 | **셔터 순간**(프레임을 잡는 순간, `getMirror()`) |
+| 인식 판정·D 겹쳐 그리기 | 영상 좌표 → 화면 좌표 변환(`videoBoxToStage`, `x' = 1 - x - width`) | `presence-monitor.js` `setMirror()`, 다음 감지부터 |
+
+- **바꾸는 순간:** 미리보기·`<video>`·인식 좌표는 바로 바뀐다. 인식 영역이 관람객 화면 기준이라 같은 얼굴이 영역의 반대쪽에 오므로, 인식 상태는 기준을 바꿀 때와 같이 처음부터 다시 잰다(바뀌는 순간 "인식 안됨", 얼굴 박스도 지움, D `criteria resets` +1). 그래서 인식으로 시작한 카운트다운은 "떠남"으로 취소되고(`left during countdown`), `E`가 열려 있는 동안은 다시 시작하지 않는다. `S` 수동 카운트다운은 그대로 이어지고 셔터 순간의 값으로 찍는다. 이미 보이는 결과 사진은 다시 만들지 않는다(그 셔터 순간의 값으로 만든 사진이다).
+- **미리보기 = 결과:** 셔터 직전 그림을 그린 뒤 반전이 바뀌었으면(다음 화면 갱신 전, 길어야 한 화면 갱신) 결과는 그 그림을 쓰지 않고 지금 프레임·지금 설정으로 새로 그린다(D `photo-fx` `new drawing`). 효과 결과와 원본 대체 사진이 같은 순간의 값을 읽으므로 방향이 어긋나지 않는다.
+- 보이는 영역과 캡처 영역이 일치한다. D 카메라 구역 `mirror`(`on`·`off`), `capture`의 `mirrored`, `values`의 `mirror`.
 
 ### 권한과 보안 컨텍스트
 
@@ -347,7 +359,7 @@ npm run check:browser -- --soak 60 --camera real   # 분 지정
 
 - **모양:** 차콜 반투명 패널(`--op-bg`), 1px 선, Pretendard 500·400, 숫자는 고정폭 오른쪽 정렬, 채도 낮은 상태 색은 점·글자·왼쪽 선에만, `color-scheme: dark`, 움직임·블러 없음(미리보기 성능). 크기는 `--op-size`(D는 `--op-dev-size`, 둘 다 `clamp(…vmin…)`)에 `em`으로 맞춰 해상도와 관계없이 같은 비율이고, 영역 안 요소는 `cqw`.
 - **패널 (`.op-panel`):** 머리(제목, "R·Esc 닫기 · 저장하지 않은 변경은 닫을 때 취소", `위·아래`(`data-action="dock"`)·`닫기`) / 실시간 줄(`[data-live]`, `R` 인식 상태·감지·인정 수, `E` 미리보기 해상도·초당 그림·그리기 시간·인쇄 해상도·점 방식) / 넘기는 몸통(묶음 `fieldset.op-group`, 줄 `.op-row` = 이름·도움말 · 조작 · 값·단위) / 늘 보이는 아래(저장 상태 `[data-state]`·패널 `data-save`, 저장·취소·기본값, 알림 `[data-message]`).
-- **묶음:** `E` = 효과(강도·붓 크기·획 다시 그리기·색 보정·세부 보존 문턱) / 출력 단계(출력 모드·점 방식·용지 폭·밝기·대비·감마·흑백 스타일·질감 세기·선 간격) / 미리보기(초당 그림·처리 해상도). `R` = 영역 / 얼굴 크기(가이드 색 견본) / 신뢰도 / 고급: 판정 시간(접힘) / 현재값 JSON(접힘). 쓰지 않는 항목은 흐리게 막힌다.
+- **묶음:** `E` = 효과(강도·붓 크기·획 다시 그리기·색 보정·세부 보존 문턱) / 출력 단계(출력 모드·점 방식·용지 폭·밝기·대비·감마·흑백 스타일·질감 세기·선 간격) / 미리보기(초당 그림·처리 해상도) / 카메라(좌우 반전). `R` = 영역 / 얼굴 크기(가이드 색 견본) / 신뢰도 / 고급: 판정 시간(접힘) / 현재값 JSON(접힘). 쓰지 않는 항목은 흐리게 막힌다.
 - **저장 상태 (`ui/save-state.js`, 문구 가안):** 바꾸는 중 `dirty`(저장 안 된 변경, 닫으면 취소)·`saving`·`failed`(파일은 이전 값, 다시 바꾸거나 저장 성공 때 풀림). 바꾸지 않았으면 불러온 결과: `saved`(파일에서 읽음·옮김·이번에 저장), `defaults`(파일 없음), `load-failed`(읽기 실패·시간 초과·형식 오류), `adjusted`(파일 값을 고쳐 씀·옮기지 못함 → 저장 필요). 저장할 것이 없으면 저장 버튼이 차분해진다(누를 수는 있다).
 - **위치:** 세로 화면은 아래(기본)·위, 높이 `50vh`까지(얼굴이 있는 위쪽 절반을 가리지 않음). 9:16 옆 빈 폭에 26em이 들어가면 옆(기본 오른쪽, `위·아래`로 왼쪽). `main.js` `updateOperatorRoom`이 창 크기마다 재서 루트에 `.op-side-room`(1920×1080은 옆, 1200×1080은 아래·위).
 - **선택자** `#effect-panel`·`#tuning-panel`, `input`·`select[data-key]`, `button[data-action]`, `[data-live]`·`[data-state]`·`[data-message]`·`[data-json]`·`[data-region-text]`는 확인 도구·테스트가 쓰므로 바꾸지 않는다.
@@ -404,14 +416,14 @@ camera-monitor (ready·페이지 보임) ──▶ presence-monitor 감지 루�
 
 **판정 (`presence.js`)**
 
-- 모든 판정·영역·겹쳐 그리기는 **화면 좌표**(9:16 영역 기준 0~1, cover 크롭·반전 후)다. 영상이 9:16보다 넓으면 가운데 세로 띠(폭 `(9/16) / 영상 비율`), 좁으면 가로 띠만 보이고, `config.mirror`면 `x' = 1 - x - width`. 잘려 안 보이는 얼굴은 제외된다.
+- 모든 판정·영역·겹쳐 그리기는 **화면 좌표**(9:16 영역 기준 0~1, cover 크롭·반전 후)다. 영상이 9:16보다 넓으면 가운데 세로 띠(폭 `(9/16) / 영상 비율`), 좁으면 가로 띠만 보이고, 좌우 반전이 켜져 있으면(3절) `x' = 1 - x - width`. 잘려 안 보이는 얼굴은 제외된다.
 - 얼굴 인정(경계 포함): 박스 중심이 `region` 안, 박스 높이(영역 높이 대비)가 `minFaceHeight` 이상·`maxFaceHeight` 이하(큰 오검출 박스를 거른다), 점수 `minScore` 이상. 인정 얼굴이 1명 이상이면 그 프레임은 "있음".
 - 처음은 인식 안됨. "있음"이 `presentHoldMs` 동안 끊기지 않으면 인식됨, "없음"이 `absentGraceMs` 동안이면 인식 안됨. 반대 프레임이 하나라도 나오면 처음부터. 감지 프레임이 올 때만 판정한다(15fps면 최대 약 67ms 늦음).
 
 **감지 루프 (`presence-monitor.js`)**
 
 - 카메라 `ready`·페이지 보임·영상 크기 0 아님일 때만 돌고, 아니면 `paused`로 멈추고 인식 안됨으로 되돌린다.
-- 누적 프레임 수가 그대로면 감지를 건너뛴다(D `faces` `same-frame skips`). 판정 기준이 `setSettings()`로 바뀌면 인식 상태를 처음으로 돌리고 바로 "인식 안됨"을 알린다(값이 같으면 그대로, D `criteria resets`).
+- 누적 프레임 수가 그대로면 감지를 건너뛴다(D `faces` `same-frame skips`). 판정 기준이 `setSettings()`로, 좌우 반전이 `setMirror()`로 바뀌면 인식 상태를 처음으로 돌리고 바로 "인식 안됨"을 알린다(값이 같으면 그대로, D `criteria resets`).
 - 입력은 긴 변 `inputMaxSize`(640) 이하(OBS 1080×1920 → 360×640). 간격은 `1000 / maxFps`에서 처리 시간을 뺀 값, `detectForVideo` 타임스탬프는 `max(performance.now(), 직전 + 1)`.
 - 실패한 프레임은 "없음". 15번 연속 실패(약 1초)면 감지기를 버린다. 시계·타이머·document를 주입할 수 있다(테스트용).
 - 상태(`DetectorStatus`): `loading`, `running`, `paused`, `error`(감지기 없음). 인식 알림은 감지 한 번 안에서 나가므로 그 안에서 읽어도 `running`이다.
@@ -524,12 +536,12 @@ const detector = await FaceDetector.createFromOptions(fileset, {
 `camera/capture.js`의 `createCapture().take()`:
 
 0. **확인:** 이전 작업이 남아 있으면 `capture busy`, 마지막 새 프레임이 `config.capture.maxFrameAgeMs`(500ms, 가안)보다 오래면 `stale frame`으로 캔버스를 만들기 전에 실패.
-1. **프레임 잡기(동기):** 미리보기와 같은 cover 계산(`computeCoverMapping` → `computeCaptureCrop`)으로 보이는 9:16 영역을 원본 화소 그대로 반전(`translate` + `scale(-1, 1)`)해 그린다(OBS 1080×1920 → 1080×1920, 2160×3840 → 그대로, 가로 1920×1080 → 608×1080). 캔버스 생성 뒤 어디서 실패해도 비우고 실패.
+1. **프레임 잡기(동기):** 미리보기와 같은 cover 계산(`computeCoverMapping` → `computeCaptureCrop`)으로 보이는 9:16 영역을 원본 화소 그대로, 좌우 반전이 켜져 있으면(셔터 순간 `getMirror()`, 3절) 반전(`translate` + `scale(-1, 1)`)해 그린다(OBS 1080×1920 → 1080×1920, 2160×3840 → 그대로, 가로 1920×1080 → 608×1080). 캔버스 생성 뒤 어디서 실패해도 비우고 실패.
 2. **사진 효과:** `effect(canvas, { signal })` 경계에 `photo-effect.js`의 `apply`. 셔터 순간 미리보기와 같은 그림을 결과 크기로 새 캔버스에 그린다. `{ canvas, type?, print, dots? }`를 돌려주면 그 형식으로 인코딩하고 사진 `{ url, width, height, print, dots }`에 인쇄 데이터를 붙인다(`dots` = 1비트 점 사진, 결과 출력물 폭을 고른다).
 3. **인코딩:** `canvas.toBlob()`, 기본 `config.capture` `image/jpeg` 품질 0.92(가안). 감열지는 `image/png`.
 4. **정리:** 성공·실패·취소 모두 캔버스 크기를 0으로. 결과는 `URL.createObjectURL(blob)`로만 들고 `release(photo)`가 `revokeObjectURL`과 인쇄 데이터 해제를 한 번만 한다. `release`는 결과 종료·강제 초기화·늦은 결과 폐기 때 불린다.
 
-- D `capture`(캡처·원본 크기, 잘라낸 위치, 형식·용량, 시간)·`resources`(Object URL·캔버스·인쇄 데이터 수 — 대기 상태에서 0).
+- D `capture`(캡처·원본 크기, 잘라낸 위치·반전했으면 `mirrored`, 형식·용량, 시간)·`resources`(Object URL·캔버스·인쇄 데이터 수 — 대기 상태에서 0).
 
 ### 사진 효과(유화 · 획)
 
@@ -580,7 +592,7 @@ const detector = await FaceDetector.createFromOptions(fileset, {
 
 **실시간 미리보기** (`effect/effect-preview.js`)
 
-- `<video>`는 감지·캡처·카메라 감시가 계속 쓰고, 그 바로 뒤의 `#effect`가 덮는다(결과·카운트다운·D·조절 화면은 그 위). 첫 패스가 보이는 영역(`computeCoverMapping`)을 `config.mirror`로 반전해 읽는다.
+- `<video>`는 감지·캡처·카메라 감시가 계속 쓰고, 그 바로 뒤의 `#effect`가 덮는다(결과·카운트다운·D·조절 화면은 그 위). 첫 패스가 보이는 영역(`computeCoverMapping`)을 효과 설정 `mirror`가 켜져 있으면 반전해 읽는다(3절 "좌우 반전").
 - 그리는 해상도 = 결과 크기(`resultSizeFor`, 보이는 영역을 짧은 변 1080으로) × `previewScale`. OBS 1080×1920·4K·가짜 카메라 2160×2160 모두 결과 1080×1920, 기본 540×960. CSS로 늘려 보인다.
 - 카메라가 준비되지 않거나 끊기면 그리지 않고 숨긴다(멈춘 그림이 남지 않게). 결과 표시 중에도 그린다.
 
@@ -595,17 +607,17 @@ const detector = await FaceDetector.createFromOptions(fileset, {
 
 **결과 사진** (`photo-effect.js`, `effect-preview.js` `renderStill`)
 
-- **셔터 순간 미리보기와 같은 그림:** 같은 프레임(마지막으로 올린 소스 텍스처를 그대로, `render(null, …)`)·tick·seed·설정으로 결과 크기에 화면 밖으로 다시 그린다. 캡처한 작업의 마이크로태스크에서 동기로 끝까지 그리고, 미리보기는 `requestAnimationFrame`에서만 프레임을 올리므로 끼어들 수 없다. 처리 해상도 1이면 같은 묶음이라 화소까지 같고(JPEG 전), 아니면 같은 구성을 1080으로 다시 그린 것이다. 보이는 그림이 없거나 영상 크기가 바뀌었으면 지금 프레임으로 새로 그린다(D `new drawing`). `out`을 `readPixels`로 읽어 2D 캔버스에 넣고 나머지는 캡처 순서를 따른다.
+- **셔터 순간 미리보기와 같은 그림:** 같은 프레임(마지막으로 올린 소스 텍스처를 그대로, `render(null, …)`)·tick·seed·설정으로 결과 크기에 화면 밖으로 다시 그린다. 캡처한 작업의 마이크로태스크에서 동기로 끝까지 그리고, 미리보기는 `requestAnimationFrame`에서만 프레임을 올리므로 끼어들 수 없다. 처리 해상도 1이면 같은 묶음이라 화소까지 같고(JPEG 전), 아니면 같은 구성을 1080으로 다시 그린 것이다. 보이는 그림이 없거나 영상 크기·좌우 반전이 바뀌었으면 지금 프레임으로 새로 그린다(D `new drawing`). `out`을 `readPixels`로 읽어 2D 캔버스에 넣고 나머지는 캡처 순서를 따른다.
 - **결과 사진 준비:** 처리 해상도가 1이 아니면, 미리보기가 그린 뒤 `requestIdleCallback`(최대 2초, 가안)으로 마지막 그림을 결과 크기로 한 번 그린다(렌더러 `output: 'warm'`: 결과와 같은 대상·패스·획 목록, 감열지면 흑백 스타일 대상·인쇄 대상·문턱 지도, 회색조 유화면 인쇄 경로. 화소를 읽지 않고 화면·D 통계를 건드리지 않음). 안 하면 첫 촬영 때 만들어 셔터 순간 화면이 한 번 멈춘다([로그 07](logs/2026-10-19-07-saved-defaults.md)). 결과·미리보기 크기, 출력 모드·용지 폭·점 방식·흑백 스타일, 붓 크기·boil이 바뀌거나 렌더러를 새로 만들면 다시 준비하고, 손실·실패·`stop` 때 기다리던 준비를 취소한다. 준비 전 셔터는 그 자리에서 만들고(그 뒤 준비는 건너뜀), 준비 실패는 경고(`effect-prepare`)만 하고 되풀이하지 않는다. 처리 해상도 1이면 준비하지 않는다. 준비하면 GPU 메모리가 결과 묶음 하나만큼 는다.
 - **효과를 그리지 못하면 원본 사진으로 대신한다**(결과 크기로 줄이고 모드의 출력 단계를 CPU로, 아래 각 모드). 촬영 실패로 처리하지 않는다 — 관람객은 이미 찍혔고 다시 찍을 방법이 없다. 경고(`effect-capture`)와 D `photo-fx` `RAW PHOTO … (원인)`. 원인 예: `not-running`(미리보기 장애·손실 중), 화소 읽기 실패, 읽은 뒤 `render-failed: GL error …`·`context-lost: …`(읽은 화소를 쓰지 않음), 2D 캔버스 실패.
 - **D `photo-fx`:** `applied [모드] 크기 [점 방식] seed … tick … (same drawing as preview[, gpu=cpu]), render ms, total ms` 또는 `RAW PHOTO …`, 누적 수. **`print`:** 마지막 인쇄 데이터, 없으면 `none (원인)`.
 
 **운영자 조절 화면 `E`** (`ui/effect-tuning.js`)
 
-- 효과 7개(강도, 붓 크기, 획 다시 그리기, 초당 그림, 색 보정, 세부 보존 문턱, 처리 해상도), 출력 단계(출력 모드·점 방식·용지 폭 선택, 밝기·대비·감마 슬라이더), 흑백 스타일(스타일·질감 세기·선 간격). 범위는 원본 갤러리 슬라이더와 같다.
+- 효과 7개(강도, 붓 크기, 획 다시 그리기, 초당 그림, 색 보정, 세부 보존 문턱, 처리 해상도), 출력 단계(출력 모드·점 방식·용지 폭 선택, 밝기·대비·감마 슬라이더), 흑백 스타일(스타일·질감 세기·선 간격), 카메라(좌우 반전 켬·끔 선택, 기본 켬, 3절). 범위는 원본 갤러리 슬라이더와 같다. 좌우 반전은 효과 값이 아니지만 운영자가 한 화면에서 고르고 같은 파일·같은 저장 규칙을 쓰도록 여기에 둔다(새 파일·API를 만들지 않음).
 - 출력 모드 첫 선택지는 회색조 유화. 감열지가 아니면 흑백 스타일을, 회색조·끔이면 점 방식·용지 폭도, 끔이면 레벨도 막는다(회색조 유화에서 점 방식·용지 폭은 인쇄 데이터용으로 열림). 질감 세기는 톤 점에서, 선 간격은 선 스타일이 아니면 막힌다.
 - 즉시 반영. 저장·취소·기본값·저장 없이 닫으면 되돌리기·저장 중 닫기는 `R`과 같은 규칙이고, 열려 있는 동안 자동 촬영을 막는다.
-- **파일** `config/effect.local.json`: `{ "version": 1, "settings": { strength, size, boil, fps, grade, refineThreshold, previewScale, outputMode, dither, brightness, contrast, gamma, paperDots, bwStyle, bwTexture, lineSpacing } }`(조절하는 16개 값만). 파일 값이 있으면 그 값이다(예: 예전에 `thermal`로 저장한 파일은 감열지로 시작하므로 회색조 유화로 바꾸려면 `E`에서 고르고 저장). 일부 키만 있으면 나머지를 기본값으로 채우고 알린다(`adjusted`).
+- **파일** `config/effect.local.json`: `{ "version": 1, "settings": { strength, size, boil, fps, grade, refineThreshold, previewScale, outputMode, dither, brightness, contrast, gamma, paperDots, bwStyle, bwTexture, lineSpacing, mirror } }`(조절하는 17개 값만, `mirror`는 `true`·`false`). 파일 값이 있으면 그 값이다(예: 예전에 `thermal`로 저장한 파일은 감열지로 시작하므로 회색조 유화로 바꾸려면 `E`에서 고르고 저장). 일부 키만 있으면 나머지를 기본값으로 채우고 알린다(`adjusted`). 단 `mirror`가 없는 예전 파일은 반전이 늘 켜져 있던 때 저장한 것이라 켬으로 채우고 알리지 않는다(`saved` 그대로). `mirror`가 참·거짓이 아니면 켬으로 바꾸고 알린다.
 - **불러오기: 파일 → 기본값**(`localStorage` 없음). 404·읽기 실패·`effectSettingsFile.timeoutMs`(3초, 가안) 초과·형식 오류면 기본값이고 파일은 그대로. 불러오는 동안은 기본값으로 그리고 **자동 촬영을 막지 않는다**(판정과 무관, 그사이 촬영돼도 미리보기와 결과는 같은 값). D `values`에 값과 출처(`file`·`saved`·`defaults (no file)`·`+ unsaved changes`).
 
 ### 회색조 유화
