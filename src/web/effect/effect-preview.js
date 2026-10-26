@@ -6,6 +6,7 @@
 // 좌우 반전·크롭: 미리보기(<video>, object-fit: cover, CSS scaleX(-1))와 같은 영역을 같은 방향으로 그린다.
 // 반전은 효과 입력을 읽을 때 한 번만 하고 캔버스에는 CSS 반전을 걸지 않는다(이중 반전 방지).
 // 효과는 반전된 그림에 칠한다 (획 방향이 좌우 대칭이 아니므로, 결과 사진과 같은 그림이 되게).
+// 반전 여부는 효과 설정의 mirror다(E 화면 "카메라"). 바뀌면 다음 화면 갱신에 새로 그리고, 결과 사진은 셔터 순간의 값으로 그린다.
 //
 // 출력 단계 (6-1): 감열지 모드면 인쇄 해상도(576x1024 등)의 점 그림을 결과 크기(1080x1920) 캔버스에 확대해 그린다
 // (정수배 최근접 + 경계 1화소만 섞음, 렌더러 FS_THERMAL_SHOW). 결과 사진의 화면용 이미지도 같은 크기·같은 화소다.
@@ -53,13 +54,13 @@ export function computeEffectView({ videoWidth, videoHeight, stageAspect, mirror
 
 /**
  * @param {{ canvas: HTMLCanvasElement, video: HTMLVideoElement, camera: { isReady: () => boolean },
- *   stageAspect: number, mirror: boolean, settings?: object, display?: { paper: number[], ink: number[] },
+ *   stageAspect: number, settings?: object, display?: { paper: number[], ink: number[] },
  *   createRenderer?: typeof createOilRenderer, raf?: Function, cancelRaf?: Function, now?: () => number,
  *   log?: { warn: Function, clear: Function }, onChange?: () => void }} options
- *   settings: config.effect 형식 (enabled 포함). onChange: 상태가 바뀔 때 (D 화면 갱신용)
+ *   settings: config.effect 형식 (enabled·mirror 포함). onChange: 상태나 설정이 바뀔 때 (D 화면 갱신, 반전 맞추기)
  */
 export function createEffectPreview({
-  canvas, video, camera, stageAspect, mirror, settings: initialSettings = config.effect, display = config.thermalDisplay,
+  canvas, video, camera, stageAspect, settings: initialSettings = config.effect, display = config.thermalDisplay,
   createRenderer = createOilRenderer,
   raf = (fn) => requestAnimationFrame(fn), cancelRaf = (id) => cancelAnimationFrame(id),
   now = () => performance.now(), log = errorLog, onChange = () => {},
@@ -199,7 +200,7 @@ export function createEffectPreview({
       return;
     }
     const next = computeEffectView({
-      videoWidth: video.videoWidth, videoHeight: video.videoHeight, stageAspect, mirror, previewScale: settings.previewScale,
+      videoWidth: video.videoWidth, videoHeight: video.videoHeight, stageAspect, mirror: settings.mirror, previewScale: settings.previewScale,
     });
     const sizeChanged = !view || next.width !== view.width || next.height !== view.height
       || next.sourceOffset.some((v, i) => v !== view.sourceOffset[i]) || next.sourceScale.some((v, i) => v !== view.sourceScale[i]);
@@ -245,6 +246,8 @@ export function createEffectPreview({
    * 결과 사진: 지금 화면에 보이는 그림과 같은 카메라 프레임·그림 번호·seed·설정으로, 결과 크기(짧은 변 1080)에 화면 밖으로 그린다.
    * 동기로 끝난다. 미리보기가 다음 그림을 그리기 전(같은 작업 안)에 불러야 같은 프레임이다 (capture.js가 그렇게 부른다).
    * 보이는 그림이 없으면(카메라 준비 직후) 지금 프레임으로 그린다. 효과를 쓸 수 없으면 EffectError.
+   * 반전은 셔터 순간의 값을 따른다: 보이는 그림을 그린 뒤 반전이 바뀌었으면(다음 화면 갱신 전) 그 그림을 쓰지 않고 지금 프레임·설정으로
+   * 그린다. 캡처(capture.js)도 같은 순간의 값으로 원본 사진을 잡으므로 원본 대체 사진과 방향이 같다.
    * 출력 모드는 그 그림의 설정을 따른다: off·gray면 pixels(결과 크기 RGBA), thermal이면 인쇄 해상도의 gray·mask (6-1).
    * @returns {{ mode: string, settings: object, width: number, height: number, seed: number, tick: number,
    *   sameAsPreview: boolean, ms: number, pixels?: Uint8ClampedArray,
@@ -257,11 +260,12 @@ export function createEffectPreview({
       throw new EffectError(EffectFault.NOT_RUNNING, `preview effect is ${status}${fault ? ` (${fault})` : ''}`);
     }
     const t0 = now();
-    const reuse = lastDrawing !== null && lastDrawing.videoWidth === video.videoWidth && lastDrawing.videoHeight === video.videoHeight;
+    const reuse = lastDrawing !== null && lastDrawing.videoWidth === video.videoWidth && lastDrawing.videoHeight === video.videoHeight
+      && lastDrawing.settings.mirror === settings.mirror;
     let drawing = lastDrawing;
     if (!reuse) {
       const v = computeEffectView({
-        videoWidth: video.videoWidth, videoHeight: video.videoHeight, stageAspect, mirror, previewScale: settings.previewScale,
+        videoWidth: video.videoWidth, videoHeight: video.videoHeight, stageAspect, mirror: settings.mirror, previewScale: settings.previewScale,
       });
       if (v === null) throw new EffectError(EffectFault.RENDER_FAILED, 'video has no frame');
       const tick = drawingTick(t0, settings.fps);

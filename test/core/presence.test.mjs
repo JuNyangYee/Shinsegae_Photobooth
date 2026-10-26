@@ -146,6 +146,23 @@ describe('isPointInRegion / classifyFaces', () => {
     assert.equal(result.accepted, true);
   });
 
+  it('반전 켬·끔: 같은 얼굴이 화면 좌우 반대쪽에 오고, 영역 안·밖은 그 화면 위치로 판정한다 (9:16·가로 영상)', () => {
+    const rightRegion = { ...criteria, region: { x: 0.5, y: 0, width: 0.5, height: 1 } };
+    // 가로 1920x1080은 가운데 폭 81/256만 보인다: 영상 x 0.45 → 화면 x (0.45 - (1 - 81/256) / 2) / (81/256) ≈ 0.342
+    const landscapeX = (0.45 - (1 - 81 / 256) / 2) / (81 / 256);
+    for (const [videoWidth, videoHeight, cx, onScreen] of [[1080, 1920, 0.3, 0.3], [1920, 1080, 0.45, landscapeX]]) {
+      const off = computeCoverMapping({ videoWidth, videoHeight, stageAspect: STAGE, mirror: false });
+      const on = computeCoverMapping({ videoWidth, videoHeight, stageAspect: STAGE, mirror: true });
+      const f = { x: cx - 0.02, y: 0.4, width: 0.04, height: 0.2, score: 0.9 };
+      const [plain] = classifyFaces([f], off, rightRegion);
+      const [mirrored] = classifyFaces([f], on, rightRegion);
+      assert.ok(Math.abs(plain.center.x - onScreen) < 1e-9, `${videoWidth}x${videoHeight} off: ${plain.center.x}`);
+      assert.ok(Math.abs(mirrored.center.x - (1 - onScreen)) < 1e-9, `${videoWidth}x${videoHeight} on: ${mirrored.center.x}`);
+      assert.ok(Math.abs(mirrored.box.x - (1 - plain.box.x - plain.box.width)) < 1e-9);
+      assert.deepEqual([plain.inRegion, mirrored.inRegion], [false, true], '영상 왼쪽 얼굴: 끔이면 화면 왼쪽(밖), 켬이면 화면 오른쪽(안)');
+    }
+  });
+
   it('잘려서 화면에 안 보이는 얼굴은 제외', () => {
     const landscape = computeCoverMapping({ videoWidth: 1920, videoHeight: 1080, stageAspect: STAGE, mirror: false });
     const wide = { ...criteria, region: { x: 0, y: 0, width: 1, height: 1 }, minFaceHeight: 0 };

@@ -100,12 +100,13 @@ describe('normalizeEffectSettings', () => {
 describe('효과 조절값 (E 화면·파일, 5-2)', () => {
   const base = normalizeEffectSettings(defaults, defaults).settings;
 
-  it('조절값은 16개(5-2의 7개 + 출력 단계 6개 + 흑백 스타일 3개), 보완 층 문턱은 refine[4]', () => {
+  it('조절값은 17개(5-2의 7개 + 출력 단계 6개 + 흑백 스타일 3개 + 좌우 반전), 보완 층 문턱은 refine[4]', () => {
     assert.deepEqual(Object.keys(effectTunables(base)), [...EFFECT_TUNABLE_KEYS]);
     assert.deepEqual(effectTunables(base), {
       strength: 0.1, size: 1.1, boil: 0.05, fps: 12, grade: 1, refineThreshold: 0.22, previewScale: 0.5,
       outputMode: 'gray-oil', dither: defaults.dither, brightness: 0, contrast: 1, gamma: 1, paperDots: 576,
       bwStyle: defaults.bwStyle, bwTexture: defaults.bwTexture, lineSpacing: defaults.lineSpacing,
+      mirror: true,
     });
   });
 
@@ -239,5 +240,49 @@ describe('회색조 유화 설정 (8단계)', () => {
     assert.equal(r.settings.outputMode, 'gray-oil');
     assert.equal(r.settings.fps, 10);
     assert.ok(r.issues.includes('outputMode: "grey-oil" -> default'));
+  });
+});
+
+describe('좌우 반전 설정 (E 화면 "카메라", 2026-10-26)', () => {
+  const base = normalizeEffectSettings(defaults, defaults).settings;
+
+  it('기본값은 켬, 참·거짓이 아니면 기본값으로 바꾸고 알린다', () => {
+    assert.equal(defaults.mirror, true);
+    assert.equal(base.mirror, true);
+    assert.equal(normalizeEffectSettings({ ...defaults, mirror: false }, defaults).settings.mirror, false);
+    for (const value of ['false', 0, 1, null]) {
+      const { settings, issues } = normalizeEffectSettings({ ...defaults, mirror: value }, defaults);
+      assert.equal(settings.mirror, true);
+      assert.deepEqual(issues, [`mirror: ${JSON.stringify(value)} -> default`]);
+    }
+  });
+
+  it('끔 저장 → 읽기 왕복, 반전만 바꾼 값은 저장값과 다르다(저장 안 된 변경)', () => {
+    const off = applyEffectTunables(base, { mirror: false }, defaults).settings;
+    assert.equal(off.mirror, false);
+    assert.ok(!sameEffectSettings(off, base));
+    const text = serializeEffectSettings(off);
+    assert.equal(JSON.parse(text).settings.mirror, false);
+    const back = parseStoredEffectSettings(text, defaults);
+    assert.deepEqual(back.issues, []);
+    assert.equal(back.settings.mirror, false);
+    assert.ok(sameEffectSettings(back.settings, off));
+  });
+
+  it('반전 키가 없는 예전 파일(8단계까지의 16개)은 켬으로 읽고, 고쳐 썼다고 알리지 않는다', () => {
+    const before = JSON.stringify({ version: 1, settings: { ...effectTunables(base), mirror: undefined, fps: 18 } });
+    assert.ok(!('mirror' in JSON.parse(before).settings));
+    const r = parseStoredEffectSettings(before, defaults);
+    assert.equal(r.source, 'stored');
+    assert.deepEqual(r.issues, []);
+    assert.equal(r.settings.mirror, true);
+    assert.equal(r.settings.fps, 18);
+  });
+
+  it('파일의 반전 값이 틀리면 그 항목만 기본값(켬)으로 바꾸고 알린다', () => {
+    const r = parseStoredEffectSettings(JSON.stringify({ version: 1, settings: { ...effectTunables(base), mirror: 'off' } }), defaults);
+    assert.equal(r.source, 'stored');
+    assert.equal(r.settings.mirror, true);
+    assert.deepEqual(r.issues, ['mirror: "off" -> default']);
   });
 });

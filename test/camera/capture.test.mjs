@@ -38,13 +38,14 @@ function setup({ videoWidth = 1920, videoHeight = 1080, mirror = true, context, 
   const env = fakeEnvironment({ context, blob });
   const video = { videoWidth, videoHeight };
   let time = 100000;
+  let mirrorNow = mirror;
   const frame = { at: time - frameAge, count: 42 };
   const capture = createCapture({
-    video, stageAspect: STAGE, mirror, type: 'image/jpeg', quality: 0.92,
+    video, stageAspect: STAGE, getMirror: () => mirrorNow, type: 'image/jpeg', quality: 0.92,
     maxFrameAgeMs: 500, getFrameInfo: () => frame,
     effect, createCanvas: env.createCanvas, urls: env.urls, now: () => time,
   });
-  return { env, video, capture, frame, setTime: (t) => { time = t; } };
+  return { env, video, capture, frame, setTime: (t) => { time = t; }, setMirror: (value) => { mirrorNow = value; } };
 }
 
 describe('createCapture', () => {
@@ -66,12 +67,30 @@ describe('createCapture', () => {
     assert.equal(stats.pending, 0);
     assert.equal(stats.last.width, 608);
     assert.equal(stats.last.source, '1920x1080');
+    assert.equal(stats.last.mirror, true);
   });
 
   it('mirror false면 반전하지 않는다', async () => {
     const { env, capture } = setup({ mirror: false });
     await capture.take();
     assert.deepEqual(env.canvases[0].calls[0], ['drawImage', 656, 0, 608, 1080, 0, 0, 608, 1080]);
+    assert.equal(capture.getStats().last.mirror, false);
+  });
+
+  it('반전 값은 셔터 순간(프레임을 잡는 순간) 읽는다: 바꾸면 다음 사진부터, 효과 단계 중에 바꿔도 잡은 사진은 그대로', async () => {
+    let during = null;
+    const t = setup({ effect: async (canvas) => { during?.(); return canvas; } });
+    await t.capture.take();
+    t.setMirror(false);
+    during = () => t.setMirror(true); // 효과·인코딩을 기다리는 동안 다시 켬
+    await t.capture.take();
+    const [first, second] = t.env.canvases;
+    assert.deepEqual(first.calls.slice(0, 2), [['translate', 608, 0], ['scale', -1, 1]]);
+    assert.deepEqual(second.calls[0], ['drawImage', 656, 0, 608, 1080, 0, 0, 608, 1080], '잡을 때 끔이었다');
+    assert.equal(t.capture.getStats().last.mirror, false);
+    during = null;
+    await t.capture.take();
+    assert.deepEqual(t.env.canvases[2].calls[1], ['scale', -1, 1], '그다음 사진은 켬');
   });
 
   it('release는 Object URL을 한 번만 revoke한다', async () => {

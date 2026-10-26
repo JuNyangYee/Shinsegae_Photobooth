@@ -8,10 +8,12 @@
 //
 // 저장 형식 (5-2, 서버 파일 config/effect.local.json, settings-file.js):
 //   { "version": 1, "settings": { "strength", "size", "boil", "fps", "grade", "refineThreshold", "previewScale",
-//     "outputMode", "dither", "brightness", "contrast", "gamma", "paperDots", "bwStyle", "bwTexture", "lineSpacing" } }
+//     "outputMode", "dither", "brightness", "contrast", "gamma", "paperDots", "bwStyle", "bwTexture", "lineSpacing", "mirror" } }
 // 운영자가 조절하는 값(EFFECT_TUNABLE_KEYS)만 저장한다. 붓 층 모양 등은 config.effect 기본값을 쓴다.
 // 출력 단계 값 6개는 6-1에서, 흑백 스타일 값 3개는 7-1에서 더했다. 버전은 1 그대로이고, 예전 파일(5-2의 앞 7개, 6-1의 13개)을
 // 읽으면 없는 값은 기본값으로 채운다. 8단계는 출력 모드에 값 'gray-oil'만 더했다(키·버전 그대로). 파일에 저장된 모드가 있으면 그 값을 쓴다.
+// 좌우 반전(mirror, E 화면 "카메라", 2026-10-26)은 효과 값은 아니지만 같은 화면·파일에 둔다. 키가 없는 예전 파일은 반전이 늘 켜져
+// 있던 때 저장한 것이라 기본값(켬)이 그 파일의 뜻과 같으므로, 채우기만 하고 "고쳐 씀"으로 알리지 않는다(SILENT_DEFAULT_KEYS).
 
 export const effectLimits = Object.freeze({
   strength: Object.freeze({ min: 0, max: 1.6, step: 0.05 }), // 강도: 요철·광택·색 흔들림
@@ -77,6 +79,13 @@ export function normalizeEffectSettings(input, defaults) {
     return adjusted;
   };
 
+  const flag = (key) => {
+    const value = source[key];
+    if (typeof value === 'boolean') return value;
+    issues.push(`${key}: ${value === undefined ? 'missing' : JSON.stringify(value)} -> default`);
+    return defaults[key];
+  };
+
   const oneOf = (key, allowed) => {
     const value = source[key];
     if (allowed.includes(value)) return value;
@@ -119,18 +128,26 @@ export function normalizeEffectSettings(input, defaults) {
     bwStyle: oneOf('bwStyle', BW_STYLES),
     bwTexture: number('bwTexture', effectLimits.bwTexture),
     lineSpacing: number('lineSpacing', effectLimits.lineSpacing),
+    // 좌우 반전: 효과 미리보기 입력·원본 미리보기(<video>)·캡처·인식 좌표가 모두 이 값을 따른다 (docs/SYSTEM.md 3절 "좌우 반전")
+    mirror: flag('mirror'),
   });
   return { settings, issues };
 }
 
 export const EFFECT_SETTINGS_VERSION = 1;
 
-/** 운영자 조절 화면(E)에서 바꾸고 파일에 저장하는 값. 원본 갤러리 UI에 있는 것 + 미리보기 처리 해상도 + 출력 단계(6-1) + 흑백 스타일(7-1) */
+/**
+ * 운영자 조절 화면(E)에서 바꾸고 파일에 저장하는 값. 원본 갤러리 UI에 있는 것 + 미리보기 처리 해상도 + 출력 단계(6-1) + 흑백 스타일(7-1)
+ * + 카메라 좌우 반전
+ */
 export const EFFECT_TUNABLE_KEYS = Object.freeze([
   'strength', 'size', 'boil', 'fps', 'grade', 'refineThreshold', 'previewScale',
   'outputMode', 'dither', 'brightness', 'contrast', 'gamma', 'paperDots',
   'bwStyle', 'bwTexture', 'lineSpacing',
+  'mirror',
 ]);
+/** 파일에 없으면 기본값으로 채우되 알리지 않는 키 (예전 파일의 뜻이 기본값과 같다) */
+const SILENT_DEFAULT_KEYS = new Set(['mirror']);
 
 /** 정규화된 설정에서 조절값만 꺼낸다. 보완 층이 없으면 refineThreshold는 null */
 export function effectTunables(settings) {
@@ -151,6 +168,7 @@ export function effectTunables(settings) {
     bwStyle: settings.bwStyle,
     bwTexture: settings.bwTexture,
     lineSpacing: settings.lineSpacing,
+    mirror: settings.mirror,
   };
 }
 
@@ -191,7 +209,8 @@ export function parseStoredEffectSettings(text, defaults) {
     return fallback(`stored version ${JSON.stringify(parsed.version)} != ${EFFECT_SETTINGS_VERSION} -> defaults`);
   }
   const stored = parsed.settings !== null && typeof parsed.settings === 'object' ? parsed.settings : {};
-  const missing = EFFECT_TUNABLE_KEYS.filter((key) => !(key in stored)).map((key) => `${key}: missing -> default`);
+  const missing = EFFECT_TUNABLE_KEYS.filter((key) => !(key in stored) && !SILENT_DEFAULT_KEYS.has(key))
+    .map((key) => `${key}: missing -> default`);
   const { settings, issues } = applyEffectTunables(base, stored, defaults);
   return { settings, issues: [...missing, ...issues], source: 'stored' };
 }

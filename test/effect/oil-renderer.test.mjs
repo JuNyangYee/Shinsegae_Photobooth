@@ -148,7 +148,7 @@ describe('촬영 결과·미리보기 경로 (실제 미리보기·렌더러 + �
     let time = 10000;
     const idles = []; // requestIdleCallback 흉내 (flushIdle로 돌린다)
     const preview = createEffectPreview({
-      canvas, video: { videoWidth: 54, videoHeight: 96 }, camera: { isReady: () => true }, stageAspect: 9 / 16, mirror: true,
+      canvas, video: { videoWidth: 54, videoHeight: 96 }, camera: { isReady: () => true }, stageAspect: 9 / 16,
       settings: { ...config.effect, previewScale: 0.25, outputMode: 'off' },
       raf: (fn) => { queued = fn; return 1; }, cancelRaf: () => {}, now: () => time, log: { warn() {}, clear() {} },
       idle: (fn) => idles.push(fn), cancelIdle: (id) => { idles[id - 1] = null; },
@@ -407,7 +407,7 @@ describe('촬영 결과 감열지 경로 (실제 미리보기·렌더러·결과
     let time = 10000;
     const idles = []; // requestIdleCallback 흉내 (flushIdle로 돌린다)
     const preview = createEffectPreview({
-      canvas, video: { videoWidth: 54, videoHeight: 96 }, camera: { isReady: () => true }, stageAspect: 9 / 16, mirror: true,
+      canvas, video: { videoWidth: 54, videoHeight: 96 }, camera: { isReady: () => true }, stageAspect: 9 / 16,
       settings: { ...config.effect, previewScale: 0.25, outputMode: 'thermal', paperDots: 128, bwStyle: 'tone', ...over },
       raf: (fn) => { queued = fn; return 1; }, cancelRaf: () => {}, now: () => time, log: { warn() {}, clear() {} },
       idle: (fn) => idles.push(fn), cancelIdle: (id) => { idles[id - 1] = null; },
@@ -631,7 +631,7 @@ describe('촬영 결과 회색조 유화 경로 (실제 미리보기·렌더러�
     let time = 10000;
     const idles = []; // requestIdleCallback 흉내 (flushIdle로 돌린다)
     const preview = createEffectPreview({
-      canvas, video: { videoWidth: 54, videoHeight: 96 }, camera: { isReady: () => true }, stageAspect: 9 / 16, mirror: true,
+      canvas, video: { videoWidth: 54, videoHeight: 96 }, camera: { isReady: () => true }, stageAspect: 9 / 16,
       settings: { ...config.effect, previewScale: 0.25, paperDots: 128, ...over },
       raf: (fn) => { queued = fn; return 1; }, cancelRaf: () => {}, now: () => time, log: { warn() {}, clear() {} },
       idle: (fn) => idles.push(fn), cancelIdle: (id) => { idles[id - 1] = null; },

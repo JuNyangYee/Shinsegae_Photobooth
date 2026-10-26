@@ -285,7 +285,7 @@ function setupWithCapture({ context = 'ok', blob = 'ok', present = true } = {}) 
   const clock = fakeClock(1000);
   const env = fakeCanvasEnvironment({ context, blob });
   const capture = createCapture({
-    video: { videoWidth: 1080, videoHeight: 1920 }, stageAspect: 9 / 16, mirror: true, type: 'image/jpeg', quality: 0.92,
+    video: { videoWidth: 1080, videoHeight: 1920 }, stageAspect: 9 / 16, getMirror: () => true, type: 'image/jpeg', quality: 0.92,
     maxFrameAgeMs: 500, getFrameInfo: () => ({ at: clock.now() - 10, count: 1 }), // 늘 새 프레임
     createCanvas: env.createCanvas, urls: env.urls, now: clock.now,
   });

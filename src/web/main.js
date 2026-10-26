@@ -54,13 +54,15 @@ const camera = createCameraMonitor({
 
 const stageAspect = config.aspectRatio.width / config.aspectRatio.height;
 
+// 좌우 반전 값은 효과 설정의 mirror 한 곳에 있다 (E 화면 "카메라", 효과 조절값 파일). 효과 미리보기는 그 값으로 입력을 읽고,
+// 원본 미리보기(<video> CSS)·인식 좌표는 값이 바뀔 때 applyMirror()가 맞추고, 캡처는 셔터 순간 읽는다. 반전은 경로마다 한 번뿐이다.
 const presence = createPresenceMonitor({
   video,
   camera,
   detection: config.faceDetection,
   presence: config.presence,
   stageAspect,
-  mirror: config.mirror,
+  mirror: config.effect.mirror,
 });
 
 // 사진 효과 미리보기: 영상 → 유화 효과 캔버스. 효과를 쓸 수 없으면 원본 미리보기 (카메라·감지·촬영은 그대로)
@@ -69,19 +71,20 @@ const effect = createEffectPreview({
   video,
   camera,
   stageAspect,
-  mirror: config.mirror,
   settings: config.effect,
   onChange: () => {
+    applyMirror();
     if (!devInfo.hidden) renderDevInfo();
   },
 });
+const isMirrored = () => effect.getSettings().mirror;
 
 // 촬영 결과에도 같은 효과: 셔터 순간 화면의 그림과 같은 프레임·seed로 결과 크기(짧은 변 1080)에 다시 그린다.
 // 효과를 그리지 못하면 원본 사진으로 대신한다 (photo-effect.js)
 const photoEffect = createPhotoEffect({ preview: effect });
 
 const capture = createCapture({
-  video, stageAspect, mirror: config.mirror, ...config.capture, getFrameInfo: camera.getFrameInfo,
+  video, stageAspect, getMirror: isMirrored, ...config.capture, getFrameInfo: camera.getFrameInfo,
   effect: photoEffect.apply,
 });
 
@@ -208,8 +211,17 @@ function applyLayout() {
   const { width, height } = config.aspectRatio;
   document.documentElement.style.setProperty('--stage-ratio-w', String(width));
   document.documentElement.style.setProperty('--stage-ratio-h', String(height));
-  video.classList.toggle('is-mirrored', config.mirror);
+  applyMirror();
   updateOperatorRoom();
+}
+
+// 좌우 반전을 원본 미리보기(효과를 끄거나 쓸 수 없을 때 보이는 <video>)와 인식 좌표에 맞춘다. 효과 설정이 바뀔 때마다 부른다
+// (같은 값이면 아무것도 하지 않는다). 반전이 바뀌면 인식 상태는 처음부터 다시 잰다 (presence-monitor.js setMirror).
+// 진행 중인 회차는 그대로 둔다: 카운트다운은 셔터 순간의 값으로 찍고, 이미 보이는 결과 사진은 다시 만들지 않는다.
+function applyMirror() {
+  const mirror = isMirrored();
+  video.classList.toggle('is-mirrored', mirror);
+  presence.setMirror(mirror);
 }
 
 // 운영자 패널(R·E)을 9:16 영역 옆 빈 곳에 세울 공간이 실제로 있는지 (6단계 검수 2). 화면 비율만 보면 좁은 가로 창
@@ -250,7 +262,7 @@ function renderDevInfo() {
     `stage 9:16 : ${Math.round(rect.width)}x${Math.round(rect.height)} css px`
       + ` (${Math.round(rect.width * dpr)}x${Math.round(rect.height * dpr)} device px, dpr ${dpr})`,
     `viewport   : ${window.innerWidth}x${window.innerHeight}`,
-    `mirror     : ${config.mirror}`,
+    `mirror     : ${isMirrored() ? 'on' : 'off'} (E camera)`,
   ];
   // 구역별 표 (ui/dev-panel.js). 글자는 예전과 같다(구역 사이 빈 줄) — 확인 도구가 줄 머리말로 읽는다
   renderDevPanel(devInfo, [
@@ -318,7 +330,7 @@ function effectDevLines() {
   const values = `  values   : strength ${t.strength} size ${t.size} boil ${t.boil} fps ${t.fps} grade ${t.grade}`
     + ` refine ${t.refineThreshold ?? '-'} scale ${t.previewScale} | output ${t.outputMode} ${t.dither} paper ${t.paperDots}`
     + ` style ${t.bwStyle} texture ${t.bwTexture} lines ${t.lineSpacing}`
-    + ` brightness ${t.brightness} contrast ${t.contrast} gamma ${t.gamma}`
+    + ` brightness ${t.brightness} contrast ${t.contrast} gamma ${t.gamma} mirror ${t.mirror ? 'on' : 'off'}`
     + ` (${effectTuning ? effectTuning.describeSettingsSource() : 'loading'}, ${config.effectSettingsFile.url})`;
   // 출력 단계 (6-1): 감열지면 인쇄 해상도, 점을 정하는 것(점 방식 또는 흐름·붓 결 선, 7-1)·흑백 스타일, 화소 읽기·CPU 디더 시간(오차 확산만).
   // 회색조 유화(8단계)는 입력 회색조 계수와, 촬영 결과에서 만드는 인쇄 데이터의 용지 폭·점 방식
@@ -383,7 +395,7 @@ function sessionDevLines() {
     `ignored    : ${s.lastIgnored || '-'}`,
     last
       ? `capture    : ${last.width}x${last.height} from video ${last.source}`
-        + ` (crop x${last.crop.x} y${last.crop.y}), ${last.type} ${Math.round(last.bytes / 1024)}KB,`
+        + ` (crop x${last.crop.x} y${last.crop.y}${last.mirror ? ', mirrored' : ''}), ${last.type} ${Math.round(last.bytes / 1024)}KB,`
         + ` grab ${last.grabMs.toFixed(1)}ms, encode ${last.encodeMs.toFixed(1)}ms`
       : 'capture    : -',
     `resources  : object URLs ${c.liveUrls}, canvases ${c.liveCanvases}, pending jobs ${c.pending}`
@@ -402,7 +414,7 @@ const OVERLAY = Object.freeze({
 });
 
 // 감지 박스와 인식 영역을 9:16 영역 위에 겹쳐 그린다. 인정된 얼굴은 초록, 제외된 얼굴은 빨강.
-// 판정 좌표가 이미 관람객 화면 기준(반전 후)이므로 그대로 그린다.
+// 판정 좌표가 이미 관람객 화면 기준(지금 반전 값으로 바꾼 뒤)이므로 그대로 그린다.
 // 조절 화면이 열려 있으면 영역은 편집 사각형이 대신 보이고, 얼굴 크기 기준 가이드를 영역 가운데에 그린다.
 function drawDevOverlay() {
   devOverlayFrame = requestAnimationFrame(drawDevOverlay);
