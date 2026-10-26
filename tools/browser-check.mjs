@@ -553,6 +553,80 @@ const EFFECT_COMPARE = `(() => {
     twoTone: { ends: ends.map((c) => c.join(',')), offLine, pureRatio: +(pure / (W * H)).toFixed(3) }, resultRendering: getComputedStyle(img).imageRendering, canvasRendering: getComputedStyle(document.getElementById('effect')).imageRendering };
 })()`;
 
+// 좌우 방향 확인 (E 화면 "카메라" 좌우 반전, 2026-10-26). 이미지는 페이지 메모리 안에서 18x32 밝기 격자로만 줄여 비교하고 저장하지 않는다.
+// 효과 캔버스에 새 그림이 그려진 화면 갱신마다 그 그림과 같은 순간의 <video> 프레임(보이는 9:16 영역, 반전 전)을 격자로 남긴다.
+// 셔터 순간(카운트다운 숫자가 숨겨지는 순간)에는 마지막 그림과 그 그림과 같은 순간의 영상을 따로 남긴다
+// (셔터 순간에 영상을 새로 읽으면 다른 프레임이라, 움직이는 가짜 카메라에서는 상관이 0.3까지 떨어졌다).
+// 방향은 비대칭 성분의 상관(anti, -1~1)으로 본다: 각 격자에서 자기 좌우 뒤집음을 뺀 것(g - flip(g))끼리의 피어슨 상관이다.
+// 같은 방향이면 +, 거울 방향이면 −. 가짜 카메라 화면은 거의 좌우 대칭이라 그냥 상관은 그대로·뒤집음이 비슷하다(0.86 / 0.89).
+const MIRROR_READER = `(() => {
+  if (window.__mirrorReader) return true;
+  const c = document.getElementById('effect'), v = document.getElementById('preview');
+  const gl = c.getContext('webgl2');
+  const GW = 18, GH = 32, UP = 4;
+  const t = document.createElement('canvas'); t.width = GW * UP; t.height = GH * UP;
+  const tx = t.getContext('2d', { willReadFrequently: true }); tx.imageSmoothingQuality = 'high';
+  const luma = (d, i) => 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+  // 큰 그림을 GW x GH 블록 평균 밝기로. at(x, y)는 왼쪽 위 원점 화소의 RGBA 시작 번호
+  const grid = (W, H, data, at) => { const g = new Float64Array(GW * GH), n = new Float64Array(GW * GH);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const k = Math.floor(y * GH / H) * GW + Math.floor(x * GW / W); g[k] += luma(data, at(x, y)); n[k]++; }
+    for (let k = 0; k < g.length; k++) g[k] /= n[k]; return g; };
+  const videoGrid = () => { const vw = v.videoWidth, vh = v.videoHeight, a = 9 / 16, va = vw / vh;
+    const sw = va > a ? vh * a : vw, sh = va > a ? vh : vw / a;
+    tx.drawImage(v, (vw - sw) / 2, (vh - sh) / 2, sw, sh, 0, 0, t.width, t.height);
+    return grid(t.width, t.height, tx.getImageData(0, 0, t.width, t.height).data, (x, y) => (y * t.width + x) * 4); };
+  const probe = new Uint8Array(8 * 8 * 4);
+  const r = window.__mirrorReader = { GW, GH, samples: [], shutter: null, grid };
+  new MutationObserver(() => { const cd = document.getElementById('countdown');
+    if (cd.hidden && r.wasCounting) r.shutter = r.samples.at(-1) ?? null;
+    r.wasCounting = !cd.hidden; }).observe(document.getElementById('countdown'), { attributes: true, attributeFilter: ['hidden'] });
+  const loop = () => {
+    requestAnimationFrame(loop);
+    const W = c.width, H = c.height;
+    if (c.hidden || W < 16 || !(v.videoWidth > 0)) return;
+    // EFFECT_READER와 같은 확인: 가운데 8x8이 모두 0이면 이 화면 갱신에서는 새로 그리지 않았다 (preserveDrawingBuffer false, 알파는 늘 255라 쓰지 않는다)
+    gl.readPixels((W >> 1) - 4, (H >> 1) - 4, 8, 8, gl.RGBA, gl.UNSIGNED_BYTE, probe);
+    let any = 0; for (let i = 0; i < probe.length; i += 4) any += probe[i] + probe[i + 1] + probe[i + 2];
+    if (any === 0) return;
+    const buf = new Uint8Array(W * H * 4);
+    gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+    r.samples.push({ drawing: grid(W, H, buf, (x, y) => ((H - 1 - y) * W + x) * 4), video: videoGrid() });
+    if (r.samples.length > 12) r.samples.shift();
+  };
+  requestAnimationFrame(loop);
+  return true;
+})()`;
+
+// 격자 상관 도구 (페이지 안): corr(a, b), flip(g) 좌우 뒤집기, orient(a, b) = { same, flipped, anti }
+const MIRROR_MATH = `const corr = (a, b) => { const n = a.length; let ma = 0, mb = 0; for (let i = 0; i < n; i++) { ma += a[i]; mb += b[i]; } ma /= n; mb /= n;
+    let s = 0, sa = 0, sb = 0; for (let i = 0; i < n; i++) { const x = a[i] - ma, y = b[i] - mb; s += x * y; sa += x * x; sb += y * y; } return sa && sb ? s / Math.sqrt(sa * sb) : 0; };
+  const flip = (g) => { const { GW, GH } = window.__mirrorReader, f = new Float64Array(g.length); for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) f[y * GW + x] = g[y * GW + GW - 1 - x]; return f; };
+  const odd = (g) => { const f = flip(g); return g.map((v, i) => v - f[i]); };
+  const orient = (a, b) => ({ same: +corr(a, b).toFixed(3), flipped: +corr(a, flip(b)).toFixed(3), anti: +corr(odd(a), odd(b)).toFixed(3) });`;
+
+// 최근 그림들(새로 그린 화면 갱신마다)의 효과 그림 ↔ 같은 순간 영상 상관 평균
+const MIRROR_PREVIEW = `(() => { ${MIRROR_MATH}
+  const list = window.__mirrorReader.samples.map((s) => orient(s.drawing, s.video));
+  const avg = (k) => +(list.reduce((a, o) => a + o[k], 0) / Math.max(1, list.length)).toFixed(3);
+  return { n: list.length, same: avg('same'), flipped: avg('flipped'), anti: avg('anti'), antiMin: Math.min(...list.map((o) => Math.abs(o.anti))) }; })()`;
+
+// 결과 사진 ↔ 셔터 순간 그림·그 그림의 영상 상관 (결과 화면에서 부른다)
+const MIRROR_RESULT = `(() => { ${MIRROR_MATH}
+  const r = window.__mirrorReader, img = document.getElementById('result');
+  const W = img.naturalWidth, H = img.naturalHeight, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const x = cv.getContext('2d', { willReadFrequently: true }); x.drawImage(img, 0, 0);
+  const res = r.grid(W, H, x.getImageData(0, 0, W, H).data, (xx, y) => (y * W + xx) * 4); cv.width = 0;
+  // 격자 값 범위(최소·최대·NaN 수): 실패 메시지에서 그림을 못 읽었는지 가린다
+  const range = (g) => (g ? [Math.round(Math.min(...g)), Math.round(Math.max(...g)), g.filter(Number.isNaN).length].join('/') : '-');
+  return { size: W + 'x' + H, ranges: [range(res), range(r.shutter?.drawing), range(r.shutter?.video)].join(' '),
+    drawing: r.shutter?.drawing ? orient(res, r.shutter.drawing) : null, video: r.shutter ? orient(res, r.shutter.video) : null }; })()`;
+
+// 방향 판정: 비대칭 성분 상관이 같은 방향이면 이 값 이상, 거울 방향이면 −이 값 이하 (가안, 측정값은 로그 2026-10-26-02)
+const MIRROR_ANTI = 0.3;
+const oriented = (o, mirrored) => (mirrored ? o.anti <= -MIRROR_ANTI : o.anti >= MIRROR_ANTI);
+const facesOf = (text) => text.split('\n').filter((l) => /^ {2}face \d+/.test(l))
+  .map((l) => Number(/center (-?[\d.]+),/.exec(l)?.[1] ?? NaN));
+
 // ---------- 시나리오 ----------
 
 const results = [];
@@ -599,7 +673,7 @@ async function runScenarios(app, origin) {
     expect(wanted.every((f) => assets.fonts.includes(f)), `fonts ${assets.fonts.join(', ')}`);
     const failed = assets.files.filter((f) => f.status !== 200);
     expect(assets.files.length >= 3 && failed.length === 0, `assets ${JSON.stringify(failed.length ? failed : assets.files)}`);
-    return `delegate ${dev.get('delegate')}, ${dev.get('video')}, detect @ ${parseFps(dev.get('detect'))}fps, settings ${dev.get('settings')};`
+    return `camera "${dev.get('camera')}", delegate ${dev.get('delegate')}, ${dev.get('video')}, detect @ ${parseFps(dev.get('detect'))}fps, settings ${dev.get('settings')};`
       + ` fonts loaded, ${assets.files.length} assets 200`;
   });
 
@@ -896,6 +970,95 @@ async function runScenarios(app, origin) {
       return `slider fps 18 applied live; saved; after reload ${kept.split(', boil')[0].replace(/^running, /, '')}; API GET 200, no header 403, other case 404`;
     } finally {
       const restored = restoreSettings('after effect settings scenario');
+      if (!restored.ok) throw new Error(`could not restore settings files: ${restored.detail}`);
+    }
+  });
+
+  await scenario('좌우 반전(E 카메라) 켬 → 끔 → 켬: <video> CSS·효과 미리보기·결과 사진 방향(영상과 격자 상관), 인식 다시 재기, 끔 저장 → 새로고침 유지 (파일은 원래대로)', async () => {
+    const details = [];
+    // 지금 반전 상태: D mirror 줄, <video> CSS, 효과 그림 ↔ 영상 상관(새 그림 8장 이상)
+    const look = async (label) => {
+      await app.evaluate('window.__mirrorReader.samples.length = 0; true');
+      await app.waitFor(`${label}: drawings`, async () => (await app.evaluate('window.__mirrorReader.samples.length')) >= 8, 5000);
+      const css = await app.evaluate(`(() => { const v = document.getElementById('preview');
+        return { mirrored: v.classList.contains('is-mirrored'), transform: getComputedStyle(v).transform, canvas: getComputedStyle(document.getElementById('effect')).transform }; })()`);
+      return { dev: (await app.dev()).get('mirror'), css, preview: await app.evaluate(MIRROR_PREVIEW) };
+    };
+    const expectLook = (s, on, label) => {
+      expect(s.dev === `${on ? 'on' : 'off'} (E camera)`, `${label}: D mirror ${s.dev}`);
+      expect(s.css.mirrored === on && (on ? /^matrix\(-1, 0, 0, 1, 0, 0\)$/.test(s.css.transform) : s.css.transform === 'none'), `${label}: video css ${JSON.stringify(s.css)}`);
+      expect(s.css.canvas === 'none', `${label}: effect canvas must not be CSS-mirrored: ${s.css.canvas}`);
+      expect(s.preview.n >= 8 && oriented(s.preview, on), `${label}: preview vs video ${JSON.stringify(s.preview)} (anti ±${MIRROR_ANTI})`);
+      return `${label} preview~video anti ${s.preview.anti} (${s.preview.n} drawings, same ${s.preview.same} / flipped ${s.preview.flipped})`;
+    };
+    // S 한 장: 결과 ↔ 셔터 순간 그림(같은 방향이어야), 결과 ↔ 그 그림의 영상(반전이면 거울 방향), D capture 줄의 mirrored
+    const shot = async (on, label) => {
+      await app.evaluate('window.__mirrorReader.shutter = null; true');
+      const { completedDelta, resources, dev, extra } = await withAutoPaused(app, () => manualCycle(app, { onResult: () => app.evaluate(MIRROR_RESULT) }));
+      expect(completedDelta === 1 && photoFree(resources), `${label}: S +${completedDelta}, ${dev.get('resources')}`);
+      const fx = dev.get('photo-fx') ?? '';
+      expect(/^applied gray-oil 1080x1920 /.test(fx), `${label}: photo-fx ${fx}`);
+      expect(/, mirrored\)/.test(dev.get('capture') ?? '') === on, `${label}: capture ${dev.get('capture')}`);
+      // 결과는 셔터 순간 그림과 같은 방향(같은 그림), 영상과는 반전이면 거울 방향
+      expect(extra.drawing && oriented(extra.drawing, false), `${label}: result vs shutter drawing ${JSON.stringify(extra)}`);
+      expect(oriented(extra.video, on), `${label}: result vs video at shutter ${JSON.stringify(extra)}`);
+      return `${label} result~drawing anti ${extra.drawing.anti} (same ${extra.drawing.same}), result~video anti ${extra.video.anti}`
+        + `${fx.includes('same drawing as preview') ? ', same drawing as preview' : ', new drawing'}`;
+    };
+    const resets = async () => Number(/criteria resets (\d+)/.exec((await app.dev()).get('faces') ?? '')?.[1] ?? NaN);
+    try {
+      await app.open();
+      await waitReady(app);
+      await app.evaluate(MIRROR_READER);
+      await app.key('KeyE');
+      await app.waitFor('effect panel open', () => app.evaluate("!document.getElementById('effect-panel').hidden"), 5000);
+      expect((await app.evaluate("document.querySelector('#effect-panel select[data-key=\"mirror\"]').value")) === 'true', 'mirror select default');
+      const on1 = await look('on');
+      details.push(expectLook(on1, true, 'on'));
+      details.push(await shot(true, 'on'));
+      // 끄기: 바로 반영, 인식 상태 처음부터 (criteria resets +1)
+      const facesOn = facesOf(await app.devText()); // 바꾸기 바로 전 얼굴 위치 (화면 좌표 x)
+      const before = await resets();
+      await app.choose('mirror', 'false');
+      expect((await resets()) === before + 1, `criteria resets ${before} -> ${await resets()}`);
+      // 얼굴이 하나 보였으면(실제 카메라 앞 사람) 바꾼 뒤 첫 감지에서 화면 좌표 x가 1 - x 근처로 바뀐다. 없으면 미검증으로 남긴다
+      const facesOff = facesOn.length === 0 ? [] : await app.waitFor('faces after mirror off', async () => {
+        const list = facesOf(await app.devText());
+        return list.length > 0 ? list : null;
+      }, 4000).catch(() => []);
+      const off = await look('off');
+      details.push(expectLook(off, false, 'off'));
+      if (facesOn.length === 1 && facesOff.length === 1) {
+        expect(Math.abs(facesOff[0] - (1 - facesOn[0])) < 0.1, `face center x on ${facesOn[0]} -> off ${facesOff[0]}`);
+        details.push(`face center x on ${facesOn[0]} -> off ${facesOff[0]}`);
+      } else {
+        details.push(`face position not checked (faces on ${facesOn.length}, off ${facesOff.length})`);
+      }
+      details.push(await shot(false, 'off'));
+      // 저장 → 새로고침: 끔 유지, 파일에 mirror false
+      await app.evaluate("document.querySelector('#effect-panel button[data-action=\"save\"]').click(); true");
+      await app.waitFor('saved message', () => app.evaluate("document.querySelector('#effect-panel [data-message]').textContent === '파일에 저장했습니다.'"), 5000);
+      await app.key('KeyE');
+      await app.open();
+      await waitReady(app);
+      await app.evaluate(MIRROR_READER);
+      await app.waitFor('effect settings loaded', async () => /\((file|saved)/.test(subLine(await app.devText(), 'values')), 10000);
+      const reloaded = await look('reload');
+      details.push(expectLook(reloaded, false, 'after reload off'));
+      const api = await app.evaluate(`(async () => (await (await fetch('${EFFECT_SETTINGS_API}', { cache: 'no-store' })).json()))()`);
+      expect(api.version === 1 && api.settings.mirror === false, `file ${JSON.stringify(api)}`);
+      // 다시 켬 (저장하지 않고 닫으면 저장값 끔으로 돌아간다)
+      await app.key('KeyE');
+      await app.waitFor('effect panel open', () => app.evaluate("!document.getElementById('effect-panel').hidden"), 5000);
+      await app.choose('mirror', 'true');
+      const on2 = await look('on again');
+      details.push(expectLook(on2, true, 'on again'));
+      await app.key('KeyE');
+      await app.waitFor('reverted to saved off', async () => (await app.dev()).get('mirror') === 'off (E camera)', 3000);
+      details.push('close without save -> off; file version 1 mirror false');
+      return details.join('; ');
+    } finally {
+      const restored = restoreSettings('after mirror scenario');
       if (!restored.ok) throw new Error(`could not restore settings files: ${restored.detail}`);
     }
   });
