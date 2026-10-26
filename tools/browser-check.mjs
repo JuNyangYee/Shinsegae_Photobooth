@@ -624,6 +624,10 @@ async function runScenarios(app, origin) {
     expect(m && Math.abs(Number(m[2]) - Number(m[1])) <= 1, `drawings/s: ${running}`);
     // 조절값 파일이 없으면 기본값: 처리 해상도 0.5 → 540x960, 초당 그림 12 (사용자 결정 2026-10-19)
     expect(/^running, 540x960 \(preview x0\.5,/.test(running) && m[1] === '12', `defaults: ${running}`);
+    // 강도 0.3·붓 크기 1.3·보완 층 문턱 0.3·밝기 -0.05·대비 1.5·감마 1.3 (사용자 결정 2026-10-26)
+    const values = subLine(await app.devText(), 'values');
+    expect(/^strength 0\.3 size 1\.3 boil 0\.05 fps 12 grade 1 refine 0\.3 scale 0\.5 \| output gray-oil /.test(values)
+      && /brightness -0\.05 contrast 1\.5 gamma 1\.3 \(defaults\b/.test(values), `default values: ${values}`);
     const ready = await resultReady('result prepared');
     const layout = await app.evaluate(`(() => { const c = document.getElementById('effect'), v = document.getElementById('preview');
       const box = (e) => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map(Math.round).join(','); };
@@ -712,9 +716,9 @@ async function runScenarios(app, origin) {
       await app.choose('dither', 'atkinson');
       const shot = await withAutoPaused(app, () => thermalShot(app, { method: 'atkinson', check: 'cpu dither' }));
       details.push(`atkinson ${shot.compare}`);
-      // 용지 384점(58mm), 감마 1.3 → 저장 → 새로고침
+      // 용지 384점(58mm), 감마 1.6(기본값 1.3과 다르게) → 저장 → 새로고침
       await app.choose('paperDots', '384');
-      await app.evaluate(`(() => { const i = document.querySelector('#effect-panel input[data-key="gamma"]'); i.value = '1.3'; i.dispatchEvent(new Event('input')); return true; })()`);
+      await app.evaluate(`(() => { const i = document.querySelector('#effect-panel input[data-key="gamma"]'); i.value = '1.6'; i.dispatchEvent(new Event('input')); return true; })()`);
       await app.waitFor('paper 384', async () => /^thermal 384x683 atkinson/.test(subLine(await app.devText(), 'output')), 5000);
       await app.evaluate("document.querySelector('#effect-panel button[data-action=\"save\"]').click(); true");
       await app.waitFor('saved message', () => app.evaluate("document.querySelector('#effect-panel [data-message]').textContent === '파일에 저장했습니다.'"), 5000);
@@ -723,14 +727,14 @@ async function runScenarios(app, origin) {
       await waitReady(app);
       const kept = await app.waitFor('kept after reload', async () => {
         const text = await app.devText();
-        return /^thermal 384x683 atkinson/.test(subLine(text, 'output')) && /output thermal atkinson paper 384 .*gamma 1\.3/.test(subLine(text, 'values'))
+        return /^thermal 384x683 atkinson/.test(subLine(text, 'output')) && /output thermal atkinson paper 384 .*gamma 1\.6/.test(subLine(text, 'values'))
           ? subLine(text, 'output') : null;
       }, 10000);
       const canvas = await app.evaluate("(() => { const c = document.getElementById('effect'); return c.width + 'x' + c.height + ' ' + getComputedStyle(c).imageRendering; })()");
       expect(canvas === '1080x1920 auto', `canvas after reload ${canvas}`);
       const api = await app.evaluate(`(async () => (await (await fetch('${EFFECT_SETTINGS_API}', { cache: 'no-store' })).json()))()`);
       expect(api.version === 1 && api.settings.outputMode === 'thermal' && api.settings.dither === 'atkinson' && api.settings.paperDots === 384
-        && api.settings.gamma === 1.3, `file ${JSON.stringify(api)}`);
+        && api.settings.gamma === 1.6, `file ${JSON.stringify(api)}`);
       details.push(`saved → reload: ${kept.split(',')[0]}, canvas ${canvas}, file version 1 with output keys`);
       return details.join('; ');
     } finally {
