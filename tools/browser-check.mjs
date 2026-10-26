@@ -484,7 +484,10 @@ const EFFECT_READER = `(() => {
   const c = document.getElementById('effect');
   const gl = c.getContext('webgl2');
   const r = window.__fxReader = { drawings: [], shutterAt: null };
-  const probe = new Uint8Array(8 * 8 * 4);
+  // 새 그림인지: 지운 버퍼는 모두 0이다(alpha false라 알파로는 구분하지 못한다). 중앙 한 점이 아니라 가운데 가로·세로 한 줄을 본다
+  // (대비를 높인 기본값에서는 어두운 곳이 순수 검정이라, 중앙 8x8만 보면 그린 그림을 놓친다, 로그 2026-10-26-01)
+  const row = new Uint8Array(4096 * 4), col = new Uint8Array(4096 * 4);
+  const anyLit = (a, n) => { for (let i = 0; i < n; i += 4) if (a[i] || a[i + 1] || a[i + 2]) return true; return false; };
   new MutationObserver(() => {
     const cd = document.getElementById('countdown');
     if (cd.hidden && r.wasCounting) { r.shutterAt = performance.now(); r.pinned = r.drawings[r.drawings.length - 1] ?? null; }
@@ -494,9 +497,9 @@ const EFFECT_READER = `(() => {
     requestAnimationFrame(loop);
     const W = c.width, H = c.height;
     if (c.hidden || W < 16) return;
-    gl.readPixels((W >> 1) - 4, (H >> 1) - 4, 8, 8, gl.RGBA, gl.UNSIGNED_BYTE, probe);
-    let any = 0; for (let i = 0; i < probe.length; i += 4) any += probe[i] + probe[i + 1] + probe[i + 2];
-    if (any === 0) return; // 이 화면 갱신에서는 새로 그리지 않았다
+    gl.readPixels(0, H >> 1, W, 1, gl.RGBA, gl.UNSIGNED_BYTE, row);
+    gl.readPixels(W >> 1, 0, 1, H, gl.RGBA, gl.UNSIGNED_BYTE, col);
+    if (!anyLit(row, W * 4) && !anyLit(col, H * 4)) return; // 이 화면 갱신에서는 새로 그리지 않았다
     const buf = new Uint8Array(W * H * 4);
     gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, buf);
     r.drawings.push({ at: performance.now(), W, H, buf });
