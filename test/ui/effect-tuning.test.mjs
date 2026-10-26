@@ -77,9 +77,9 @@ describe('effect-tuning (E)', () => {
     t.tuning.toggle();
     assert.equal(t.panel.hidden, false);
     t.slide('fps', 18);
-    t.slide('refineThreshold', 0.3);
+    t.slide('refineThreshold', 0.4);
     assert.equal(t.running().fps, 18);
-    assert.deepEqual(t.running().refine, [3.5, 3, 10, 0.6, 0.3]);
+    assert.deepEqual(t.running().refine, [3.5, 3, 10, 0.6, 0.4]);
     assert.equal(t.output('fps'), '18');
   });
 
@@ -120,7 +120,7 @@ describe('effect-tuning (E)', () => {
     t.saves[0].reject(new Error('HTTP 500'));
     await flush();
     assert.equal(t.tuning.isOpen(), false);
-    assert.equal(t.running().size, 1.1);
+    assert.equal(t.running().size, 1.3);
     assert.equal(t.tuning.describeSettingsSource(), 'file');
   });
 

@@ -211,12 +211,12 @@ describe('loadInitialEffectSettings (효과 조절값, 5-2): 파일 → 기본�
   const file = (read) => ({ read, write: () => { throw new Error('must not write'); } });
 
   it('파일이 있으면 그 값', async () => {
-    const text = JSON.stringify({ version: 1, settings: { strength: 0.3, size: 1, boil: 0.2, fps: 10, grade: 0.5, refineThreshold: 0.3, previewScale: 0.75,
+    const text = JSON.stringify({ version: 1, settings: { strength: 0.2, size: 1, boil: 0.2, fps: 10, grade: 0.5, refineThreshold: 0.4, previewScale: 0.75,
       outputMode: 'gray', dither: 'bayer', brightness: -0.1, contrast: 1.2, gamma: 0.9, paperDots: 384, bwStyle: 'texture', bwTexture: 1.5, lineSpacing: 3 } });
     const r = await loadInitialEffectSettings({ file: file(async () => ({ found: true, text })), defaults: config.effect });
     assert.equal(r.source, SettingsSource.FILE);
     assert.equal(r.settings.fps, 10);
-    assert.deepEqual(r.settings.refine, [3.5, 3, 10, 0.6, 0.3]);
+    assert.deepEqual(r.settings.refine, [3.5, 3, 10, 0.6, 0.4]);
     assert.deepEqual([r.settings.outputMode, r.settings.dither, r.settings.paperDots, r.settings.gamma], ['gray', 'bayer', 384, 0.9]);
     assert.deepEqual([r.settings.bwStyle, r.settings.bwTexture, r.settings.lineSpacing], ['texture', 1.5, 3]);
     assert.deepEqual(r.issues, []);

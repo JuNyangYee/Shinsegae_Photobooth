@@ -18,8 +18,11 @@ import {
 import { config } from '../../src/web/config/config.js';
 import { normalizeEffectSettings } from '../../src/web/config/effect-settings.js';
 
-// 원본 프리셋 oil2f 값. 기본값(config.effect)은 2026-10-19에 개발 PC 저장값(size 1.1 등)으로 바뀌었으므로 원본 값을 덮어 쓴다
-const oil2f = normalizeEffectSettings({ ...config.effect, size: 1.25, boil: 0.1, fps: 24 }, config.effect).settings;
+// 원본 프리셋 oil2f 값. 기본값(config.effect)은 2026-10-19·2026-10-26에 개발 PC 저장값(size 1.3·strength 0.3·보완 층 문턱 0.3 등)으로
+// 바뀌었으므로 원본 값을 덮어 쓴다
+const oil2f = normalizeEffectSettings({
+  ...config.effect, strength: 0.1, size: 1.25, boil: 0.1, fps: 24, refine: [3.5, 3, 10, 0.6, 0.22],
+}, config.effect).settings;
 
 /** 비교 기준: 모든 획을 새로 만들어 (열쇠, 번호) 순으로 정렬한다 (캐시·합치기 없이) */
 function naiveStrokes({ layer, spacing, width, height, boil, seed }) {

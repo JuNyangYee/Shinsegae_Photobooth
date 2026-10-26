@@ -20,27 +20,27 @@ import {
 const defaults = config.effect;
 
 describe('normalizeEffectSettings', () => {
-  it('기본값(개발 PC 저장값, 사용자 결정 2026-10-19)은 그대로 통과한다', () => {
+  it('기본값(개발 PC 저장값, 사용자 결정 2026-10-19·2026-10-26)은 그대로 통과한다', () => {
     const { settings, issues } = normalizeEffectSettings(defaults, defaults);
     assert.deepEqual(issues, []);
-    assert.equal(settings.strength, 0.1);
-    assert.equal(settings.size, 1.1, 'oil2f 1.25에서 개발 PC 저장값으로');
+    assert.equal(settings.strength, 0.3, 'oil2f 0.1에서 개발 PC 저장값으로');
+    assert.equal(settings.size, 1.3, 'oil2f 1.25에서 개발 PC 저장값으로');
     assert.equal(settings.boil, 0.05, '8단계 0.1에서 개발 PC 저장값으로');
     assert.equal(settings.fps, 12, 'oil2f 24에서 개발 PC 저장값으로');
     assert.equal(settings.grade, 1);
     assert.deepEqual(settings.layers, [[36, 15, 84, 3.8, 0, 1], [18, 8, 44, 2.6, 0.02, 1], [8, 4, 20, 1.4, 0.06, 1]]);
-    assert.deepEqual(settings.refine, [3.5, 3, 10, 0.6, 0.22]);
+    assert.deepEqual(settings.refine, [3.5, 3, 10, 0.6, 0.3], '오차 문턱만 oil2f 0.22에서 개발 PC 저장값으로');
     assert.equal(settings.previewScale, 0.5, '1에서 개발 PC 저장값으로');
     assert.ok(Object.isFrozen(settings) && Object.isFrozen(settings.layers[0]) && Object.isFrozen(settings.refine));
   });
 
-  it('출력 단계 기본값: 회색조 유화(8단계 사용자 결정), 80mm 576점, 레벨 중립 (6-1 사용자 결정)', () => {
+  it('출력 단계 기본값: 회색조 유화(8단계 사용자 결정), 80mm 576점, 레벨은 개발 PC 저장값 (2026-10-26 사용자 결정)', () => {
     const { settings } = normalizeEffectSettings(defaults, defaults);
     assert.equal(settings.outputMode, 'gray-oil');
     assert.deepEqual([...OUTPUT_MODES], ['gray-oil', 'thermal', 'gray', 'off'], '기존 모드 3개는 남긴다');
     assert.equal(settings.paperDots, 576);
     assert.ok(DITHER_METHODS.includes(settings.dither));
-    assert.deepEqual([settings.brightness, settings.contrast, settings.gamma], [0, 1, 1]);
+    assert.deepEqual([settings.brightness, settings.contrast, settings.gamma], [-0.05, 1.5, 1.3]);
   });
 
   it('출력 모드·점 방식은 목록에 없으면 기본값, 용지 점 수는 8의 배수·범위로, 레벨은 범위로', () => {
@@ -68,7 +68,7 @@ describe('normalizeEffectSettings', () => {
 
   it('숫자가 아니거나 없으면 그 항목만 기본값', () => {
     const { settings, issues } = normalizeEffectSettings({ strength: 'x', fps: NaN, boil: 0.3 }, defaults);
-    assert.equal(settings.strength, 0.1);
+    assert.equal(settings.strength, 0.3);
     assert.equal(settings.fps, 12);
     assert.equal(settings.boil, 0.3);
     assert.ok(issues.includes('strength: not a number -> default'));
@@ -103,16 +103,16 @@ describe('효과 조절값 (E 화면·파일, 5-2)', () => {
   it('조절값은 16개(5-2의 7개 + 출력 단계 6개 + 흑백 스타일 3개), 보완 층 문턱은 refine[4]', () => {
     assert.deepEqual(Object.keys(effectTunables(base)), [...EFFECT_TUNABLE_KEYS]);
     assert.deepEqual(effectTunables(base), {
-      strength: 0.1, size: 1.1, boil: 0.05, fps: 12, grade: 1, refineThreshold: 0.22, previewScale: 0.5,
-      outputMode: 'gray-oil', dither: defaults.dither, brightness: 0, contrast: 1, gamma: 1, paperDots: 576,
+      strength: 0.3, size: 1.3, boil: 0.05, fps: 12, grade: 1, refineThreshold: 0.3, previewScale: 0.5,
+      outputMode: 'gray-oil', dither: defaults.dither, brightness: -0.05, contrast: 1.5, gamma: 1.3, paperDots: 576,
       bwStyle: defaults.bwStyle, bwTexture: defaults.bwTexture, lineSpacing: defaults.lineSpacing,
     });
   });
 
   it('조절값을 덮으면 붓 층 모양은 그대로, 범위 밖은 맞춘다', () => {
-    const { settings, issues } = applyEffectTunables(base, { fps: 18, refineThreshold: 0.3, strength: 5 }, defaults);
+    const { settings, issues } = applyEffectTunables(base, { fps: 18, refineThreshold: 0.4, strength: 5 }, defaults);
     assert.equal(settings.fps, 18);
-    assert.deepEqual(settings.refine, [3.5, 3, 10, 0.6, 0.3]);
+    assert.deepEqual(settings.refine, [3.5, 3, 10, 0.6, 0.4]);
     assert.equal(settings.strength, 1.6);
     assert.deepEqual(settings.layers, base.layers);
     assert.deepEqual(issues, ['strength: 5 -> 1.6']);
@@ -136,7 +136,7 @@ describe('효과 조절값 (E 화면·파일, 5-2)', () => {
     const partial = parseStoredEffectSettings(JSON.stringify({ version: 1, settings: { fps: 10 } }), defaults);
     assert.equal(partial.source, 'stored');
     assert.equal(partial.settings.fps, 10);
-    assert.equal(partial.settings.strength, 0.1);
+    assert.equal(partial.settings.strength, 0.3);
     assert.equal(partial.issues.length, 15);
     for (const [text, issue] of [['{', /not valid JSON/], ['[]', /not an object/], ['{"version":2,"settings":{}}', /version 2/]]) {
       const r = parseStoredEffectSettings(text, defaults);
@@ -149,11 +149,11 @@ describe('효과 조절값 (E 화면·파일, 5-2)', () => {
 
   it('5-2 파일(같은 버전 1, 조절값 7개만)을 읽으면 그 값은 쓰고 출력 단계는 기본값(회색조 유화)으로 채운다', () => {
     const old = JSON.stringify({ version: 1, settings: {
-      strength: 0.3, size: 1, boil: 0.2, fps: 12, grade: 0.5, refineThreshold: 0.3, previewScale: 0.75,
+      strength: 0.2, size: 1, boil: 0.2, fps: 12, grade: 0.5, refineThreshold: 0.4, previewScale: 0.75,
     } }, null, 2);
     const r = parseStoredEffectSettings(old, defaults);
     assert.equal(r.source, 'stored');
-    assert.deepEqual([r.settings.strength, r.settings.fps, r.settings.refine[4], r.settings.previewScale], [0.3, 12, 0.3, 0.75]);
+    assert.deepEqual([r.settings.strength, r.settings.fps, r.settings.refine[4], r.settings.previewScale], [0.2, 12, 0.4, 0.75]);
     assert.deepEqual([r.settings.outputMode, r.settings.paperDots, r.settings.dither], ['gray-oil', 576, defaults.dither]);
     assert.deepEqual(r.issues, ['outputMode', 'dither', 'brightness', 'contrast', 'gamma', 'paperDots', 'bwStyle', 'bwTexture', 'lineSpacing']
       .map((k) => `${k}: missing -> default`));
