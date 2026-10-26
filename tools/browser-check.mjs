@@ -701,10 +701,10 @@ async function runScenarios(app, origin) {
     expect(m && Math.abs(Number(m[2]) - Number(m[1])) <= 1, `drawings/s: ${running}`);
     // 조절값 파일이 없으면 기본값: 처리 해상도 0.5 → 540x960, 초당 그림 12 (사용자 결정 2026-10-19)
     expect(/^running, 540x960 \(preview x0\.5,/.test(running) && m[1] === '12', `defaults: ${running}`);
-    // 강도 0.3·붓 크기 1.3·보완 층 문턱 0.3·밝기 -0.05·대비 1.5·감마 1.3 (사용자 결정 2026-10-26)
+    // 강도 0.3·붓 크기 1.3·보완 층 문턱 0.3·밝기 -0.05·대비 1.5·감마 1.3 (사용자 결정 2026-10-26), 좌우 반전 기본 켬
     const values = subLine(await app.devText(), 'values');
     expect(/^strength 0\.3 size 1\.3 boil 0\.05 fps 12 grade 1 refine 0\.3 scale 0\.5 \| output gray-oil /.test(values)
-      && /brightness -0\.05 contrast 1\.5 gamma 1\.3 \(defaults\b/.test(values), `default values: ${values}`);
+      && /brightness -0\.05 contrast 1\.5 gamma 1\.3 mirror on \(defaults\b/.test(values), `default values: ${values}`);
     const ready = await resultReady('result prepared');
     const layout = await app.evaluate(`(() => { const c = document.getElementById('effect'), v = document.getElementById('preview');
       const box = (e) => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map(Math.round).join(','); };
