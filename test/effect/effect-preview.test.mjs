@@ -56,7 +56,7 @@ function setup({ ready = true, renderer = fakeRenderer(), createRenderer, settin
   const idles = []; // requestIdleCallback 흉내: 번호 = 순번 + 1, 취소하면 null
   let lastIdle = 0;
   const preview = createEffectPreview({
-    canvas, video, camera, stageAspect: STAGE, mirror: true, settings,
+    canvas, video, camera, stageAspect: STAGE, settings,
     createRenderer: createRenderer ?? (() => renderer),
     raf: (fn) => { queued = fn; return 1; },
     cancelRaf: () => { queued = null; },
@@ -285,6 +285,40 @@ describe('createEffectPreview', () => {
     assert.equal(t.renderer.calls.at(-1).source, t.video);
     assert.equal(still.sameAsPreview, false);
     assert.deepEqual([still.width, still.height], [1080, 1920]);
+  });
+
+  it('좌우 반전은 설정(mirror)을 따른다: 기본값 켬, 끄면 다음 갱신에 반전 없이 다시 읽는다 (CSS 반전 없음)', () => {
+    const t = setup();
+    t.preview.start();
+    t.run(100);
+    assert.deepEqual(t.renderer.calls.at(-1).sourceScale, [-1, 1], '기본값 켬: x를 뒤집어 읽는다');
+    assert.deepEqual(t.renderer.calls.at(-1).sourceOffset, [1, 0]);
+    const drawn = t.renderer.calls.length;
+    t.preview.setSettings({ mirror: false });
+    assert.equal(t.preview.getSettings().mirror, false);
+    t.run(1000 / 60); // 그림 번호가 같아도 설정이 바뀌면 바로 다시 그린다
+    assert.equal(t.renderer.calls.length, drawn + 1);
+    assert.deepEqual(t.renderer.calls.at(-1).sourceScale, [1, 1]);
+    assert.deepEqual(t.renderer.calls.at(-1).sourceOffset, [0, 0]);
+    assert.equal(t.canvas.style.transform, undefined, '캔버스에는 CSS 반전을 걸지 않는다');
+  });
+
+  it('renderStill: 마지막 그림 뒤 반전이 바뀌었으면 그 그림을 쓰지 않고 지금 프레임·셔터 순간 반전으로 그린다', () => {
+    const t = setup();
+    t.preview.start();
+    t.run(100);
+    t.preview.setSettings({ mirror: false }); // 다음 화면 갱신 전에 셔터
+    const still = t.preview.renderStill();
+    const call = t.renderer.calls.at(-1);
+    assert.equal(call.source, t.video, '지금 프레임을 다시 올린다');
+    assert.deepEqual(call.sourceScale, [1, 1]);
+    assert.equal(still.sameAsPreview, false);
+    assert.equal(still.settings.mirror, false);
+    // 다음 그림이 반전 없이 그려진 뒤의 셔터는 그 그림을 그대로 쓴다
+    t.run(100);
+    const again = t.preview.renderStill();
+    assert.equal(again.sameAsPreview, true);
+    assert.deepEqual(t.renderer.calls.at(-1).sourceScale, [1, 1]);
   });
 
   it('renderStill: 효과가 돌고 있지 않으면 not-running 오류', () => {

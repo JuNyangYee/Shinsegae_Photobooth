@@ -149,6 +149,33 @@ describe('effect-tuning (E)', () => {
     assert.equal(t.tuning.describeSettingsSource(), 'file');
   });
 
+  it('카메라 좌우 반전: 기본값 켬, 끄면 바로 반영·저장에 들어가고, 저장하지 않고 닫으면·취소하면 저장된 값, 기본값은 켬', async () => {
+    const t = current = setup();
+    t.tuning.toggle();
+    assert.equal(t.select('mirror').value, 'true');
+    assert.equal(t.select('mirror').disabled, false);
+    t.choose('mirror', false);
+    assert.equal(t.running().mirror, false);
+    assert.match(t.tuning.describeSettingsSource(), /unsaved changes/);
+    t.tuning.close(); // 저장하지 않고 닫음 → 되돌림
+    assert.equal(t.running().mirror, true);
+    t.tuning.toggle();
+    t.choose('mirror', false);
+    t.click('revert');
+    assert.equal(t.running().mirror, true);
+    t.choose('mirror', false);
+    t.click('save');
+    assert.equal(t.saves[0].settings.mirror, false);
+    t.saves[0].resolve();
+    await flush();
+    t.tuning.close();
+    assert.equal(t.running().mirror, false);
+    assert.equal(t.select('mirror').value, 'false');
+    t.tuning.toggle();
+    t.click('defaults');
+    assert.equal(t.running().mirror, true);
+  });
+
   it('출력 단계 (6-1): 모드·점 방식·용지 폭은 선택 상자, 밝기·대비·감마는 슬라이더로 바로 반영, 저장에 들어간다', async () => {
     const t = current = setup();
     t.tuning.toggle();

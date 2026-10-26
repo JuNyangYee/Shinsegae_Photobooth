@@ -1,9 +1,6 @@
 // 현장·개발 환경에 따라 바꿀 수 있는 값
 
 export const config = Object.freeze({
-  // 미리보기 좌우 반전 (거울). 반전은 웹에서만 하고 OBS에서는 하지 않는다.
-  mirror: true,
-
   // 화면·사진 비율 (가로:세로)
   aspectRatio: Object.freeze({ width: 9, height: 16 }),
 
@@ -130,6 +127,10 @@ export const config = Object.freeze({
     bwStyle: 'stroke',
     bwTexture: 1, // 질감 세기: 획 볼록 조명·국소 대비 (0~2, 톤 점에서는 쓰지 않는다)
     lineSpacing: 4, // 선 간격: 흐름 선·붓 결 선의 주기 (인쇄 점, 2~8)
+    // ---- 카메라 ----
+    // 좌우 반전 (거울). 미리보기와 결과 사진 모두. 반전은 웹에서만 하고 OBS에서는 하지 않는다.
+    // 운영자가 E 화면 "카메라"에서 끌 수 있다(효과 조절값 파일에 저장, 2026-10-26). 효과를 끄거나(enabled false) 쓸 수 없어도 이 값을 따른다
+    mirror: true,
   }),
 
   // 감열지 화면 표시 색 (6-1). 화면에서만 쓴다. 인쇄 데이터는 순수 1비트(검은 점·흰 바탕)다. [R, G, B] 0~255

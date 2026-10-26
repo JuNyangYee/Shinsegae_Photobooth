@@ -5,6 +5,7 @@
 // 출력 단계(6-1): 모드(감열지·회색조·끔)·점 방식·용지 폭은 선택 상자, 밝기·대비·감마는 슬라이더. 기능만 넣었다(디자인은 6-3).
 // 흑백 스타일(7-1): 스타일은 선택 상자, 질감 세기·선 간격은 슬라이더. 감열지에서만 쓰고, 스타일에 따라 쓰지 않는 항목을 막는다.
 // 회색조 유화(8단계 기본 모드): 흑백 스타일 항목은 막고, 점 방식·용지 폭은 결과의 인쇄용 1비트 데이터에 쓰므로 연다.
+// 카메라 좌우 반전(2026-10-26): 켬·끔 선택 상자. 다른 값과 같이 즉시 반영·저장·취소·기본값(켬)·저장하지 않고 닫으면 되돌림.
 // Node 테스트: test/ui/effect-tuning.test.mjs
 
 import {
@@ -39,6 +40,7 @@ const SELECTS = [
   ['dither', String],
   ['paperDots', Number],
   ['bwStyle', String],
+  ['mirror', (value) => value === 'true'],
 ];
 const LEVEL_KEYS = new Set(['brightness', 'contrast', 'gamma']); // 회색조 유화·회색조·감열지에서 쓴다
 const PRINT_KEYS = new Set(['dither', 'paperDots']); // 1비트를 만드는 감열지·회색조 유화(결과의 인쇄 데이터, 8단계)에서 쓴다

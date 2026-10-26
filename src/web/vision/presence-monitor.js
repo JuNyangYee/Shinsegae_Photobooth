@@ -40,7 +40,7 @@ const AVERAGE_WEIGHT = 0.1; // 감지 시간 이동 평균 가중치
  *     detectorRetryMs: number, detectorRetryMaxMs?: number, detectorFaultAfterFailures?: number },
  *   presence: { region: object, minFaceHeight: number, maxFaceHeight: number, minScore: number,
  *     presentHoldMs: number, absentGraceMs: number },
- *   stageAspect: number, mirror: boolean,
+ *   stageAspect: number, mirror: boolean,  처음 좌우 반전 값. 바뀌면 setMirror()
  *   createDetector?: (hooks: { onContextLost: () => void }) => Promise<object>,
  *   timers?: { setTimeout: Function, clearTimeout: Function }, now?: () => number, doc?: Document,
  *   log?: { warn: Function, clear: Function } }} options
@@ -48,7 +48,7 @@ const AVERAGE_WEIGHT = 0.1; // 감지 시간 이동 평균 가중치
  *   log-limit.js errorLog). Node 테스트용
  */
 export function createPresenceMonitor({
-  video, camera, detection, presence: initialSettings, stageAspect, mirror,
+  video, camera, detection, presence: initialSettings, stageAspect, mirror: initialMirror,
   createDetector = (hooks) => createFaceDetector({
     ...detection, minDetectionConfidence: detection.detectorMinConfidence, ...hooks,
   }),
@@ -60,6 +60,7 @@ export function createPresenceMonitor({
   const context = canvas.getContext('2d', { alpha: false });
 
   let settings = initialSettings; // 판정 설정. setSettings()로 바꾸면 다음 감지부터 반영된다
+  let mirror = Boolean(initialMirror); // 화면 좌표로 바꿀 때 좌우 반전. setMirror()로 바꾸면 다음 감지부터
   let started = false;
   let timer = null;
   let ticking = false; // tick() 실행 중. 인식 알림을 받은 쪽(촬영 진행·D 화면)이 이 안에서 상태를 읽어도 running으로 보이게
@@ -82,7 +83,7 @@ export function createPresenceMonitor({
   let lastDetectionError = '';
   let recentTicks = [];
   let skippedSameFrame = 0; // 새 프레임이 없어 건너뛴 감지 수
-  let criteriaResets = 0; // 판정 기준이 바뀌어 인식 상태를 처음부터 다시 잰 횟수
+  let criteriaResets = 0; // 판정 기준·좌우 반전이 바뀌어 인식 상태를 처음부터 다시 잰 횟수
 
   // 생성에 실패하거나 감지기를 버리면 간격을 늘려 가며 다시 만든다. 결과가 나오면 루프 상태를 다시 맞추고 감지기 상태를 알린다.
   const keeper = createDetectorKeeper({
@@ -263,6 +264,14 @@ export function createPresenceMonitor({
     notify();
   }
 
+  // 이전 기준으로 안정된 "인식됨"이 남아 새 기준으로 확인되기 전에 자동 시작되지 않게, 처음부터 다시 잰다
+  function restartPresence() {
+    criteriaResets += 1;
+    presence = initialPresenceState;
+    faces = [];
+    notify();
+  }
+
   function start() {
     if (started) return;
     started = true;
@@ -286,12 +295,18 @@ export function createPresenceMonitor({
       const changed = !sameCriteria(settings, next);
       settings = next;
       if (!changed) return;
-      criteriaResets += 1;
-      presence = initialPresenceState;
-      faces = [];
-      notify();
+      restartPresence();
     },
     getSettings: () => settings,
+    /**
+     * 좌우 반전을 바꾼다 (E 화면 "카메라"). 인식 영역은 관람객이 보는 화면 기준이라, 반전이 바뀌면 같은 얼굴이 영역의 반대쪽에 온다.
+     * 그래서 기준이 바뀐 것과 같이 인식 상태를 처음부터 다시 재고(바뀌는 순간 "인식 안됨"), 이전 좌표의 얼굴 박스도 지운다.
+     */
+    setMirror(next) {
+      if (Boolean(next) === mirror) return;
+      mirror = Boolean(next);
+      restartPresence();
+    },
     /** 감지기 상태 { health, cause, since }. health는 DetectorHealth, since는 감지기가 없게 된 시각(now 기준, 있으면 null) */
     getDetectorHealth: () => publicHealth,
     /** 감지기 상태가 바뀔 때(health·cause)마다 호출한다. 등록 즉시 한 번 호출한다. 해제 함수를 돌려준다. */
@@ -339,6 +354,7 @@ export function createPresenceMonitor({
         criteriaResets,
         faces,
         settings,
+        mirror,
         present: presence.present,
         raw: presence.raw,
         progress: presenceProgress(presence, now, settings),

@@ -16,7 +16,7 @@ const defaults = Object.freeze({
 // 영상 기준 얼굴 하나: 화면 기준 중심 (0.5, 0.36), 높이 0.12, 점수 0.95 → 기본 기준으로 인정
 const FACE = Object.freeze({ x: 0.4, y: 0.3, width: 0.2, height: 0.12, score: 0.95 });
 
-async function setupMonitor({ settings = defaults } = {}) {
+async function setupMonitor({ settings = defaults, mirror = true } = {}) {
   const clock = fakeClock(1000);
   const doc = {
     hidden: false,
@@ -42,7 +42,7 @@ async function setupMonitor({ settings = defaults } = {}) {
     detection: { maxFps: 15, inputMaxSize: 640, detectorRetryMs: 15000 },
     presence: settings,
     stageAspect: 9 / 16,
-    mirror: true,
+    mirror,
     createDetector: async () => detector,
     timers: clock.timers,
     now: clock.now,
@@ -144,6 +144,78 @@ describe('createPresenceMonitor: 기준이 바뀌면 인식 상태를 다시 잰
     t.monitor.setSettings({ ...defaults, region: { ...defaults.region } });
     assert.equal(t.monitor.isPresent(), true);
     assert.equal(t.monitor.getDebugSnapshot().criteriaResets, 0);
+  });
+});
+
+describe('createPresenceMonitor: 좌우 반전을 바꾸면 (E 화면 "카메라", 2026-10-26)', () => {
+  // 영상 오른쪽(중심 x 0.75)의 얼굴. 반전 켬이면 화면 왼쪽(0.25), 끔이면 화면 오른쪽(0.75)에 보인다
+  const RIGHT_IN_VIDEO = Object.freeze({ x: 0.7, y: 0.3, width: 0.1, height: 0.12, score: 0.95 });
+  const leftHalf = Object.freeze({ ...defaults, region: Object.freeze({ x: 0, y: 0, width: 0.5, height: 1 }) });
+
+  it('판정 좌표가 화면 기준으로 바뀐다: 왼쪽 절반 영역에서 켬이면 안, 끔이면 밖', async () => {
+    for (const [mirror, centerX, present] of [[true, 0.25, true], [false, 0.75, false]]) {
+      const t = await setupMonitor({ settings: leftHalf, mirror });
+      t.setDetected([RIGHT_IN_VIDEO]);
+      await t.run(700);
+      const [face] = t.monitor.getDebugSnapshot().faces;
+      assert.ok(Math.abs(face.center.x - centerX) < 1e-9, `mirror ${mirror}: center ${face.center.x}`);
+      assert.equal(face.inRegion, present);
+      assert.equal(t.monitor.isPresent(), present);
+      assert.equal(t.monitor.getDebugSnapshot().mirror, mirror);
+    }
+  });
+
+  it('바꾸는 순간 인식 안됨을 알리고 얼굴 박스를 지우고, 새 반전으로 유지 시간이 지나야 다시 판정한다', async () => {
+    const t = await setupMonitor({ settings: leftHalf });
+    t.setDetected([RIGHT_IN_VIDEO]);
+    await t.run(700);
+    assert.equal(t.monitor.isPresent(), true);
+    const seen = [];
+    t.monitor.subscribe(({ present }) => seen.push(present));
+    t.monitor.setMirror(false);
+    assert.deepEqual(seen, [true, false]);
+    const snapshot = t.monitor.getDebugSnapshot();
+    assert.deepEqual([snapshot.faces.length, snapshot.criteriaResets, snapshot.mirror], [0, 1, false]);
+    await t.run(3000);
+    assert.equal(t.monitor.isPresent(), false, '끔: 같은 얼굴이 화면 오른쪽이라 영역 밖');
+    assert.ok(Math.abs(t.monitor.getDebugSnapshot().faces[0].center.x - 0.75) < 1e-9);
+    t.monitor.setMirror(true);
+    await t.run(450);
+    assert.equal(t.monitor.isPresent(), false);
+    await t.run(200);
+    assert.equal(t.monitor.isPresent(), true);
+    assert.equal(t.monitor.getDebugSnapshot().criteriaResets, 2);
+  });
+
+  it('같은 값을 다시 넣으면 다시 재지 않는다', async () => {
+    const t = await setupMonitor();
+    await t.run(700);
+    t.monitor.setMirror(true);
+    assert.equal(t.monitor.isPresent(), true);
+    assert.equal(t.monitor.getDebugSnapshot().criteriaResets, 0);
+  });
+
+  it('인식으로 시작한 카운트다운 중에 바꾸면 "떠남"으로 취소되고, E 화면이 열려 있는 동안 다시 시작하지 않는다', async () => {
+    const t = await setupMonitor();
+    const session = createSession({
+      timing, takePhoto: async () => ({ id: 'p' }), releasePhoto: () => {}, cameraReady: true,
+      timers: t.clock.timers, now: t.clock.now,
+    });
+    const tuning = { open: false };
+    const auto = createAutoStart({ session, presence: t.monitor, isTuningOpen: () => tuning.open, now: t.clock.now });
+    auto.start();
+    await t.run(700);
+    assert.equal(session.getState().state, SessionState.COUNTDOWN);
+    tuning.open = true; // E 화면을 열고 반전을 끈다 (얼굴은 가운데라 끔에서도 영역 안)
+    t.monitor.setMirror(false);
+    assert.equal(session.getState().state, SessionState.IDLE);
+    assert.equal(auto.getDebug().lastCancel.reason, 'left during countdown');
+    await t.run(2000);
+    assert.equal(t.monitor.isPresent(), true);
+    assert.equal(session.getState().state, SessionState.IDLE, '조절 화면이 열려 있어 막힘');
+    tuning.open = false;
+    auto.evaluate('effect-tuning-closed');
+    assert.equal(session.getState().state, SessionState.COUNTDOWN);
   });
 });
 
