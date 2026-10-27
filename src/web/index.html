@@ -112,19 +112,20 @@
           <span class="op-value"><output data-key="minScore"></output><span class="op-unit">점수</span></span>
         </label>
       </fieldset>
-      <details class="op-group op-advanced">
-        <summary>고급: 판정 시간</summary>
+      <fieldset class="op-group">
+        <legend>반응 속도</legend>
+        <p class="op-help">짧을수록 빨리 바뀐다. 너무 짧으면 잠깐 가려지거나 고개를 돌려도 바뀐다.</p>
         <label class="op-row">
-          <span class="op-label">인식됨까지 유지 시간<small>이만큼 계속 보여야 인식됨 (자동 촬영 시작)</small></span>
+          <span class="op-label">인식까지<small>이만큼 계속 보여야 인식됨 (자동 촬영 시작)</small></span>
           <input type="range" data-key="presentHoldMs">
-          <span class="op-value"><output data-key="presentHoldMs"></output></span>
+          <span class="op-value"><output data-key="presentHoldMs"></output><span class="op-unit">초</span></span>
         </label>
         <label class="op-row">
-          <span class="op-label">인식 안됨까지 유예 시간<small>이만큼 계속 안 보여야 인식 안됨 (카운트다운 취소)</small></span>
+          <span class="op-label">이탈까지<small>이만큼 계속 안 보여야 인식 안됨 (카운트다운 취소)</small></span>
           <input type="range" data-key="absentGraceMs">
-          <span class="op-value"><output data-key="absentGraceMs"></output></span>
+          <span class="op-value"><output data-key="absentGraceMs"></output><span class="op-unit">초</span></span>
         </label>
-      </details>
+      </fieldset>
       <details class="op-group op-json">
         <summary>현재값 JSON (복사용)</summary>
         <textarea data-json readonly rows="10" spellcheck="false"></textarea>

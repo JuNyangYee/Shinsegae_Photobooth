@@ -676,7 +676,19 @@ async function runScenarios(app, origin) {
     expect(wanted.every((f) => assets.fonts.includes(f)), `fonts ${assets.fonts.join(', ')}`);
     const failed = assets.files.filter((f) => f.status !== 200);
     expect(assets.files.length >= 3 && failed.length === 0, `assets ${JSON.stringify(failed.length ? failed : assets.files)}`);
+    // 반응 속도 (2026-10-27): 저장 파일이 없으면 기본값 인식·이탈 250ms. R 패널에서는 "고급" 안이 아니라 보이는 묶음에, 초로 보인다
+    const timing = /hold (\d+)ms, grace (\d+)ms/.exec(dev.get('criteria') ?? '');
+    if (/^defaults \(no file\)/.test(dev.get('settings') ?? '')) {
+      expect(timing?.[1] === '250' && timing?.[2] === '250', `criteria ${dev.get('criteria')}`);
+    }
+    const timingUi = await app.evaluate(`['presentHoldMs', 'absentGraceMs'].map((key) => {
+      const input = document.querySelector('#tuning-panel input[data-key="' + key + '"]');
+      return { key, inDetails: !!input.closest('details'), range: input.min + '~' + input.max + '/' + input.step,
+        shown: document.querySelector('#tuning-panel output[data-key="' + key + '"]').textContent };
+    })`);
+    expect(timingUi.every((t) => !t.inDetails && t.range === '0~2000/50'), `timing sliders ${JSON.stringify(timingUi)}`);
     return `camera "${dev.get('camera')}", delegate ${dev.get('delegate')}, ${dev.get('video')}, detect @ ${parseFps(dev.get('detect'))}fps, settings ${dev.get('settings')};`
+      + ` hold ${timing?.[1]}ms grace ${timing?.[2]}ms (R shows ${timingUi.map((t) => t.shown).join('/')}s);`
       + ` fonts loaded, ${assets.files.length} assets 200`;
   });
 

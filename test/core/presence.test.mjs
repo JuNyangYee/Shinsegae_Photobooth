@@ -221,6 +221,39 @@ describe('stepPresence', () => {
     assert.deepEqual(run([[0, true], [10, false]], { presentHoldMs: 0, absentGraceMs: 0 }), [true, false]);
   });
 
+  describe('기본값 250ms (사용자 결정 2026-10-27)', () => {
+    const fast = { presentHoldMs: 250, absentGraceMs: 250 };
+    const FRAME = 1000 / 15; // 감지 최대 15fps
+
+    it('유지 경계: 249ms 아님, 250ms 인식됨', () => {
+      assert.deepEqual(run([[0, true], [249, true], [250, true]], fast), [false, false, true]);
+    });
+
+    it('유예 경계: 인식됨에서 "없음" 249ms 유지, 250ms 인식 안됨', () => {
+      assert.deepEqual(run([[0, true], [250, true], [300, false], [549, false], [550, false]], fast),
+        [false, true, true, true, false]);
+    });
+
+    it('15fps에서는 첫 "있음"·"없음" 프레임부터 4프레임 뒤(약 267ms)에 바뀐다', () => {
+      const frames = (from, count, raw) => Array.from({ length: count }, (_, i) => [from + i * FRAME, raw]);
+      const enter = run(frames(0, 5, true), fast);
+      assert.deepEqual(enter, [false, false, false, false, true]);
+      const leave = run([...frames(0, 5, true), ...frames(5 * FRAME, 5, false)], fast);
+      assert.deepEqual(leave.slice(5), [true, true, true, true, false]);
+    });
+
+    // 유예는 첫 "없음" 프레임부터 잰다: 4프레임 연속 누락은 첫 누락~마지막 누락이 200ms라 흡수, 5프레임이면 267ms
+    it('15fps에서 연속 4프레임 누락까지는 흡수하고, 5프레임 연속이면 인식 안됨', () => {
+      const pattern = (misses) => [
+        ...Array.from({ length: 5 }, (_, i) => [i * FRAME, true]),
+        ...Array.from({ length: misses }, (_, i) => [(5 + i) * FRAME, false]),
+        [(5 + misses) * FRAME, true],
+      ];
+      for (const misses of [1, 2, 3, 4]) assert.equal(run(pattern(misses), fast).at(-2), true, `${misses} misses`);
+      assert.equal(run(pattern(5), fast).at(-2), false);
+    });
+  });
+
   it('presenceProgress: 바뀌는 중일 때만 진행 상황을 준다', () => {
     let state = stepPresence(initialPresenceState, true, 100, timing);
     assert.deepEqual(presenceProgress(state, 300, timing), { target: true, elapsedMs: 200, requiredMs: 500 });

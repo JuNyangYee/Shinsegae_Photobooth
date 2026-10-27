@@ -15,6 +15,7 @@ import {
   samePresenceSettings,
   serializePresenceSettings,
 } from '../../src/web/config/presence-settings.js';
+import { config } from '../../src/web/config/config.js';
 
 const defaults = Object.freeze({
   region: Object.freeze({ x: 0.1, y: 0.1, width: 0.8, height: 0.8 }),
@@ -47,6 +48,54 @@ function memoryStorage(initial = {}) {
 function insideStage(region) {
   return region.x >= 0 && region.y >= 0 && region.x + region.width <= 1 + 1e-12 && region.y + region.height <= 1 + 1e-12;
 }
+
+describe('판정 시간 기본값·범위 (사용자 결정 2026-10-27)', () => {
+  it('기본값은 인식·이탈 모두 250ms이고, 정규화해도 그대로다', () => {
+    assert.equal(config.presence.presentHoldMs, 250);
+    assert.equal(config.presence.absentGraceMs, 250);
+    const { settings, issues } = normalizePresenceSettings(config.presence, config.presence);
+    assert.equal(settings.presentHoldMs, 250);
+    assert.equal(settings.absentGraceMs, 250);
+    assert.deepEqual(issues, []);
+  });
+
+  it('범위는 0~2000ms, 50ms 단위: 슬라이더로 250ms와 100ms를 정확히 고를 수 있다', () => {
+    for (const key of ['presentHoldMs', 'absentGraceMs']) {
+      const { min, max, step } = presenceLimits[key];
+      assert.deepEqual({ min, max, step }, { min: 0, max: 2000, step: 50 });
+      for (const ms of [100, 250]) assert.equal((ms - min) % step, 0, `${key} ${ms}`);
+      assert.ok(config.presence[key] >= min && config.presence[key] <= max);
+    }
+  });
+
+  it('예전 상한(5000)으로 저장된 긴 값은 2000으로 맞추고 알린다. 경계값·짧은 값은 그대로', () => {
+    const { settings, issues } = normalizePresenceSettings({ ...valid, presentHoldMs: 5000, absentGraceMs: 2000 }, defaults);
+    assert.equal(settings.presentHoldMs, 2000);
+    assert.equal(settings.absentGraceMs, 2000);
+    assert.deepEqual(issues, ['presentHoldMs: 5000 -> 2000']);
+    for (const ms of [0, 100, 250]) {
+      const result = normalizePresenceSettings({ ...valid, presentHoldMs: ms, absentGraceMs: ms }, defaults);
+      assert.equal(result.settings.presentHoldMs, ms);
+      assert.equal(result.settings.absentGraceMs, ms);
+      assert.deepEqual(result.issues, []);
+    }
+  });
+
+  it('소수 ms는 정수로 반올림하고 알린다', () => {
+    const { settings, issues } = normalizePresenceSettings({ ...valid, presentHoldMs: 249.6 }, defaults);
+    assert.equal(settings.presentHoldMs, 250);
+    assert.deepEqual(issues, ['presentHoldMs: 249.6 -> 250']);
+  });
+
+  it('이전 기본값(500/1000)으로 저장된 파일은 그 값을 그대로 쓴다 (새 기본값을 쓰려면 R에서 기본값으로 → 저장)', () => {
+    const text = serializePresenceSettings({ ...config.presence, presentHoldMs: 500, absentGraceMs: 1000 });
+    const result = parseStoredPresenceSettings(text, config.presence);
+    assert.equal(result.source, 'stored');
+    assert.equal(result.settings.presentHoldMs, 500);
+    assert.equal(result.settings.absentGraceMs, 1000);
+    assert.deepEqual(result.issues, []);
+  });
+});
 
 describe('normalizePresenceSettings', () => {
   it('올바른 값은 그대로 두고 문제를 보고하지 않는다', () => {

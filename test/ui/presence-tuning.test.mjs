@@ -48,7 +48,7 @@ function setup({ loaded = {} } = {}) {
   });
   const saveButton = { dataset: { action: 'save' }, disabled: false };
   return {
-    tuning, saves, saveButton, panel,
+    tuning, saves, saveButton, panel, element,
     running: () => applied.at(-1),
     message: () => element('[data-message]').textContent,
     slide(key, value) {
@@ -158,5 +158,24 @@ describe('presence-tuning: 불러온 결과에 따른 저장 상태 (6단계 검
     t.saves[0].resolve();
     await flush();
     assert.equal(t.panel.dataset.save, 'saved', '저장하면 파일이 생긴다');
+  });
+});
+
+describe('presence-tuning: 반응 속도 (2026-10-27)', () => {
+  it('판정 시간 슬라이더는 ms 값(0~2000, 50 단위)이고 초로 보인다', () => {
+    const t = current = setup({ loaded: { settings: { ...defaults, presentHoldMs: 250, absentGraceMs: 250 } } });
+    t.tuning.toggle();
+    for (const key of ['presentHoldMs', 'absentGraceMs']) {
+      const input = t.element(`input[data-key="${key}"]`);
+      assert.deepEqual([input.min, input.max, input.step, input.value], ['0', '2000', '50', '250']);
+      assert.equal(t.element(`output[data-key="${key}"]`).textContent, '0.25');
+    }
+    t.slide('absentGraceMs', 100);
+    assert.equal(t.running().absentGraceMs, 100);
+    assert.equal(t.element('output[data-key="absentGraceMs"]').textContent, '0.10');
+    t.slide('presentHoldMs', 1500);
+    assert.equal(t.element('output[data-key="presentHoldMs"]').textContent, '1.50');
+    // 다른 슬라이더 표시는 그대로
+    assert.equal(t.element('output[data-key="minScore"]').textContent, '0.70');
   });
 });

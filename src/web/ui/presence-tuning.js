@@ -12,13 +12,14 @@ import { createRegionDrag } from './region-drag.js';
 import { SettingsSource } from '../config/settings-file.js';
 import { loadedSaveState, saveStateOf, showSaveState } from './save-state.js';
 
-// 슬라이더 항목: [설정 키, 범위, 표시 소수 자릿수, 단위]
+// 슬라이더 항목: [설정 키, 범위, 표시 소수 자릿수, 표시 배율]. 단위 글자는 index.html op-unit에 있다.
+// 판정 시간은 ms로 저장하고 초로 보인다 (250 → 0.25초).
 const SLIDERS = [
-  ['minFaceHeight', presenceLimits.faceHeight, 3, ''],
-  ['maxFaceHeight', presenceLimits.faceHeight, 3, ''],
-  ['minScore', presenceLimits.minScore, 2, ''],
-  ['presentHoldMs', presenceLimits.presentHoldMs, 0, 'ms'],
-  ['absentGraceMs', presenceLimits.absentGraceMs, 0, 'ms'],
+  ['minFaceHeight', presenceLimits.faceHeight, 3, 1],
+  ['maxFaceHeight', presenceLimits.faceHeight, 3, 1],
+  ['minScore', presenceLimits.minScore, 2, 1],
+  ['presentHoldMs', presenceLimits.presentHoldMs, 2, 1000],
+  ['absentGraceMs', presenceLimits.absentGraceMs, 2, 1000],
 ];
 
 const clone = (settings) => ({ ...settings, region: { ...settings.region } });
@@ -36,12 +37,12 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, i
   const stateText = panel.querySelector('[data-state]');
   const messageText = panel.querySelector('[data-message]');
   const jsonText = panel.querySelector('[data-json]');
-  const sliders = new Map(SLIDERS.map(([key, limits, digits, unit]) => {
+  const sliders = new Map(SLIDERS.map(([key, limits, digits, scale]) => {
     const input = panel.querySelector(`input[data-key="${key}"]`);
     input.min = String(limits.min);
     input.max = String(limits.max);
     input.step = String(limits.step);
-    return [key, { input, output: panel.querySelector(`output[data-key="${key}"]`), digits, unit }];
+    return [key, { input, output: panel.querySelector(`output[data-key="${key}"]`), digits, scale }];
   }));
 
   const loaded = initial;
@@ -87,9 +88,9 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, i
     });
     // 끌어 옮기는 방법은 패널 도움말에 있다 (6-3). 여기는 값만
     regionText.textContent = `x ${region.x.toFixed(3)} · y ${region.y.toFixed(3)} · 폭 ${region.width.toFixed(3)} · 높이 ${region.height.toFixed(3)}`;
-    for (const [key, { input, output, digits, unit }] of sliders) {
+    for (const [key, { input, output, digits, scale }] of sliders) {
       input.value = String(current[key]);
-      output.textContent = `${current[key].toFixed(digits)}${unit}`;
+      output.textContent = (current[key] / scale).toFixed(digits);
     }
     renderSaveState();
     jsonText.value = serializePresenceSettings(current);

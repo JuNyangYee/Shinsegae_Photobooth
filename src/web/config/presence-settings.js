@@ -17,8 +17,9 @@ export const presenceLimits = Object.freeze({
   faceHeight: Object.freeze({ min: 0.01, max: 1, step: 0.005 }), // 최소·최대 얼굴 크기 공통
   // 감지기 자체 기준(config.faceDetection.detectorMinConfidence 0.3)보다 낮추면 효과가 없으므로 하한을 맞춘다.
   minScore: Object.freeze({ min: 0.3, max: 1, step: 0.01 }),
-  presentHoldMs: Object.freeze({ min: 0, max: 5000, step: 50 }),
-  absentGraceMs: Object.freeze({ min: 0, max: 5000, step: 50 }),
+  // 판정 시간(ms). 0은 감지 한 프레임으로 바로 바뀐다. 2초보다 길면 떠난 사람이 찍히거나 자동 시작이 굼떠 상한을 둔다 (2026-10-27)
+  presentHoldMs: Object.freeze({ min: 0, max: 2000, step: 50 }),
+  absentGraceMs: Object.freeze({ min: 0, max: 2000, step: 50 }),
 });
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
