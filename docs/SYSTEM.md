@@ -49,7 +49,8 @@ src/web/                    index.html(진입점 /) · main.js(화면 조립·�
             camera-frame.js(카메라 처리 경로 2D 그리기·색 보정 SVG 필터) · raw-preview.js(원본 미리보기 캔버스)
   vision/   face-detector.js · detector-keeper.js(재생성·감지기 상태) · presence-monitor.js(감지 루프)
   effect/   oil-shaders.js · oil-renderer.js(WebGL2) · effect-preview.js(실시간 미리보기) · photo-effect.js(결과 사진 효과)
-  ui/       guest-screen.js · presence-tuning.js(R) · effect-tuning.js(E) · region-drag.js · dev-panel.js(D) · save-state.js
+  ui/       guest-screen.js · operator-panel.js(E 패널·섹션) · camera-tuning.js · presence-tuning.js · effect-tuning.js(카메라·인식·필터 섹션)
+            region-drag.js · dev-panel.js(D) · save-state.js
 test/                       Node 테스트 (npm test = node --test "test/**/*.test.mjs", glob 인자 때문에 Node 22 이상, 개발 PC는 Node 24.19.0으로 확인). 하위 폴더는 src/web과 같은 이름. core-deps.test.mjs(core 의존 검사), helpers.mjs(공용 흉내),
                             fixtures/(fake-vision-bundle.mjs: 번들 파일 이름으로 판별하므로 별도 파일, fake-webgl2.mjs)
 lib/mediapipe/              MediaPipe 런타임·모델 (커밋, 스크립트로만 갱신, 5절)
@@ -73,9 +74,9 @@ package.json · package-lock.json · .npmrc   개발 PC 전용. @mediapipe/tasks
 
 | 경로 (서수 비교로 정확히 같을 때만, 변형·그 밖의 `/local-api/*`는 404) | 파일 | 쓰는 쪽 |
 |---|---|---|
-| `/local-api/presence-settings` | `config/presence.local.json` | `R` (5절) |
-| `/local-api/effect-settings` | `config/effect.local.json` | `E` (6절) |
-| `/local-api/camera-settings` | `config/camera.local.json` | 카메라 설정 (3절 "카메라 처리 경로", 운영자 화면은 9-2) |
+| `/local-api/presence-settings` | `config/presence.local.json` | `E` 인식 섹션 (5절) |
+| `/local-api/effect-settings` | `config/effect.local.json` | `E` 필터 섹션 (6절) |
+| `/local-api/camera-settings` | `config/camera.local.json` | `E` 카메라 섹션 (3절 "카메라 처리 경로") |
 
 - `GET`: 있으면 200 `application/json; charset=utf-8`(저장한 바이트 그대로), 없으면 404. `PUT`: 아래 조건을 모두 만족하면 원자적으로 쓰고 204, 아니면 4xx와 짧은 이유. 그 밖은 405 `Allow: GET, PUT`. 세 경로가 같은 함수(`Invoke-SettingsApi`)를 쓴다. 파일 이름은 클라이언트가 정할 수 없다.
 - **CSRF 방어** (루프백 제한은 같은 PC의 다른 웹페이지 요청을 막지 못하므로): `X-Photobooth: 1` 헤더(없으면 403), `Content-Type: application/json`(charset은 `utf-8`만, 아니면 415), `Host`가 `localhost:<port>`(403), `Origin`이 있으면 `http://localhost:<port>`(403), `Sec-Fetch-Site`가 있으면 `same-origin`(403). 다른 출처는 사전 요청 `OPTIONS`가 405이고 CORS 허용 헤더(`Access-Control-Allow-*`)를 보내지 않아 `PUT`이 나가지 않고, 헤더 없는 단순 요청(`no-cors`)은 위 조건에서 거절된다. `Origin`·`Sec-Fetch-Site`가 없는 같은 PC 프로그램은 받는다. DNS 리바인딩은 `Host` 검사로 막는다.
@@ -123,10 +124,13 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 **첫 설치 (현장 PC)**
 
 1. Chrome과 OBS Studio를 설치한다(확인한 버전 Chrome 155, OBS 32.2.1).
-2. OBS에서 웹캠 소스, 9:16 크롭·회전·보정, 출력 해상도(화면에 맞춤)를 설정하고 가상카메라를 한 번 켜 본다. 반전은 하지 않는다. 트레이 시작은 OBS 설정 "시스템 트레이 사용".
+2. OBS에서 웹캠 소스와 출력 해상도를 설정하고 가상카메라를 한 번 켜 본다. 반전은 하지 않는다. 트레이 시작은 OBS 설정 "시스템 트레이 사용". **크롭·회전·색 보정은 한 곳에서만** 한다(둘 다 하면 두 번 적용된다):
+   - **권장 — 웹(`E` 카메라 섹션):** OBS는 원본만 넘긴다(크롭·회전·색 보정을 하지 않고 출력은 카메라 그대로 또는 9:16). 웹에서 회전(90° 단위 + 미세)·확대·이동·색 보정을 하고 원본 창으로 확인한다. 웹캠을 OBS 없이 바로 써도 된다(장치 선택).
+   - OBS: 예전처럼 OBS에서 9:16 크롭·회전·보정을 하고 출력 해상도를 화면에 맞춘다. 웹 카메라 섹션은 중립(기본값)으로 둔다.
+   - OBS 가상카메라는 해상도 `auto`로 둔다(다른 비율 프리셋은 잘려서 온다).
 3. `Launch.bat`을 실행한다(`settings.ini`가 만들어진다). 다른 값이 필요하면 고치고 다시 실행한다.
 4. 키오스크에 카메라 권한 창이 뜨면 마우스로 "허용"(전용 프로필에 저장, 포트·프로필을 바꾸면 다시).
-5. 카메라와 발자국 매트를 설치한 뒤 `R`로 인식 범위를 조절·저장한다(개발 PC 인식 값은 쓰지 않는다).
+5. 카메라와 발자국 매트를 설치한 뒤 `E`의 카메라 섹션(방향·위치·색)과 인식 섹션(인식 범위)을 조절하고 섹션마다 저장한다(개발 PC 값은 쓰지 않는다).
 6. 부팅 자동 실행은 `Setup-Startup.bat`. 로그인할 때 실행되므로 무인 운영이면 Windows 자동 로그인을 따로 설정한다.
 
 **OBS 단계:** `obs64`가 하나라도 있으면 아무것도 하지 않는다. 꺼져 있고 `obs_autostart=true`면 파일 버전을 기록하고 `obs64.exe` 폴더에서 `--startvirtualcam --minimize-to-tray --disable-updater --disable-missing-files-check`로 시작하며(32.2.1 `--help`로 확인한 플래그만), 3초 뒤 끝나 있으면 실패. 가상카메라가 늦어도 웹 자동 회복이 연결한다. OBS 32에는 `--disable-shutdown-check`가 없어, 비정상 종료 표식 `%APPDATA%\obs-studio\.sentinel\run_*`가 남으면 "안전 모드" 대화상자로 가상카메라가 시작되지 않는다. 그래서 **OBS가 하나도 없을 때만** 남은 표식을 지우고 시작한다. 32.x가 아니면 경고를 남긴다.
@@ -146,7 +150,7 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 
 ### 브라우저 확인 도구
 
-`tools/browser-check.mjs` (`npm run check:browser`): 개발 PC에서 실제 앱을 headless Chrome으로 띄워 시나리오 19개를 확인한다(한 번에 약 7분). Windows, Chrome, Node 22 이상, 설치 필요 없음.
+`tools/browser-check.mjs` (`npm run check:browser`): 개발 PC에서 실제 앱을 headless Chrome으로 띄워 시나리오 21개를 확인한다(한 번에 약 7분, 화면 캡처는 `--screens`일 때만). Windows, Chrome, Node 22 이상, 설치 필요 없음.
 
 ```powershell
 npm run check:browser                              # 가짜 카메라
@@ -155,6 +159,7 @@ npm run check:browser -- --soak --camera real      # 장시간 실측 기본 10�
 npm run check:browser -- --soak 60 --camera real   # 분 지정
 npm run check:browser -- --camera real --only "카메라 변환|카메라 장치"   # 이름에 그 글자가 든 시나리오만 (첫 페이지 로드는 늘)
 npm run check:browser -- --camera real --camera-label "Logitech StreamCam (046d:0893)" --only "카메라"   # 카메라 설정 시나리오를 그 장치로
+npm run check:browser -- --only "화면 캡처" --screens "%TEMP%\photobooth-review\9"   # 운영자 화면 PNG (가짜 카메라만)
 ```
 
 - **구조:** Node 내장 `WebSocket`으로 CDP에 직접 붙는다. `serve.ps1`을 빈 포트로, Chrome을 `%TEMP%\photobooth-check-*` 임시 프로필·`--headless=new`·`--remote-debugging-port=0`으로 띄운다(늘 `--user-data-dir`이라 사용자 Chrome에 붙지 않는다). 카메라는 기본 가짜 장치(`--use-fake-device-for-media-stream`), 권한은 CDP `Browser.setPermission`.
@@ -163,7 +168,7 @@ npm run check:browser -- --camera real --camera-label "Logitech StreamCam (046d:
 - **조절값 파일:** 시작할 때 `config/*.local.json`(인식·효과·카메라)을 바이트 그대로(또는 "없음") 백업하고, 시나리오 뒤와 마지막에 **파일 시스템으로 직접** 되돌린다(없던 파일·빈 `config/`는 지운다). 그사이 몇 초 시험 값이 들어 있으므로 **현장 키오스크가 같은 저장소에서 도는 PC에서는 실행하지 않는다.**
 - **기다림 시간 초과:** 메시지 끝에 그때의 D `status`·`reason`·`video`·`effect`·`raw-view`를 붙인다(실제 카메라에서 원인을 바로 보이게).
 - **CDP:** 요청마다 제한 시간 15초. 연결이 끊기면 모든 요청이 바로 실패해 몇 초 안에 끝나고 정리한다(`browser-check-lib.mjs`).
-- **시나리오:** 페이지 로드(서체 포함) · `S` 한 사이클과 자원 정리 · 조절값 API · 감지기 생성 실패 정리 · 권한 거절 → 허용 · 모델 차단 · 효과 미리보기(기본값, 결과 사진 준비, 컨텍스트 손실·복구) · 회색조 유화 기본 촬영(결과 = 셔터 직전 그림, 무채색, 인쇄 576×1024 1비트, 출력물 폭 1/2) · 출력 모드 전환 · 흑백 스타일 4가지 · 흑백 스타일 GPU = CPU · GPU 디더 = CPU·1비트 PNG · 효과 WebGL2 생성 실패(원본 미리보기 캔버스가 계속 그림) · `E` 저장 유지 · 좌우 반전 켬·끔(카메라 설정 파일 → 새로고침. CSS 반전 없음, 효과 미리보기·결과 사진 방향, 얼굴이 보이면 화면 x가 `1 - x`로, 효과 파일의 예전 `mirror` 옮기기) · 카메라 장치·해상도(프리셋 요청 → 실제 트랙·캡처, 다른 카메라가 있으면 그 라벨로, 없는 라벨이면 OBS·기본 규칙) · 카메라 변환·색 보정(회전 90°+3°·확대·이동·색 보정 6개: 같은 프레임의 2D 그림(앱 SVG 필터) = core 기준식, 효과 셰이더 입력(`FS_GRADE` uAmt 0) = 2D, 미리보기·결과 = 변환한 영상, 얼굴이 보이면 예측 위치, 화면·감지·효과 속도) · 결과 효과 렌더 실패 · 외부 요청·CSP 위반·예외 0. 확인 값은 `tools/browser-check.mjs`에 있다. 좌우 방향은 효과 그림·결과 사진·같은 순간의 영상을 페이지 안에서 18×32 밝기 격자로 줄여 비대칭 성분(`g - flip(g)`)의 상관 부호로 본다(같은 방향 +, 거울 −, 기준 ±0.3. 가짜 카메라 화면은 거의 좌우 대칭이라 그냥 상관으로는 갈리지 않는다). 페이지 로드 줄에 쓰인 카메라 라벨이 나온다. 화소 일치 시나리오는 `E`에서 처리 해상도를 1로 두고 실제 `1080x1920`으로 그린 뒤 시작한다.
+- **시나리오:** 페이지 로드(서체 포함) · `S` 한 사이클과 자원 정리 · 조절값 API · 감지기 생성 실패 정리 · 권한 거절 → 허용 · 모델 차단 · 효과 미리보기(기본값, 결과 사진 준비, 컨텍스트 손실·복구) · 회색조 유화 기본 촬영(결과 = 셔터 직전 그림, 무채색, 인쇄 576×1024 1비트, 출력물 폭 1/2) · 출력 모드 전환 · 흑백 스타일 4가지 · 흑백 스타일 GPU = CPU · GPU 디더 = CPU·1비트 PNG · 효과 WebGL2 생성 실패(원본 미리보기 캔버스가 계속 그림) · `E` 필터 섹션 저장 유지 · 운영자 패널(9-2: `R` 없음·첫 섹션 카메라·원본 창, 실행 중 해상도 바꾸기 → 다시 열기·관람객 "준비 중", 회전·확대·반전·색 보정 즉시 반영 → 미리보기·원본 창 = 변환한 영상, 섹션별 저장·닫을 때 되돌리기·섹션별 기본값·새로고침 유지, 실행 중 장치 바꾸기(사용 중인 장치는 기록하고 다음 장치로, 닫으면 원래 장치), 원본 창 켬/끔 속도) · 운영자 화면 캡처(`--screens`, 가짜 카메라 전용) · 좌우 반전 켬·끔(카메라 설정 파일 → 새로고침. CSS 반전 없음, 효과 미리보기·결과 사진 방향, 얼굴이 보이면 화면 x가 `1 - x`로, 효과 파일의 예전 `mirror` 옮기기) · 카메라 장치·해상도(프리셋 요청 → 실제 트랙·캡처, 다른 카메라가 있으면 그 라벨로, 없는 라벨이면 OBS·기본 규칙) · 카메라 변환·색 보정(회전 90°+3°·확대·이동·색 보정 6개: 같은 프레임의 2D 그림(앱 SVG 필터) = core 기준식, 효과 셰이더 입력(`FS_GRADE` uAmt 0) = 2D, 미리보기·결과 = 변환한 영상, 얼굴이 보이면 예측 위치, 화면·감지·효과 속도) · 결과 효과 렌더 실패 · 외부 요청·CSP 위반·예외 0. 확인 값은 `tools/browser-check.mjs`에 있다. 좌우 방향은 효과 그림·결과 사진·같은 순간의 영상을 페이지 안에서 18×32 밝기 격자로 줄여 비대칭 성분(`g - flip(g)`)의 상관 부호로 본다(같은 방향 +, 거울 −, 기준 ±0.3. 가짜 카메라 화면은 거의 좌우 대칭이라 그냥 상관으로는 갈리지 않는다). 페이지 로드 줄에 쓰인 카메라 라벨이 나온다. 화소 일치 시나리오는 `E`에서 처리 해상도를 1로 두고 실제 `1080x1920`으로 그린 뒤 시작한다.
 - **범위 밖:** 가짜 카메라에 얼굴이 없어 자동 시작·이탈 취소·인식 중 `P`는 확인하지 않는다(Node 테스트 `test/core/auto-start.test.mjs`·`test/vision/presence-monitor.test.mjs`와 사람 실측). 키오스크, OBS 시작·중지, 절전 복귀, 4K도 범위 밖. `S` 사이클은 `P`를 켜고 돌려 실제 카메라 앞에 사람이 있어도 된다.
 - **장시간 실측:** `--interval`(기본 20초)마다 대기면 `S`. 1분마다 CSV에 JS 힙·DOM 노드·리스너·문서 수(`Performance.getMetrics`), D 화면 값, 이 프로필 `chrome.exe` 메모리(`PrivatePageCount`·`WorkingSetSize` 합), 콘솔·예외 수. 끝나면 항목별 통계와 시간당 기울기(처음 5분 제외 포함). 통과: 모든 기록에서 카메라 `ready`·감지기 `ok`, `S` 직전마다 사진 자원 0·`taken = released`, 측정값을 모두 읽음, 외부 요청·CSP 위반·예외 0, 완료 1회 이상.
 
@@ -210,7 +215,7 @@ npm run check:browser -- --camera real --camera-label "Logitech StreamCam (046d:
 
 ### OBS 가상카메라
 
-- 9:16 크롭·회전·색 보정은 OBS에서 하고 출력 해상도를 화면에 맞춰 왔다(1080×1920 ~ 2160×3840). 9-1부터는 같은 일을 웹의 카메라 처리 경로(아래)로도 할 수 있다(OBS 세로 회전 대신 90° 회전, 색 보정). 둘 다에서 하면 두 번 적용되므로 현장에서 한쪽만 쓴다. 캡처 해상도 상한은 카메라(OBS) 출력이다.
+- 9:16 크롭·회전·색 보정은 OBS에서 하고 출력 해상도를 화면에 맞춰 왔다(1080×1920 ~ 2160×3840). 9-1부터는 같은 일을 웹의 카메라 처리 경로(아래, `E` 카메라 섹션)로도 할 수 있다(OBS 세로 회전 대신 90° 회전, 색 보정). 둘 다에서 하면 두 번 적용되므로 현장에서 한 곳만 쓴다. **기본 안내(사용자 결정 2026-11-02): 웹에서 카메라 옵션을 쓰고 OBS는 원본만 넘긴다**(카메라 섹션 맨 위 "OBS 보정과 중복 적용 주의" 한 줄, 1절 첫 설치). 어디서 할지 최종은 현장에서 정한다. 캡처 해상도 상한은 카메라(OBS) 출력이다.
 - 장치는 카메라 설정의 **장치 라벨**(`deviceLabel`, 정확히 같은 라벨, 앞뒤 공백·대소문자 무시)을 먼저, 없거나 비어 있으면 라벨에 `OBS Virtual Camera`(`config.preferredCameraLabel`, 포함)가 있는 장치를, 그것도 없으면 기본 카메라를 쓴다(`camera.js` `pickCamera`). `deviceId`는 다시 연결·재부팅 때 바뀔 수 있어 저장하지 않는다. 같은 라벨의 장치가 둘이면 앞의 것(구분하지 못한다). 라벨이 비어 있으면(권한 전) 권한을 한 번 요청하고 다시 읽으며, 그 스트림이 고른 장치면 그대로 쓴다. 더 우선인 장치가 없어 대신 연결된 뒤 그 장치가 나타나면(`devicechange`) 바꾼다. D `selected`(`device`·`preferred`·`default`).
 - 해상도는 **`ideal`로만** 요청한다. 카메라 설정 `resolution`이 `auto`면 `config.idealResolution`(2160×3840, 90°·270° 회전이면 3840×2160), 프리셋이면 그 값(카메라 기준 가로×세로). `exact`·`min`은 지원하지 않는 장치에서 실패하고, 제약이 없으면 640×480 같은 낮은 형식이 올 수 있다. Chrome은 장치 범위에서 가장 가까운 값을 원본보다 키우지 않고 고르며 잘라 줄일 수 있다(가짜 카메라 2160×2160). **OBS 가상카메라(출력 1080×1920)에 다른 비율을 요청하면 그 비율로 잘라 준다**(실측: 1280×720 → 1080×720, 1920×1080 → 1080×1080, 2160×3840·1080×1920 → 1080×1920). 그래서 OBS는 `auto`(또는 OBS 출력과 같은 프리셋)로 둔다. 실제 크기는 D `video`·`track`, 트랙이 지원하는 범위(`getCapabilities`)는 D `caps`.
 - 다른 프로그램이 쓰는 장치(예: OBS가 소스로 잡은 웹캠)를 장치 라벨로 고르면 `NotReadableError`로 열리지 않아 `unavailable`(`in-use`)로 간격 재시도한다. 있는 장치라 OBS·기본 카메라로 대신하지 않는다(운영자가 고른 장치이고, 화면 D·안내로 드러난다).
@@ -265,7 +270,7 @@ npm run check:browser -- --camera real --camera-label "Logitech StreamCam (046d:
 | 카메라 파일 읽기 실패·시간 초과 | 기본값, 옮기지 않음(파일이 있는데 못 읽었을 수 있다) | `defaults (file read failed: …)` |
 
 - 효과 파일에서 키를 빼는 이유: 남겨 두면 운영자가 카메라를 초기화하려고 `camera.local.json`을 지웠을 때 옛 반전 값이 말없이 다시 옮겨진다(인식 조절값의 `localStorage` 옮기기와 같은 이유). 다른 효과 값은 건드리지 않고 같은 내용으로 다시 쓴다.
-- **9-2(운영자 화면 통합)에 넘기는 입구:** `main.js` `applyCameraSettings(settings)`(정규화된 설정), 저장은 `cameraSettingsFile.write(serializeCameraSettings(settings))`, 출처 `cameraSettingsInfo`, 장치 목록 `camera.listDevices()`(`{ label, deviceId, current }`), 지원 범위 `camera.getState().capabilities`, 실제 크기 `video.videoWidth`·트랙 `getSettings()`, 지금 변환 `cameraFrame.getView(w, h)`(실제 배율·자동 확대), 원본 창은 `createRawPreview`를 다른 캔버스로(같은 `cameraFrame`), 감지 박스는 지금처럼 `presence.getDebugSnapshot().faces`(화면 좌표).
+- **운영자 화면 (9-2):** `E` 카메라 섹션(`ui/camera-tuning.js`)이 `applyCameraSettings`로 바로 반영하고 섹션 저장으로 `camera.local.json`에 쓴다. 장치 목록 `camera.listDevices()`, 받은 크기·지원 범위(`capabilities`)·OBS 안내 줄, 실제 배율 `cameraFrame.getView(w, h)`. 원본 창은 4절 "운영자 화면".
 
 ### 화면 배치
 
@@ -310,7 +315,7 @@ npm run check:browser -- --camera real --camera-label "Logitech StreamCam (046d:
 
 ### 좌우 반전
 
-- 기본은 미리보기와 결과 모두 반전(켬)이다(현장 카메라 배치·OBS 설정에 따라 필요 없을 수 있다). 값은 **카메라 설정의 `mirror` 한 곳**(기본값 `config.camera.mirror` `true`, 저장 `config/camera.local.json`, 위 "카메라 처리 경로")이고, 효과를 끄거나(`enabled: false`) 쓸 수 없어도 이 값을 따른다. 2026-10-26 ~ 9-1에는 효과 조절값(`E` "카메라", `effect.local.json`)에 있었고, 그 값은 처음 읽을 때 카메라 파일로 옮긴다. 9-1에는 운영자 화면 항목이 없고(파일·API) 9-2 통합 화면 "카메라"에서 바꾼다.
+- 기본은 미리보기와 결과 모두 반전(켬)이다(현장 카메라 배치·OBS 설정에 따라 필요 없을 수 있다). 값은 **카메라 설정의 `mirror` 한 곳**(기본값 `config.camera.mirror` `true`, 저장 `config/camera.local.json`, 위 "카메라 처리 경로")이고, 효과를 끄거나(`enabled: false`) 쓸 수 없어도 이 값을 따른다. 2026-10-26 ~ 9-1에는 효과 조절값(`E` "카메라", `effect.local.json`)에 있었고, 그 값은 처음 읽을 때 카메라 파일로 옮긴다. 운영자는 `E` 카메라 섹션 "좌우 반전"에서 바꾼다(9-2).
 - 반전은 **웹에서만**(OBS에서 하지 않음, 이중 반전 방지), 카메라 처리 경로의 한 단계로 경로마다 한 번:
 
 | 경로 | 반전하는 곳 | 값을 읽는 때 |
@@ -344,7 +349,7 @@ npm run check:browser -- --camera real --camera-label "Logitech StreamCam (046d:
 
 - `camera.js` 실패 종류: `unsupported`, `permission-denied`(`NotAllowedError`·`SecurityError`), `not-found`(`NotFoundError`·`OverconstrainedError`), `in-use`(`NotReadableError`), `unknown`.
 - `ready`는 `requestVideoFrameCallback`으로 실제 프레임을 받았을 때다. 프레임 정지는 마지막 프레임 시각으로 판정한다(`currentTime`은 쓰지 않음, 페이지가 숨겨져 있으면 판정하지 않음). `devicechange`는 0.5초 묶어 처리한다. 연결 시도는 한 번에 하나(진행 중 요청은 끝난 뒤 한 번 더, 그 사이 스트림은 닫음), 세대 번호로 늦은 결과를 무시한다.
-- **설정값 (기본값 확정, `config.presence.cameraRecovery`):** 재시도 3초, 첫 프레임 제한 5초, 프레임 정지 3초, 직원 문의 전환 30초. 9-1부터 인식 조절값 파일(`presence.local.json`의 `cameraRecovery`, 5절 "인식 범위 조절")에 함께 저장하고, 쓸 때마다 지금 인식 설정에서 읽는다(9-2 운영자 화면 "인식" 묶음에서 조절. 9-1에는 화면 항목이 없다). 인식 파일에 두는 이유: 운영자 화면에서 인식 묶음에 보이므로 한 묶음 = 한 파일로 저장·취소·기본값 규칙을 그대로 쓴다. 카메라 감시는 이 값을 함수로 받아 다음 재시도·첫 프레임 대기·정지 판정부터 쓴다(이미 걸린 재시도 타이머는 그대로).
+- **설정값 (기본값 확정, `config.presence.cameraRecovery`):** 재시도 3초, 첫 프레임 제한 5초, 프레임 정지 3초, 직원 문의 전환 30초. 9-1부터 인식 조절값 파일(`presence.local.json`의 `cameraRecovery`, 5절 "인식 범위 조절")에 함께 저장하고, 쓸 때마다 지금 인식 설정에서 읽는다(`E` 인식 섹션 "카메라 회복"에서 조절, 9-2). 인식 파일에 두는 이유: 운영자 화면에서 인식 섹션에 보이므로 한 묶음 = 한 파일로 저장·취소·기본값 규칙을 그대로 쓴다. 카메라 감시는 이 값을 함수로 받아 다음 재시도·첫 프레임 대기·정지 판정부터 쓴다(이미 걸린 재시도 타이머는 그대로).
 - **다시 열기 (9-1):** 카메라 설정의 장치 라벨·해상도 요청이 바뀌면 `camera-monitor.js` `setRequest()`가 스트림을 닫고 다시 연다(상태 `starting`, 원인 `camera-settings`). 그동안 `ready`가 아니므로 진행 중인 카운트다운은 "카메라 준비 해제"로 취소되고(4절 기존 규칙), 촬영·결과 준비 중이면 계속, 결과 표시 중이면 그대로 보인다. 색 보정·반전·확대·미세 회전만 바뀐 것은 다시 열지 않는다(자동 해상도에서 90° 단위 회전이 0·180 ↔ 90·270으로 바뀌면 요청이 바뀌어 다시 연다). 시작 전에 부르면 저장만 한다.
 - **관람객 문구 (확정):** 정상이 아니면 "준비 중입니다. 잠시만 기다려 주세요.", 30초 이상이거나 `unsupported`·`permission-denied`면 "준비 중입니다. 직원에게 문의해 주세요." 끊기면 영상을 지우고 문구를 띄운다. 감지기 상태와 합쳐 판정한다(5절).
 - **D:** 상태, 원인과 원본 오류 이름, 시도·연속 실패 횟수, 마지막 시도 시각, 정상이 아닌 시간, 권한 상태.
@@ -402,28 +407,30 @@ npm run check:browser -- --camera real --camera-label "Logitech StreamCam (046d:
 
 | 키 | 동작 |
 |---|---|
-| `D` | 개발용 정보·감지 박스 겹쳐 그리기 (`R`과 따로) |
-| `R` | 인식 범위 조절 화면 (`Esc`로도 닫음, 5절) |
+| `D` | 개발용 정보·감지 박스 겹쳐 그리기 (`E`와 따로) |
 | `E` | 사진 효과 조절 화면 (`Esc`로도 닫음, 6절) |
 | `S` | 수동 촬영(`session.request('start', 'key')`). 대기·카메라 준비일 때만. 수동 회차는 사람이 없어도 끝까지 찍는다 |
 | `X` | 강제 초기화(`session.request('reset', 'key')`) |
 | `P` | 자동 촬영 일시정지·다시 켜기 |
 
-- `Space`·`Enter`는 쓰지 않는다(패널 버튼 포커스와 겹침). `R`·`E`가 열려 있어도 `S`는 된다. `R`과 `E`는 한 번에 하나만 열리고 다른 쪽 키는 무시한다(저장하지 않은 변경이 말없이 취소되지 않게).
+- `Space`·`Enter`는 쓰지 않는다(패널 버튼 포커스와 겹침). `E`가 열려 있어도 `S`는 된다. `R`(인식 범위 조절 화면)은 9-2에 `E`의 인식 섹션으로 합쳐 없앴다(누르면 아무것도 하지 않는다).
 - **`P`:** 판정은 `decideAutoRequest()`의 `paused` 하나. 멈추는 순간 인식으로 시작된 카운트다운을 취소하고(쿨타임 없이), 사람이 있어도 다시 시작하지 않는다. `S`와 수동 카운트다운은 그대로다. **저장하지 않아** 새로고침·재시작하면 다시 켜진다(해제를 잊어도 회복). 일시정지 중 영역 오른쪽 위에 "자동 촬영 일시정지 (P)"(`#pause-badge`, 3.6cqw 안쪽, 영역 폭의 1.7%, 가안, `config.showPauseIndicator`), D `auto` 줄 앞에 `PAUSED (P)`.
 
 ### 운영자 화면
 
-`E`·`R` 패널, `D`, `P` 표시, `R` 겹쳐 그리기. 관람객 화면과 같은 무채색이다. 디자인 이유는 [로그 2026-10-19-03](logs/2026-10-19-03-stage6-operator-ui.md).
+`E` 패널(섹션 셋)·원본 창, `D`, `P` 표시, 인식 섹션 겹쳐 그리기. 관람객 화면과 같은 무채색이다. 디자인 이유는 [로그 2026-10-19-03](logs/2026-10-19-03-stage6-operator-ui.md).
 
 - **모양:** 차콜 반투명 패널(`--op-bg`), 1px 선, Pretendard 500·400, 숫자는 고정폭 오른쪽 정렬, 채도 낮은 상태 색은 점·글자·왼쪽 선에만, `color-scheme: dark`, 움직임·블러 없음(미리보기 성능). 크기는 `--op-size`(D는 `--op-dev-size`, 둘 다 `clamp(…vmin…)`)에 `em`으로 맞춰 해상도와 관계없이 같은 비율이고, 영역 안 요소는 `cqw`.
-- **패널 (`.op-panel`):** 머리(제목, "R·Esc 닫기 · 저장하지 않은 변경은 닫을 때 취소", `위·아래`(`data-action="dock"`)·`닫기`) / 실시간 줄(`[data-live]`, `R` 인식 상태·감지·인정 수, `E` 미리보기 해상도·초당 그림·그리기 시간·인쇄 해상도·점 방식) / 넘기는 몸통(묶음 `fieldset.op-group`, 줄 `.op-row` = 이름·도움말 · 조작 · 값·단위) / 늘 보이는 아래(저장 상태 `[data-state]`·패널 `data-save`, 저장·취소·기본값, 알림 `[data-message]`).
-- **묶음:** `E` = 효과(강도·붓 크기·획 다시 그리기·색 보정·세부 보존 문턱) / 출력 단계(출력 모드·점 방식·용지 폭·밝기·대비·감마·흑백 스타일·질감 세기·선 간격) / 미리보기(초당 그림·처리 해상도). 카메라(좌우 반전) 묶음은 9-1에 카메라 설정으로 옮겨 없앴다(9-2 통합 화면). `R` = 영역 / 얼굴 크기(가이드 색 견본) / 신뢰도 / 반응 속도(인식까지·이탈까지, 초) / 현재값 JSON(접힘). 쓰지 않는 항목은 흐리게 막힌다.
+- **패널 하나 (`#operator-panel`, `ui/operator-panel.js`, 9-2):** `E`로 열고 닫는다(`Esc`·`닫기`로도). 머리(제목 "운영자 조절", "E·Esc 닫기 · 저장하지 않은 섹션은 닫을 때 취소", `위·아래`(`data-action="dock"`)·`닫기`) / 섹션 버튼 셋 `카메라`·`인식`·`필터`(`[data-section]`, 밑줄 세그먼트, 섹션의 저장 상태 점: 저장 안 됨·고쳐 씀 호박색, 실패 빨강) / 보이는 섹션 하나(`.op-section`: 실시간 줄 `[data-live]` / 넘기는 몸통 — 묶음 `fieldset.op-group`, 줄 `.op-row` = 이름·도움말 · 조작 · 값·단위 / 늘 보이는 아래 — 저장 상태 `[data-state]`·섹션 `data-save`, 저장·취소·기본값, 알림 `[data-message]`).
+- **섹션 = 파일 하나:** 카메라 `#camera-panel`(`camera-tuning.js`, `camera.local.json`) · 인식 `#tuning-panel`(`presence-tuning.js`, `presence.local.json`) · 필터 `#effect-panel`(`effect-tuning.js`, `effect.local.json`). 섹션마다 저장 상태·저장·취소(저장된 값으로)·**기본값으로(그 섹션의 값만)**를 따로 가진다. 패널을 **닫으면 저장하지 않은 섹션만 되돌린다**(실행 중인 값 = 다시 시작했을 때의 값, 섹션마다 이 규칙을 그대로). 저장 중인 섹션이 있으면 그 섹션을 보이고 "저장이 끝나면 닫습니다" 뒤 닫는다. 이유: 파일이 섹션마다 따로라 저장·실패도 섹션마다 따로 일어나고, 한 섹션의 저장 실패나 변경이 다른 섹션의 저장된 값을 건드리지 않게 한다. 패널 전체 "모두 저장"은 두지 않는다(무엇이 저장되는지 섹션 점으로 보인다).
+- **열기:** 세 조절값을 다 불러온 뒤에만 열린다(최대 약 3초). 처음은 카메라 섹션, 그 뒤엔 마지막으로 본 섹션(새로고침하면 다시 카메라 — 저장하지 않는다: 현장 PC를 다시 켰을 때 늘 같은 곳에서 시작). 열려 있으면 어느 섹션이든 자동 촬영을 막는다(4절 "자동 시작과 이탈 취소").
+- **원본 창 (`#raw-window`, 9-2):** 카메라·인식 섹션이 보이는 동안 구석에 필터 없는 카메라 처리 경로 그림(보정·변환 적용, 9:16)과 감지 박스·인식 영역 점선을 띄운다(`raw-preview.js`를 작은 캔버스로, 감지 박스는 화면 좌표 그대로). 인식 섹션에서도 보이는 이유: 필터(회색조 유화)가 얼굴을 덜 보이게 해도 감지는 필터 전 그림으로 한다는 것을 박스와 함께 보여 준다. 필터 섹션·패널 닫힘이면 그리지 않는다. 위치: 세로 화면은 9:16 영역 오른쪽 위(패널이 위면 아래, 왼쪽 위는 D 표), 옆에 패널이 서는 가로 화면은 패널 반대쪽 빈 곳 아래. "옮기기"는 두 자리(세로: 오른쪽·왼쪽, 가로: 아래·위)를 오간다. 마우스는 통과시키고(옮기기 버튼만 받음) 인식 섹션에서는 반투명이라 아래 영역 핸들을 보고 끌 수 있다. 크기는 창의 장치 화소(긴 변 최대 640), 그리는 빈도는 초당 30 이하(가안, `main.js` `RAW_WINDOW_MAX_PX`·`RAW_WINDOW_FPS`. 측정은 [로그 2026-11-02-02](logs/2026-11-02-02-stage9-operator-panel.md)). D `raw-window`.
+- **묶음:** 카메라 = 장치(카메라 선택·목록, 해상도 + 받은 크기·지원 범위·"OBS 가상카메라는 자동 권장" 줄) / 방향·위치(좌우 반전, 회전 ↺·↻ 90° 버튼과 미세 회전, 확대, 가로·세로 이동) / 색 보정(밝기·대비·채도·감마·색온도·색조), 맨 위 "OBS 보정과 중복 적용 주의" 한 줄. 인식 = 영역 / 얼굴 크기(가이드 색 견본) / 신뢰도 / 반응 속도(인식까지·이탈까지, 초) / 카메라 회복(다시 시도 간격·첫 프레임 기다림·정지 판정·직원 문의 전환, 초) / 현재값 JSON(접힘). 필터 = 효과(강도·붓 크기·획 다시 그리기·색 보정·세부 보존 문턱) / 출력 단계(출력 모드·점 방식·용지 폭·밝기·대비·감마·흑백 스타일·질감 세기·선 간격) / 미리보기(초당 그림·처리 해상도). 쓰지 않는 항목은 흐리게 막힌다.
 - **저장 상태 (`ui/save-state.js`, 문구 가안):** 바꾸는 중 `dirty`(저장 안 된 변경, 닫으면 취소)·`saving`·`failed`(파일은 이전 값, 다시 바꾸거나 저장 성공 때 풀림). 바꾸지 않았으면 불러온 결과: `saved`(파일에서 읽음·옮김·이번에 저장), `defaults`(파일 없음), `load-failed`(읽기 실패·시간 초과·형식 오류), `adjusted`(파일 값을 고쳐 씀·옮기지 못함 → 저장 필요). 저장할 것이 없으면 저장 버튼이 차분해진다(누를 수는 있다).
 - **위치:** 세로 화면은 아래(기본)·위, 높이 `50vh`까지(얼굴이 있는 위쪽 절반을 가리지 않음). 9:16 옆 빈 폭에 26em이 들어가면 옆(기본 오른쪽, `위·아래`로 왼쪽). `main.js` `updateOperatorRoom`이 창 크기마다 재서 루트에 `.op-side-room`(1920×1080은 옆, 1200×1080은 아래·위).
-- **선택자** `#effect-panel`·`#tuning-panel`, `input`·`select[data-key]`, `button[data-action]`, `[data-live]`·`[data-state]`·`[data-message]`·`[data-json]`·`[data-region-text]`는 확인 도구·테스트가 쓰므로 바꾸지 않는다.
-- **D (`#dev-info`, `ui/dev-panel.js`):** `main.js`가 정한 줄을 구역(카메라·인식·효과 · 출력·촬영)별 표로 보인다(구역 제목은 CSS `::before`라 글자에 없음). **`textContent`는 줄 글자 그대로**(줄 `\n`, 구역 사이 빈 줄)라 확인 도구가 읽는다. 색은 `devLineTone`(정상 초록·주의 주황·오류 빨강, 예: `status` ready/starting/그 밖, `detector` ok/retrying/fault, `effect` running/waiting/fallback, `photo-fx` applied/RAW, `auto` PAUSED, `failures` 0 아님). 왼쪽 위(옆 공간이 있으면 그 폭), 길면 휠로 넘기고, `R`이 열려 있는 동안은 마우스를 통과시킨다. 줄별 내용은 각 절에 적었다.
-- **`R` 겹쳐 그리기 (`main.js` `OVERLAY`):** 편집 사각형(오프화이트 선·어두운 테두리, "인식 영역" 이름표, 핸들 영역 폭의 3.4%), 인식 영역 오프화이트 점선, 최소 얼굴 가이드 파랑 `#8fb6d6`·최대 붉은색 `#e0a39a`, 인정 얼굴 초록·제외 빨강(박스 위 점수, 중심 점). 선 굵기·글자는 영역 폭에 비례한다. D를 켜도 인식 영역과 감지 박스를 같은 색으로 그린다.
+- **선택자** `#operator-panel`·`[data-section]`, 섹션 `#camera-panel`·`#tuning-panel`·`#effect-panel`, `input`·`select[data-key]`, `button[data-action]`, `[data-live]`·`[data-state]`·`[data-message]`·`[data-json]`·`[data-region-text]`·`[data-camera-info]`, `#raw-window`는 확인 도구·테스트가 쓰므로 바꾸지 않는다.
+- **D (`#dev-info`, `ui/dev-panel.js`):** `main.js`가 정한 줄을 구역(카메라·인식·효과 · 출력·촬영)별 표로 보인다(구역 제목은 CSS `::before`라 글자에 없음). **`textContent`는 줄 글자 그대로**(줄 `\n`, 구역 사이 빈 줄)라 확인 도구가 읽는다. 색은 `devLineTone`(정상 초록·주의 주황·오류 빨강, 예: `status` ready/starting/그 밖, `detector` ok/retrying/fault, `effect` running/waiting/fallback, `photo-fx` applied/RAW, `auto` PAUSED, `failures` 0 아님). 왼쪽 위(옆 공간이 있으면 그 폭), 길면 휠로 넘기고, 인식 섹션이 보이는 동안은 마우스를 통과시킨다. 줄별 내용은 각 절에 적었다.
+- **인식 섹션 겹쳐 그리기 (`main.js` `OVERLAY`·`drawPresenceOverlay`, 원본 창에도 같은 함수):** 편집 사각형(오프화이트 선·어두운 테두리, "인식 영역" 이름표, 핸들 영역 폭의 3.4%), 인식 영역 오프화이트 점선, 최소 얼굴 가이드 파랑 `#8fb6d6`·최대 붉은색 `#e0a39a`, 인정 얼굴 초록·제외 빨강(박스 위 점수, 중심 점). 선 굵기·글자는 영역 폭에 비례한다. D를 켜도 인식 영역과 감지 박스를 같은 색으로 그린다.
 
 ### 자동 시작과 이탈 취소
 
@@ -433,16 +440,16 @@ npm run check:browser -- --camera real --camera-label "Logitech StreamCam (046d:
 
 | 상태 기계 | 조건 | 요청 |
 |---|---|---|
-| `idle` | 일시정지 아님 + 조절값 불러오기 끝남 + 인식됨 + 카메라 준비 + 페이지 보임 + `R`·`E` 닫힘 + 촬영 실패 대기 아님 | `start` |
+| `idle` | 일시정지 아님 + 조절값 불러오기 끝남 + 인식됨 + 카메라 준비 + 페이지 보임 + `E` 패널 닫힘 + 촬영 실패 대기 아님 | `start` |
 | `idle` | 하나라도 아님 | 없음. D `auto`에 이유(`blocked: auto paused (P)`·`settings-loading`, `idle, not present`, `blocked: camera-not-ready`·`page-hidden`·`tuning-open`·`capture-failed (retry wait)`) |
 | `countdown` (출처 `presence`) | 일시정지 또는 인식 안됨 | `cancel`(일시정지면 `auto paused during countdown`) → 쿨타임 없이 대기 |
 | `countdown` (출처 `key`) | 무엇이든 | 없음(수동 회차는 인식으로 취소하지 않음) |
 | `capturing`·`result`·`cooldown` | 무엇이든 | 없음 |
 
-- **평가 계기:** 인식 상태 변화, 상태 기계 알림(대기 진입, 카메라 준비·페이지 보임 변화), 조절 화면 닫기(`tuning-closed`·`effect-tuning-closed`), `P`(`paused (P)`·`resumed (P)`), 조절값 불러오기 끝(`settings-loaded`). 카메라·페이지 값은 상태 기계 스냅숏을 쓴다(따로 구독하면 상태 기계보다 먼저 평가해 시작이 무시될 수 있다). 재진입하면 평가를 끝낸 뒤 한 번 더 한다.
+- **평가 계기:** 인식 상태 변화, 상태 기계 알림(대기 진입, 카메라 준비·페이지 보임 변화), 조절 화면 닫기(`panel-closed`), `P`(`paused (P)`·`resumed (P)`), 조절값 불러오기 끝(`settings-loaded`). 카메라·페이지 값은 상태 기계 스냅숏을 쓴다(따로 구독하면 상태 기계보다 먼저 평가해 시작이 무시될 수 있다). 재진입하면 평가를 끝낸 뒤 한 번 더 한다.
 - 이탈 유예는 따로 없다(`absentGraceMs` 0.25초가 흡수). 취소 뒤에는 다시 "인식됨"(`presentHoldMs` 0.25초)이 되어야 새 회차가 시작된다.
 - **셔터 직전 이탈:** 취소는 "인식 안됨"이 된 뒤에만 되므로, 셔터까지 남은 시간이 이탈 반응 시간(유예 + 감지 한 프레임 안팎)보다 짧을 때 떠나면 그대로 찍힌다. 셔터 순간에 인식을 따로 다시 확인하지는 않는다(실측·판단은 [로그 2026-10-27-01](logs/2026-10-27-01-presence-timing.md)).
-- **조절 화면이 열려 있으면** 자동 시작을 막는다(`R`은 범위를 맞추는 중, `E`는 운영자가 자기 모습에 입힌 효과를 보는데 자동 회차가 가린다. 결과 사진은 `S`로 본다). 열기만으로 진행 중인 회차를 취소하지는 않고, 닫을 때 사람이 서 있으면 바로 시작될 수 있다.
+- **조절 화면(`E`)이 열려 있으면** 어느 섹션이든 자동 시작을 막는다(운영자가 범위·카메라·효과를 맞추며 자기 모습을 보는데 자동 회차가 가린다. 결과 사진은 `S`로 본다). 열기만으로 진행 중인 회차를 취소하지는 않고, 닫을 때 사람이 서 있으면 바로 시작될 수 있다.
 - **인식 조절값 불러오는 동안**(최대 약 3초) 막는다. 불러온 값을 넣으면 기준이 바뀌어 인식을 처음부터 다시 잰다.
 - **D:** `session`에 출처(`by presence`·`by key`), `auto`에 판정 이유·마지막 자동 시작·취소 시각과 계기(예: `entered idle (completed)`, `presence: absent`). 시작 직후 한 번은 이전 계기가 보이고 다음 갱신(0.5초)에 바뀐다.
 - "곧 촬영해요" 같은 인식 문구는 두지 않는다(바로 카운트다운으로 넘어간다).
@@ -503,10 +510,10 @@ camera-monitor (ready·페이지 보임) ──▶ presence-monitor 감지 루�
 | `retrying` | 실패했고 다시 만들기를 기다리거나 만드는 중 |
 | `fault` | 장애: `webgl-unavailable`·`model-invalid`는 첫 실패부터, 그 밖은 연속 `detectorFaultAfterFailures`(3회, 가안)부터. 재시도는 계속한다 |
 
-- **경계:** 촬영 쪽은 `createPresenceMonitor()`의 `isPresent()`·`subscribe(listener)`(등록 즉시 한 번, 그 뒤 바뀔 때 `{ present }`, 해제 함수 반환)와 `getDetectorHealth()`·`subscribeDetector(listener)`(`{ health, cause, since }`, `since`는 감지기가 없게 된 시각 또는 `null`)만 쓴다. `getDebugSnapshot()`은 D 전용, `setSettings()`는 `R` 전용.
+- **경계:** 촬영 쪽은 `createPresenceMonitor()`의 `isPresent()`·`subscribe(listener)`(등록 즉시 한 번, 그 뒤 바뀔 때 `{ present }`, 해제 함수 반환)와 `getDetectorHealth()`·`subscribeDetector(listener)`(`{ health, cause, since }`, `since`는 감지기가 없게 된 시각 또는 `null`)만 쓴다. `getDebugSnapshot()`은 D·운영자 화면 전용, `setSettings()`는 인식 섹션 전용.
 - **관람객 안내 (`guidance.js`):** 카메라 `ready`·감지기 `ok`면 문구 없음. 하나라도 아니면 "준비 중입니다. 잠시만 기다려 주세요." `staffNoticeMs`(30초) 이상이거나 카메라 `unsupported`·`permission-denied`, 감지기 `fault`면 "준비 중입니다. 직원에게 문의해 주세요." 시간은 둘 중 하나라도 쓸 수 없게 된 때부터 이어서 재고, 둘 다 정상이면 처음으로.
 - 감지기를 쓸 수 없으면 인식 표시와 대기 안내를 숨긴다. 쿨타임 문구는 안내 문구가 없을 때만. **`S`는 감지기 장애 중에도 된다**(상태 기계는 카메라만 본다). 회차 진행 중에는 안내 문구를 숨기고 대기에서 다시 보인다.
-- **D:** `detector : <루프 상태>, health <상태> / <원인> (<원인 설명>)`(예: `webgl-unavailable` "하드웨어 가속 꺼짐 또는 WebGL 없음", `model-invalid` "모델 파일 손상 (크기·SHA-256 불일치)"), 정상이 아니면 `failure`·`retry`(연속 실패, 시도 수, 다음 재시도 또는 `creating now`, 쓸 수 없던 시간). `webgl`, `model`(`sha256 ok`), `guidance`, `delegate`, 감지·그리기 시간, 감지 빈도·입력 크기, 얼굴·인정 수, 안정화 진행(`-> present 343/500ms`), 현재 기준값과 출처(`settings : file`·`migrated`·`localStorage`·`defaults (이유)`·`saved`·`loading`, `+ unsaved changes`), 얼굴별 점수·높이·중심·제외 이유(`region`·`small`·`large`·`score`), 감지 오류 수. `R` 패널은 루프 상태(`loading`·`running`·`paused`·`error`)를 쓴다.
+- **D:** `detector : <루프 상태>, health <상태> / <원인> (<원인 설명>)`(예: `webgl-unavailable` "하드웨어 가속 꺼짐 또는 WebGL 없음", `model-invalid` "모델 파일 손상 (크기·SHA-256 불일치)"), 정상이 아니면 `failure`·`retry`(연속 실패, 시도 수, 다음 재시도 또는 `creating now`, 쓸 수 없던 시간). `webgl`, `model`(`sha256 ok`), `guidance`, `delegate`, 감지·그리기 시간, 감지 빈도·입력 크기, 얼굴·인정 수, 안정화 진행(`-> present 343/500ms`), 현재 기준값과 출처(`settings : file`·`migrated`·`localStorage`·`defaults (이유)`·`saved`·`loading`, `+ unsaved changes`), 얼굴별 점수·높이·중심·제외 이유(`region`·`small`·`large`·`score`), 감지 오류 수. 인식 섹션 실시간 줄은 루프 상태(`loading`·`running`·`paused`·`error`)를 쓴다.
 
 ### 설정값 (`config.js`)
 
@@ -526,11 +533,11 @@ camera-monitor (ready·페이지 보임) ──▶ presence-monitor 감지 루�
 | `showPresenceIndicator` / `showPauseIndicator` | `true` / `true` | 인식 표시 선 / `P` 운영자 표시 (가안) |
 | `settingsFile.url` / `timeoutMs` | `/local-api/presence-settings` / 3000 | 인식 조절값 파일 API, 읽기·쓰기 제한 (가안) |
 
-`presence.*`는 기본값이고 `R`에서 저장한 값이 있으면 그 값이다. 판정은 매 프레임 현재 설정을 읽어 다음 감지부터 반영된다.
+`presence.*`는 기본값이고 `E` 인식 섹션에서 저장한 값이 있으면 그 값이다. 판정은 매 프레임 현재 설정을 읽어 다음 감지부터 반영된다.
 
 ### 인식 범위 조절
 
-`R` 운영자 화면(마우스·키보드 사용). 불러오기가 끝나기 전에는 열리지 않는다. 열면 패널, 편집 사각형, 감지 박스, 얼굴 크기 가이드(영역 가운데 최소·최대 정사각형)가 보이고, 닫으면 모두 숨는다(인식 표시·대기 안내는 원래대로).
+`E` 운영자 화면의 인식 섹션(마우스·키보드 사용, 9-2 전에는 `R`). 불러오기가 끝나기 전에는 열리지 않는다. 인식 섹션이 보이는 동안 편집 사각형, 감지 박스, 얼굴 크기 가이드(영역 가운데 최소·최대 정사각형)가 보이고, 다른 섹션으로 가거나 닫으면 숨는다(인식 표시·대기 안내는 원래대로).
 
 | 항목 (`presenceLimits`) | 조작 | 범위 |
 |---|---|---|
@@ -538,15 +545,15 @@ camera-monitor (ready·페이지 보임) ──▶ presence-monitor 감지 루�
 | `minFaceHeight` / `maxFaceHeight` | 슬라이더 0.005 단위, 서로를 넘지 못함 | 0.01~1 |
 | `minScore` | 0.01 단위 | 0.3~1 (하한 = 감지기 자체 기준) |
 | 반응 속도 "인식까지" `presentHoldMs` / "이탈까지" `absentGraceMs` | 50ms 단위, 초로 표시(250 → 0.25초) | 0~2000ms |
-| 카메라 회복 `cameraRecovery` (9-1, 화면 항목은 9-2) | 재시도 `retryIntervalMs` · 첫 프레임 `firstFrameTimeoutMs` · 정지 `stallTimeoutMs` · 직원 문의 `staffNoticeMs`, 500·500·500·1000ms 단위(가안) | 1~30초 · 2~30초 · 1~10초(촬영 직전 정지 화면 검사 0.5초보다 길다) · 5~300초 |
+| 카메라 회복 `cameraRecovery` (9-1, 슬라이더 9-2, 초로 표시) | 재시도 `retryIntervalMs` · 첫 프레임 `firstFrameTimeoutMs` · 정지 `stallTimeoutMs` · 직원 문의 `staffNoticeMs`, 500·500·500·1000ms 단위(가안) | 1~30초 · 2~30초 · 1~10초(촬영 직전 정지 화면 검사 0.5초보다 길다) · 5~300초 |
 
 - **반응 속도**는 펼쳐진 묶음이다(2026-10-27 전에는 "고급" 접힘 안). 자동 시작·이탈 취소의 체감을 정하는 값이라 영역·신뢰도와 같이 자주 만진다. 파일에 예전 상한(5000)까지의 값이 있으면 불러올 때 2000으로 고친다(`adjusted`).
-- **저장 파일이 기본값보다 우선한다.** 기본값을 바꾼 뒤에도 그 PC에 예전 값(예: 500/1000)이 저장돼 있으면 그 값으로 돈다. 새 기본값을 쓰려면 `R` "반응 속도"를 옮기고 다시 저장한다("기본값으로"는 다른 항목도 기본값으로 바꾼다).
+- **저장 파일이 기본값보다 우선한다.** 기본값을 바꾼 뒤에도 그 PC에 예전 값(예: 500/1000)이 저장돼 있으면 그 값으로 돈다. 새 기본값을 쓰려면 인식 섹션 "반응 속도"를 옮기고 다시 저장한다("기본값으로"는 인식 섹션의 다른 항목도 기본값으로 바꾼다).
 
 - 끌기는 시작 위치 대비 이동량, 반대쪽 변 고정. `window`에서 포인터를 받아 영역·화면 밖에서도 이어지고, `pointerup`·`pointercancel`·`blur`·`lostpointercapture`·주 버튼이 떼어진 이동(`(buttons & 1) === 0`, 그 이동은 무시)·화면 닫기로 끝나며 리스너를 모두 푼다(`region-drag.js`).
 - **즉시 반영**(`setSettings()`)되고 인식을 다시 잰다(인식으로 시작된 카운트다운은 취소된다).
-- **저장**해야 `config/presence.local.json`에 남는다(서버 필요). 형식 `{ "version": 1, "settings": { "region": {...}, "minFaceHeight", "maxFaceHeight", "minScore", "presentHoldMs", "absentGraceMs", "cameraRecovery": { "retryIntervalMs", "firstFrameTimeoutMs", "stallTimeoutMs", "staffNoticeMs" } } }`(2칸 들여쓰기). `cameraRecovery`가 없는 예전 파일은 기본값으로 채우고 알리지 않는다(그 값이 늘 기본값이던 때 저장한 것). 9-1의 `R`에는 회복 시간 항목이 없지만 저장할 때 지금 값을 그대로 넣고, "기본값으로"는 회복 시간도 기본값으로 바꾼다. 저장 중에는 버튼을 막고 "저장 중...", 204여야 저장으로 인정. 실패(서버 없음·거절·3초 초과)면 "저장하지 못했습니다: HTTP 500 (...)" 같은 이유를 보이고 저장 안 된 상태로 남는다. 누른 순간의 값만 저장한다.
-- **저장 중 닫기**(`R`·`Esc`·닫기)는 응답(최대 3초) 뒤 닫으면서 파일에 마지막으로 저장된 값으로 맞춘다("저장 중입니다. 저장이 끝나면 닫습니다.").
+- **저장**해야 `config/presence.local.json`에 남는다(서버 필요). 형식 `{ "version": 1, "settings": { "region": {...}, "minFaceHeight", "maxFaceHeight", "minScore", "presentHoldMs", "absentGraceMs", "cameraRecovery": { "retryIntervalMs", "firstFrameTimeoutMs", "stallTimeoutMs", "staffNoticeMs" } } }`(2칸 들여쓰기). `cameraRecovery`가 없는 예전 파일은 기본값으로 채우고 알리지 않는다(그 값이 늘 기본값이던 때 저장한 것). 회복 시간은 같은 섹션의 슬라이더라 "기본값으로"·저장·취소가 다른 인식 값과 함께 움직인다. 저장 중에는 버튼을 막고 "저장 중...", 204여야 저장으로 인정. 실패(서버 없음·거절·3초 초과)면 "저장하지 못했습니다: HTTP 500 (...)" 같은 이유를 보이고 저장 안 된 상태로 남는다. 누른 순간의 값만 저장한다.
+- **저장 중 닫기**(`E`·`Esc`·닫기)는 응답(최대 3초) 뒤 닫으면서 파일에 마지막으로 저장된 값으로 맞춘다("저장 중입니다. 저장이 끝나면 닫습니다.").
 - **취소**는 마지막 저장값(없으면 기본값), **기본값으로**는 `config.presence`(저장해야 유지). **저장하지 않고 닫으면 저장된 값으로 되돌린다** — 실행 중 값과 재시작 값이 늘 같게. 확인 창 대신 "저장하지 않은 변경이 있습니다 (닫으면 취소됩니다)"를 늘 보인다.
 - **현재값 JSON**: 저장 형식 그대로 보이고 "복사"(실패하면 선택만). 불러오기 기능은 없다. 파일을 지우면 기본값, 직접 고친 범위 밖 값은 불러올 때 고쳐진다.
 
@@ -677,11 +684,11 @@ const detector = await FaceDetector.createFromOptions(fileset, {
 - **효과를 그리지 못하면 원본 사진으로 대신한다**(결과 크기로 줄이고 모드의 출력 단계를 CPU로, 아래 각 모드). 촬영 실패로 처리하지 않는다 — 관람객은 이미 찍혔고 다시 찍을 방법이 없다. 경고(`effect-capture`)와 D `photo-fx` `RAW PHOTO … (원인)`. 원인 예: `not-running`(미리보기 장애·손실 중), 화소 읽기 실패, 읽은 뒤 `render-failed: GL error …`·`context-lost: …`(읽은 화소를 쓰지 않음), 2D 캔버스 실패.
 - **D `photo-fx`:** `applied [모드] 크기 [점 방식] seed … tick … (same drawing as preview[, gpu=cpu]), render ms, total ms` 또는 `RAW PHOTO …`, 누적 수. **`print`:** 마지막 인쇄 데이터, 없으면 `none (원인)`.
 
-**운영자 조절 화면 `E`** (`ui/effect-tuning.js`)
+**운영자 조절 화면 `E`의 필터 섹션** (`ui/effect-tuning.js`)
 
 - 효과 7개(강도, 붓 크기, 획 다시 그리기, 초당 그림, 색 보정, 세부 보존 문턱, 처리 해상도), 출력 단계(출력 모드·점 방식·용지 폭 선택, 밝기·대비·감마 슬라이더), 흑백 스타일(스타일·질감 세기·선 간격). 범위는 원본 갤러리 슬라이더와 같다. 좌우 반전(2026-10-26 ~ 9-1에는 여기 "카메라")은 카메라 설정으로 옮겼다(3절).
 - 출력 모드 첫 선택지는 회색조 유화. 감열지가 아니면 흑백 스타일을, 회색조·끔이면 점 방식·용지 폭도, 끔이면 레벨도 막는다(회색조 유화에서 점 방식·용지 폭은 인쇄 데이터용으로 열림). 질감 세기는 톤 점에서, 선 간격은 선 스타일이 아니면 막힌다.
-- 즉시 반영. 저장·취소·기본값·저장 없이 닫으면 되돌리기·저장 중 닫기는 `R`과 같은 규칙이고, 열려 있는 동안 자동 촬영을 막는다.
+- 즉시 반영. 저장·취소·기본값(필터 값만)·저장 없이 닫으면 되돌리기·저장 중 닫기는 인식·카메라 섹션과 같은 규칙이고, 패널이 열려 있는 동안 자동 촬영을 막는다.
 - **파일** `config/effect.local.json`: `{ "version": 1, "settings": { strength, size, boil, fps, grade, refineThreshold, previewScale, outputMode, dither, brightness, contrast, gamma, paperDots, bwStyle, bwTexture, lineSpacing } }`(조절하는 16개 값만). 파일 값이 있으면 그 값이다(예: 예전에 `thermal`로 저장한 파일은 감열지로 시작하므로 회색조 유화로 바꾸려면 `E`에서 고르고 저장). 일부 키만 있으면 나머지를 기본값으로 채우고 알린다(`adjusted`). 예전 파일(2026-10-26 ~ 9-1)에 남은 `mirror`는 읽지 않고 알리지도 않는다(카메라 파일이 없을 때 카메라 설정으로 한 번 옮기고 이 파일에서 그 키를 뺀다, 3절).
 - **불러오기: 파일 → 기본값**(`localStorage` 없음). 404·읽기 실패·`effectSettingsFile.timeoutMs`(3초, 가안) 초과·형식 오류면 기본값이고 파일은 그대로. 불러오는 동안은 기본값으로 그리고 **자동 촬영을 막지 않는다**(판정과 무관, 그사이 촬영돼도 미리보기와 결과는 같은 값). D `values`에 값과 출처(`file`·`saved`·`defaults (no file)`·`+ unsaved changes`).
 
