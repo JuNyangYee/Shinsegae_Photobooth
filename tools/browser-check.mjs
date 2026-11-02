@@ -23,12 +23,18 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { backupFile, createCdpSession, restoreFile } from './browser-check-lib.mjs';
+import { config } from '../src/web/config/config.js';
+import { computeCameraView, mapPoint } from '../src/web/core/camera-view.js';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SETTINGS_FILE = join(repo, 'config', 'presence.local.json');
 const SETTINGS_API = '/local-api/presence-settings';
 const EFFECT_SETTINGS_FILE = join(repo, 'config', 'effect.local.json');
 const EFFECT_SETTINGS_API = '/local-api/effect-settings';
+const CAMERA_SETTINGS_FILE = join(repo, 'config', 'camera.local.json');
+const CAMERA_SETTINGS_API = '/local-api/camera-settings';
+// 카메라 설정 기본값 (9-1, config.camera). 시나리오는 이 위에 바꿀 값만 얹어 파일에 쓴다
+const CAMERA_DEFAULTS = Object.freeze({ ...config.camera });
 const MODEL_PATTERN = '*blaze_face_short_range.tflite*';
 // MediaPipe 사용 통계 전송은 CSP로 막는 것이 의도된 동작이다(docs/SYSTEM.md 1절). 이 주소의 CSP 메시지는 실패로 세지 않는다.
 const EXPECTED_CSP_HOST = 'odml.pa.googleapis.com';
@@ -70,16 +76,16 @@ const log = (...parts) => console.log(`[${elapsed()}]`, ...parts);
 
 // ---------- 정리 대상 (이 도구가 만든 것만) ----------
 
-const owned = { server: null, chrome: null, profile: null, cdp: null, settingsBackup: null, effectBackup: null };
+const owned = { server: null, chrome: null, profile: null, cdp: null, settingsBackup: null, effectBackup: null, cameraBackup: null };
 let cleaning = null;
 
 // 조절값 파일은 시작할 때 바이트 그대로(또는 "없음") 백업하고, 모든 정리 경로에서 파일 시스템으로 직접 되돌린다
 // (4단계 검수 1: 서버 API로 되돌리면 잘못된 JSON·16KB 초과 원본이 거절돼 시험 값이 남았다).
-// 인식 조절값(presence.local.json)과 효과 조절값(effect.local.json, 5-2) 둘 다 같은 방법으로 되돌린다.
+// 인식 조절값(presence.local.json)·효과 조절값(effect.local.json, 5-2)·카메라 설정(camera.local.json, 9-1) 모두 같은 방법으로 되돌린다.
 function restoreSettings(reason) {
   const details = [];
   let ok = true;
-  for (const [label, backup] of [['settings', owned.settingsBackup], ['effect settings', owned.effectBackup]]) {
+  for (const [label, backup] of [['settings', owned.settingsBackup], ['effect settings', owned.effectBackup], ['camera settings', owned.cameraBackup]]) {
     if (!backup) continue;
     const result = restoreFile(backup);
     if (!result.ok || result.detail !== 'unchanged') log(`${label} file ${result.ok ? 'OK' : 'FAIL'} (${reason}): ${result.detail}`);
@@ -578,8 +584,13 @@ const MIRROR_READER = `(() => {
     const sw = va > a ? vh * a : vw, sh = va > a ? vh : vw / a;
     tx.drawImage(v, (vw - sw) / 2, (vh - sh) / 2, sw, sh, 0, 0, t.width, t.height);
     return grid(t.width, t.height, tx.getImageData(0, 0, t.width, t.height).data, (x, y) => (y * t.width + x) * 4); };
+  // 카메라 처리 경로(9-1)를 거친 영상 격자: r.view(core/camera-view.js computeCameraView)가 있으면 그 변환으로 그린다 (색 보정 없음)
+  const stageGrid = () => { if (!r.view || !r.canvasTransform) return null;
+    tx.save(); tx.fillStyle = '#000'; tx.fillRect(0, 0, t.width, t.height); tx.setTransform(...r.canvasTransform(r.view, t.width, t.height));
+    tx.drawImage(v, 0, 0); tx.restore();
+    return grid(t.width, t.height, tx.getImageData(0, 0, t.width, t.height).data, (x, y) => (y * t.width + x) * 4); };
   const probe = new Uint8Array(8 * 8 * 4);
-  const r = window.__mirrorReader = { GW, GH, samples: [], shutter: null, grid };
+  const r = window.__mirrorReader = { GW, GH, samples: [], shutter: null, grid, view: null, canvasTransform: null };
   new MutationObserver(() => { const cd = document.getElementById('countdown');
     if (cd.hidden && r.wasCounting) r.shutter = r.samples.at(-1) ?? null;
     r.wasCounting = !cd.hidden; }).observe(document.getElementById('countdown'), { attributes: true, attributeFilter: ['hidden'] });
@@ -593,7 +604,7 @@ const MIRROR_READER = `(() => {
     if (any === 0) return;
     const buf = new Uint8Array(W * H * 4);
     gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, buf);
-    r.samples.push({ drawing: grid(W, H, buf, (x, y) => ((H - 1 - y) * W + x) * 4), video: videoGrid() });
+    r.samples.push({ drawing: grid(W, H, buf, (x, y) => ((H - 1 - y) * W + x) * 4), video: videoGrid(), stage: stageGrid() });
     if (r.samples.length > 12) r.samples.shift();
   };
   requestAnimationFrame(loop);
@@ -622,13 +633,89 @@ const MIRROR_RESULT = `(() => { ${MIRROR_MATH}
   // 격자 값 범위(최소·최대·NaN 수): 실패 메시지에서 그림을 못 읽었는지 가린다
   const range = (g) => (g ? [Math.round(Math.min(...g)), Math.round(Math.max(...g)), g.filter(Number.isNaN).length].join('/') : '-');
   return { size: W + 'x' + H, ranges: [range(res), range(r.shutter?.drawing), range(r.shutter?.video)].join(' '),
-    drawing: r.shutter?.drawing ? orient(res, r.shutter.drawing) : null, video: r.shutter ? orient(res, r.shutter.video) : null }; })()`;
+    drawing: r.shutter?.drawing ? orient(res, r.shutter.drawing) : null, video: r.shutter ? orient(res, r.shutter.video) : null,
+    stage: r.shutter?.stage ? orient(res, r.shutter.stage) : null }; })()`;
+
+// 카메라 처리 경로 (9-1)의 미리보기 ↔ 같은 순간 영상: 변환한 영상(stage)과 변환 전 cover 영상(video) 상관 평균
+const CAMERA_PREVIEW = `(() => { ${MIRROR_MATH}
+  const list = window.__mirrorReader.samples.filter((s) => s.stage).map((s) => ({ stage: corr(s.drawing, s.stage), cover: corr(s.drawing, s.video) }));
+  const avg = (k) => +(list.reduce((a, o) => a + o[k], 0) / Math.max(1, list.length)).toFixed(3);
+  return { n: list.length, stage: avg('stage'), cover: avg('cover'), stageMin: +Math.min(...list.map((o) => o.stage)).toFixed(3) }; })()`;
+
+/**
+ * 카메라 처리 경로 (9-1)가 2D 캔버스(감지·캡처·원본 미리보기)와 효과 셰이더에서 같은 그림인지 페이지 안에서 잰다. 이미지는 저장하지 않는다.
+ * 같은 영상 프레임(ImageBitmap 한 장)에서 ① 변환만 한 2D 그림 a, ② 앱의 색 보정 SVG 필터까지 건 2D 그림 b(= camera-frame.js draw),
+ * ③ 앱 셰이더 FS_GRADE(uAmt 0 → 카메라 입력 그대로, effect/oil-shaders.js CAMERA_INPUT)로 그린 그림 g를 원본 화소 크기로 만든다.
+ * b ↔ a에 core 기준식(applyCameraColor)을 적용한 값, g ↔ b를 화소 차이(평균·99%)와 18x32 격자 차이(최대)로 비교한다.
+ */
+const cameraPathCheck = (camera) => `(async () => {
+  const cv = await import('/core/camera-view.js');
+  const sh = await import('/effect/oil-shaders.js');
+  // 같은 프레임 한 장: <video>를 세 번 읽으면 그 사이 다음 프레임이 될 수 있다(가짜 카메라의 움직이는 부분이 한 격자에서 크게 달랐다)
+  const video = document.getElementById('preview');
+  const v = await createImageBitmap(video);
+  v.videoWidth = v.width; v.videoHeight = v.height;
+  const view = cv.computeCameraView({ videoWidth: v.width, videoHeight: v.height, stageAspect: 9 / 16, camera: ${JSON.stringify(camera)} });
+  const OW = Math.round(view.visibleWidthPx), OH = Math.round(view.visibleHeightPx);
+  const color = cv.cameraColorMatrix(${JSON.stringify(camera)});
+  const filter = document.querySelector('svg.camera-filter filter');
+  const appFilter = filter ? 'url(#' + filter.id + ')' : 'none';
+  const draw2d = (f) => { const c = document.createElement('canvas'); c.width = OW; c.height = OH; const x = c.getContext('2d', { willReadFrequently: true });
+    x.fillStyle = '#000'; x.fillRect(0, 0, OW, OH); x.setTransform(...cv.canvasTransform(view, OW, OH)); x.filter = f; x.drawImage(v, 0, 0);
+    const d = x.getImageData(0, 0, OW, OH).data; c.width = 0; return d; };
+  // GL: 앱 셰이더 그대로 (VS + FS_GRADE, uAmt 0)
+  const gc = document.createElement('canvas'); gc.width = OW; gc.height = OH;
+  const gl = gc.getContext('webgl2', { preserveDrawingBuffer: true });
+  const compile = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
+  const prog = gl.createProgram(); gl.attachShader(prog, compile(gl.VERTEX_SHADER, sh.VS)); gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, sh.FS_GRADE));
+  gl.linkProgram(prog); if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  const tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex);
+  for (const [k, val] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, val);
+  const a = draw2d('none');
+  const b = draw2d(appFilter);
+  // 앱은 <video>를 UNPACK_FLIP_Y로 올린다. ImageBitmap에는 그 설정이 듣지 않아 같은 프레임을 위아래 뒤집은 비트맵으로 올린다
+  const flipped = await createImageBitmap(v, { imageOrientation: 'flipY' });
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, flipped); flipped.close();
+  gl.useProgram(prog); gl.viewport(0, 0, OW, OH);
+  const U = (n) => gl.getUniformLocation(prog, n);
+  const affine = cv.shaderSourceAffine(view), cu = cv.shaderColorUniforms(color);
+  gl.uniform1i(U('uSrc'), 0); gl.uniform1f(U('uAmt'), 0); gl.uniform2f(U('uRes'), OW, OH); gl.uniform2f(U('uTexel'), 1 / OW, 1 / OH);
+  gl.uniform3fv(U('uSrcX'), affine.x); gl.uniform3fv(U('uSrcY'), affine.y); gl.uniformMatrix3fv(U('uCamM'), false, cu.uCamM);
+  gl.uniform3fv(U('uCamB'), cu.uCamB); gl.uniform1f(U('uCamExp'), cu.uCamExp);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  const gRaw = new Uint8Array(OW * OH * 4); gl.readPixels(0, 0, OW, OH, gl.RGBA, gl.UNSIGNED_BYTE, gRaw);
+  gl.getExtension('WEBGL_lose_context')?.loseContext(); gc.width = 0;
+  const stats = (diffAt) => { const hist = new Uint32Array(256); let sum = 0, n = 0;
+    for (let y = 0; y < OH; y++) for (let x = 0; x < OW; x++) for (let ch = 0; ch < 3; ch++) { const dd = Math.min(255, Math.round(diffAt(x, y, ch))); hist[dd]++; sum += dd; n++; }
+    let acc = 0, p99 = 0; for (let i = 0; i < 256; i++) { acc += hist[i]; if (acc >= n * 0.99) { p99 = i; break; } }
+    return { mean: +(sum / n).toFixed(3), p99 }; };
+  const at = (x, y) => (y * OW + x) * 4, atG = (x, y) => ((OH - 1 - y) * OW + x) * 4;
+  // b ↔ 기준식(a)
+  const ref = new Float32Array(OW * OH * 3);
+  for (let i = 0, j = 0; i < a.length; i += 4, j += 3) { const o = cv.applyCameraColor([a[i] / 255, a[i + 1] / 255, a[i + 2] / 255], color); ref[j] = o[0] * 255; ref[j + 1] = o[1] * 255; ref[j + 2] = o[2] * 255; }
+  const svgVsRef = stats((x, y, ch) => Math.abs(b[at(x, y) + ch] - ref[(y * OW + x) * 3 + ch]));
+  const glVs2d = stats((x, y, ch) => Math.abs(gRaw[atG(x, y) + ch] - b[at(x, y) + ch]));
+  // 격자(18x32) 밝기 평균 차이: 화소 필터(축소·보간) 차이를 넘는 기하·색 어긋남을 본다
+  const GW = 18, GH = 32, luma = (d, i) => 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+  const gridOf = (d, pos) => { const g = new Float64Array(GW * GH), n = new Float64Array(GW * GH);
+    for (let y = 0; y < OH; y++) for (let x = 0; x < OW; x++) { const k = Math.floor(y * GH / OH) * GW + Math.floor(x * GW / OW); g[k] += luma(d, pos(x, y)); n[k]++; }
+    return g.map((s, k) => s / n[k]); };
+  const g2d = gridOf(b, at), gGl = gridOf(gRaw, atG), gRaw2d = gridOf(a, at);
+  const gridMax = (p, q) => +Math.max(...p.map((x, k) => Math.abs(x - q[k]))).toFixed(2);
+  // 색 보정이 실제로 걸렸는지: 보정 전후 격자 차이
+  v.close();
+  return { size: OW + 'x' + OH, video: video.videoWidth + 'x' + video.videoHeight, filter: appFilter, zoom: +view.zoom.toFixed(3), autoZoom: view.autoZoom,
+    svgVsRef, glVs2d, gridGlVs2d: gridMax(gGl, g2d), colorEffect: gridMax(g2d, gRaw2d) };
+})()`;
 
 // 방향 판정: 비대칭 성분 상관이 같은 방향이면 이 값 이상, 거울 방향이면 −이 값 이하 (가안, 측정값은 로그 2026-10-26-02)
 const MIRROR_ANTI = 0.3;
 const oriented = (o, mirrored) => (mirrored ? o.anti <= -MIRROR_ANTI : o.anti >= MIRROR_ANTI);
 const facesOf = (text) => text.split('\n').filter((l) => /^ {2}face \d+/.test(l))
   .map((l) => Number(/center (-?[\d.]+),/.exec(l)?.[1] ?? NaN));
+const facesXY = (text) => text.split('\n').filter((l) => /^ {2}face \d+/.test(l))
+  .map((l) => { const m = /center (-?[\d.]+),(-?[\d.]+)/.exec(l); return { x: Number(m?.[1] ?? NaN), y: Number(m?.[2] ?? NaN) }; });
 
 // ---------- 시나리오 ----------
 
@@ -713,15 +800,17 @@ async function runScenarios(app, origin) {
     expect(m && Math.abs(Number(m[2]) - Number(m[1])) <= 1, `drawings/s: ${running}`);
     // 조절값 파일이 없으면 기본값: 처리 해상도 0.5 → 540x960, 초당 그림 12 (사용자 결정 2026-10-19)
     expect(/^running, 540x960 \(preview x0\.5,/.test(running) && m[1] === '12', `defaults: ${running}`);
-    // 강도 0.3·붓 크기 1.3·보완 층 문턱 0.3·밝기 -0.05·대비 1.5·감마 1.3 (사용자 결정 2026-10-26), 좌우 반전 기본 켬
+    // 강도 0.3·붓 크기 1.3·보완 층 문턱 0.3·밝기 -0.05·대비 1.5·감마 1.3 (사용자 결정 2026-10-26). 좌우 반전은 9-1부터 카메라 설정(D mirror 줄)
     const values = subLine(await app.devText(), 'values');
     expect(/^strength 0\.3 size 1\.3 boil 0\.05 fps 12 grade 1 refine 0\.3 scale 0\.5 \| output gray-oil /.test(values)
-      && /brightness -0\.05 contrast 1\.5 gamma 1\.3 mirror on \(defaults\b/.test(values), `default values: ${values}`);
+      && /brightness -0\.05 contrast 1\.5 gamma 1\.3 \(defaults\b/.test(values), `default values: ${values}`);
     const ready = await resultReady('result prepared');
     const layout = await app.evaluate(`(() => { const c = document.getElementById('effect'), v = document.getElementById('preview');
       const box = (e) => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map(Math.round).join(','); };
-      return { hidden: c.hidden, canvas: box(c), video: box(v), canvasTransform: getComputedStyle(c).transform, videoMirrored: v.classList.contains('is-mirrored') }; })()`);
+      const raw = document.getElementById('camera-raw');
+      return { hidden: c.hidden, canvas: box(c), video: box(v), canvasTransform: getComputedStyle(c).transform, rawHidden: raw.hidden }; })()`);
     expect(!layout.hidden && layout.canvas === layout.video, `canvas ${JSON.stringify(layout)}`);
+    expect(layout.rawHidden && /^off \(effect running\)/.test((await app.dev()).get('raw-view') ?? ''), `raw preview while effect runs ${JSON.stringify(layout)}`);
     expect(layout.canvasTransform === 'none', `effect canvas must not be CSS-mirrored: ${layout.canvasTransform}`);
     // 컨텍스트 손실 (WEBGL_lose_context) → 캔버스 숨김(원본 미리보기), 카메라 그대로 → 되살리면 다시 효과
     await app.evaluate("window.__loseEffect = document.getElementById('effect').getContext('webgl2').getExtension('WEBGL_lose_context'); __loseEffect.loseContext(); true");
@@ -762,6 +851,12 @@ async function runScenarios(app, origin) {
       const effect = dev.get('effect') ?? '';
       expect(/^fallback \(webgl2-unavailable/.test(effect), `effect ${effect}`);
       expect(await app.evaluate("document.getElementById('effect').hidden"), 'effect canvas visible in fallback');
+      // 원본 미리보기 (9-1): 카메라 처리 경로를 거친 캔버스가 효과 대신 보이고 계속 그린다
+      const raw1 = await app.waitFor('raw preview shown', async () => /^shown \d+x\d+, draws (\d+)/.exec((await app.dev()).get('raw-view') ?? ''), 5000);
+      await sleep(600);
+      const raw2 = /^shown (\d+x\d+), draws (\d+)/.exec((await app.dev()).get('raw-view') ?? '');
+      expect(raw2 && Number(raw2[2]) > Number(raw1[1]), `raw preview keeps drawing: ${raw1?.[0]} -> ${raw2?.[0]}`);
+      expect(await app.evaluate("!document.getElementById('camera-raw').hidden"), 'raw preview canvas hidden in fallback');
       expect((await app.status()) === '', 'visitor status message shown in fallback');
       const { completedDelta, resources, dev: after } = await withAutoPaused(app, () => manualCycle(app));
       // 회색조 유화 기본값: 원본 사진(결과 크기)을 입력 회색조·레벨로, 인쇄 데이터도 그 사진에서 (8단계)
@@ -769,7 +864,7 @@ async function runScenarios(app, origin) {
       expect(/^576x1024 1-bit/.test(after.get('print') ?? ''), `print ${after.get('print')}`);
       expect(completedDelta === 1, `S completed +${completedDelta}`);
       expect(resources && resources.urls === 0 && resources.canvases === 0 && resources.pending === 0, 'resources not released');
-      return `${effect}; camera ready, detector ok, S cycle ok`;
+      return `${effect}; raw preview ${raw2[1]} (${raw2[2]} draws); camera ready, detector ok, S cycle ok`;
     } finally {
       await app.cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier });
     }
@@ -993,20 +1088,35 @@ async function runScenarios(app, origin) {
     }
   });
 
-  await scenario('좌우 반전(E 카메라) 켬 → 끔 → 켬: <video> CSS·효과 미리보기·결과 사진 방향(영상과 격자 상관), 인식 다시 재기, 끔 저장 → 새로고침 유지 (파일은 원래대로)', async () => {
+  // ---- 카메라 처리 경로 (9-1): 카메라 설정은 지금 파일·API로만 바꾼다(운영자 화면은 9-2). 파일을 쓰고 새로고침해 그 값으로 시작한다 ----
+  const putCamera = async (patch) => {
+    const body = JSON.stringify({ version: 1, settings: { ...CAMERA_DEFAULTS, ...patch } }, null, 2);
+    const status = await app.evaluate(`(async () => (await fetch('${CAMERA_SETTINGS_API}', { method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-Photobooth': '1' }, body: ${JSON.stringify(body)} })).status)()`);
+    expect(status === 204, `PUT camera settings ${status}`);
+  };
+  const openWithCamera = async (patch) => {
+    await putCamera(patch);
+    await app.open();
+    await waitReady(app);
+    await app.waitFor('camera settings loaded', async () => /^file\b/.test((await app.dev()).get('camera-cfg') ?? ''), 5000);
+    await app.evaluate(MIRROR_READER);
+  };
+  const getJson = (url) => app.evaluate(`(async () => { const r = await fetch('${url}', { cache: 'no-store' }); return r.status === 200 ? r.json() : r.status; })()`);
+
+  await scenario('좌우 반전(카메라 설정, 9-1에 효과 설정에서 옮김) 켬 → 끔: 효과 미리보기·결과 사진 방향(영상과 격자 상관), 얼굴 화면 x, 효과 파일의 예전 mirror 옮기기 (파일은 원래대로)', async () => {
     const details = [];
-    // 지금 반전 상태: D mirror 줄, <video> CSS, 효과 그림 ↔ 영상 상관(새 그림 8장 이상)
+    // 지금 반전 상태: D mirror 줄, 효과 그림 ↔ 영상 상관(새 그림 8장 이상)
     const look = async (label) => {
       await app.evaluate('window.__mirrorReader.samples.length = 0; true');
       await app.waitFor(`${label}: drawings`, async () => (await app.evaluate('window.__mirrorReader.samples.length')) >= 8, 5000);
-      const css = await app.evaluate(`(() => { const v = document.getElementById('preview');
-        return { mirrored: v.classList.contains('is-mirrored'), transform: getComputedStyle(v).transform, canvas: getComputedStyle(document.getElementById('effect')).transform }; })()`);
+      const css = await app.evaluate(`(() => ({ video: getComputedStyle(document.getElementById('preview')).transform,
+        canvas: getComputedStyle(document.getElementById('effect')).transform }))()`);
       return { dev: (await app.dev()).get('mirror'), css, preview: await app.evaluate(MIRROR_PREVIEW) };
     };
     const expectLook = (s, on, label) => {
-      expect(s.dev === `${on ? 'on' : 'off'} (E camera)`, `${label}: D mirror ${s.dev}`);
-      expect(s.css.mirrored === on && (on ? /^matrix\(-1, 0, 0, 1, 0, 0\)$/.test(s.css.transform) : s.css.transform === 'none'), `${label}: video css ${JSON.stringify(s.css)}`);
-      expect(s.css.canvas === 'none', `${label}: effect canvas must not be CSS-mirrored: ${s.css.canvas}`);
+      expect(s.dev === `${on ? 'on' : 'off'} (camera settings)`, `${label}: D mirror ${s.dev}`);
+      expect(s.css.video === 'none' && s.css.canvas === 'none', `${label}: no CSS mirroring ${JSON.stringify(s.css)}`);
       expect(s.preview.n >= 8 && oriented(s.preview, on), `${label}: preview vs video ${JSON.stringify(s.preview)} (anti ±${MIRROR_ANTI})`);
       return `${label} preview~video anti ${s.preview.anti} (${s.preview.n} drawings, same ${s.preview.same} / flipped ${s.preview.flipped})`;
     };
@@ -1018,29 +1128,19 @@ async function runScenarios(app, origin) {
       const fx = dev.get('photo-fx') ?? '';
       expect(/^applied gray-oil 1080x1920 /.test(fx), `${label}: photo-fx ${fx}`);
       expect(/, mirrored\)/.test(dev.get('capture') ?? '') === on, `${label}: capture ${dev.get('capture')}`);
-      // 결과는 셔터 순간 그림과 같은 방향(같은 그림), 영상과는 반전이면 거울 방향
       expect(extra.drawing && oriented(extra.drawing, false), `${label}: result vs shutter drawing ${JSON.stringify(extra)}`);
       expect(oriented(extra.video, on), `${label}: result vs video at shutter ${JSON.stringify(extra)}`);
       return `${label} result~drawing anti ${extra.drawing.anti} (same ${extra.drawing.same}), result~video anti ${extra.video.anti}`
         + `${fx.includes('same drawing as preview') ? ', same drawing as preview' : ', new drawing'}`;
     };
-    const resets = async () => Number(/criteria resets (\d+)/.exec((await app.dev()).get('faces') ?? '')?.[1] ?? NaN);
     try {
-      await app.open();
-      await waitReady(app);
-      await app.evaluate(MIRROR_READER);
-      await app.key('KeyE');
-      await app.waitFor('effect panel open', () => app.evaluate("!document.getElementById('effect-panel').hidden"), 5000);
-      expect((await app.evaluate("document.querySelector('#effect-panel select[data-key=\"mirror\"]').value")) === 'true', 'mirror select default');
-      const on1 = await look('on');
-      details.push(expectLook(on1, true, 'on'));
+      await openWithCamera({ mirror: true });
+      const on = await look('on');
+      details.push(expectLook(on, true, 'on'));
       details.push(await shot(true, 'on'));
-      // 끄기: 바로 반영, 인식 상태 처음부터 (criteria resets +1)
       const facesOn = facesOf(await app.devText()); // 바꾸기 바로 전 얼굴 위치 (화면 좌표 x)
-      const before = await resets();
-      await app.choose('mirror', 'false');
-      expect((await resets()) === before + 1, `criteria resets ${before} -> ${await resets()}`);
-      // 얼굴이 하나 보였으면(실제 카메라 앞 사람) 바꾼 뒤 첫 감지에서 화면 좌표 x가 1 - x 근처로 바뀐다. 없으면 미검증으로 남긴다
+      await openWithCamera({ mirror: false });
+      // 얼굴이 하나 보였으면(실제 카메라 앞 사람) 바꾼 뒤 화면 좌표 x가 1 - x 근처로 바뀐다. 없으면 미검증으로 남긴다
       const facesOff = facesOn.length === 0 ? [] : await app.waitFor('faces after mirror off', async () => {
         const list = facesOf(await app.devText());
         return list.length > 0 ? list : null;
@@ -1054,31 +1154,163 @@ async function runScenarios(app, origin) {
         details.push(`face position not checked (faces on ${facesOn.length}, off ${facesOff.length})`);
       }
       details.push(await shot(false, 'off'));
-      // 저장 → 새로고침: 끔 유지, 파일에 mirror false
-      await app.evaluate("document.querySelector('#effect-panel button[data-action=\"save\"]').click(); true");
-      await app.waitFor('saved message', () => app.evaluate("document.querySelector('#effect-panel [data-message]').textContent === '파일에 저장했습니다.'"), 5000);
-      await app.key('KeyE');
+
+      // 예전 효과 파일(2026-10-26 ~ 9-1)의 mirror: 카메라 파일이 없으면 처음 읽을 때 카메라 파일로 옮기고 효과 파일에서 뺀다
+      const effectNow = await getJson(EFFECT_SETTINGS_API);
+      const effectOld = { version: 1, settings: { ...(typeof effectNow === 'object' ? effectNow.settings : {}), fps: 12, mirror: false } };
+      const putEffect = await app.evaluate(`(async () => (await fetch('${EFFECT_SETTINGS_API}', { method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'X-Photobooth': '1' }, body: ${JSON.stringify(JSON.stringify(effectOld, null, 2))} })).status)()`);
+      expect(putEffect === 204, `PUT old effect file ${putEffect}`);
+      rmSync(CAMERA_SETTINGS_FILE, { force: true });
       await app.open();
       await waitReady(app);
-      await app.evaluate(MIRROR_READER);
-      await app.waitFor('effect settings loaded', async () => /\((file|saved)/.test(subLine(await app.devText(), 'values')), 10000);
-      const reloaded = await look('reload');
-      details.push(expectLook(reloaded, false, 'after reload off'));
-      const api = await app.evaluate(`(async () => (await (await fetch('${EFFECT_SETTINGS_API}', { cache: 'no-store' })).json()))()`);
-      expect(api.version === 1 && api.settings.mirror === false, `file ${JSON.stringify(api)}`);
-      // 다시 켬 (저장하지 않고 닫으면 저장값 끔으로 돌아간다)
-      await app.key('KeyE');
-      await app.waitFor('effect panel open', () => app.evaluate("!document.getElementById('effect-panel').hidden"), 5000);
-      await app.choose('mirror', 'true');
-      const on2 = await look('on again');
-      details.push(expectLook(on2, true, 'on again'));
-      await app.key('KeyE');
-      await app.waitFor('reverted to saved off', async () => (await app.dev()).get('mirror') === 'off (E camera)', 3000);
-      details.push('close without save -> off; file version 1 mirror false');
+      const cfg = await app.waitFor('camera settings migrated', async () => {
+        const value = (await app.dev()).get('camera-cfg') ?? '';
+        return /^migrated/.test(value) ? value : null;
+      }, 5000);
+      expect((await app.dev()).get('mirror') === 'off (camera settings)', `after migration D mirror ${(await app.dev()).get('mirror')}`);
+      const cameraFile = await getJson(CAMERA_SETTINGS_API);
+      const effectFile = await getJson(EFFECT_SETTINGS_API);
+      expect(cameraFile.version === 1 && cameraFile.settings.mirror === false, `camera file ${JSON.stringify(cameraFile)}`);
+      expect(!('mirror' in effectFile.settings) && effectFile.settings.fps === 12, `effect file still has mirror ${JSON.stringify(effectFile)}`);
+      details.push(`migration: ${cfg.split(' (/local-api')[0]}; camera file mirror false; effect file without mirror`);
       return details.join('; ');
     } finally {
       const restored = restoreSettings('after mirror scenario');
       if (!restored.ok) throw new Error(`could not restore settings files: ${restored.detail}`);
+    }
+  });
+
+  // 화면 갱신(2초 rAF), 감지 빈도, 효과 초당 그림
+  const measureSpeed = async () => {
+    const raf = await app.evaluate(`new Promise((resolve) => { let n = 0; const t0 = performance.now();
+      const step = () => { n += 1; if (performance.now() - t0 < 2000) requestAnimationFrame(step); else resolve(+(n * 1000 / (performance.now() - t0)).toFixed(1)); };
+      requestAnimationFrame(step); })`);
+    const dev = await app.dev();
+    return { raf, detect: parseFps(dev.get('detect')), drawings: Number(/-> (\d+) drawings\/s/.exec(dev.get('effect') ?? '')?.[1] ?? NaN),
+      input: /input (\S+)/.exec(dev.get('detect') ?? '')?.[1] ?? '-' };
+  };
+
+  await scenario('카메라 변환·색 보정(가로 카메라 90°·세로 카메라 0°에 미세 회전 3°·확대 1.3·이동·밝기·대비·채도·감마·색온도·색조, 9-1): 2D(감지·캡처·원본) = 기준식 = 효과 셰이더 입력, 미리보기·결과 = 변환한 영상, 얼굴 위치, 화면·감지·효과 속도 (파일은 원래대로)', async () => {
+    const details = [];
+    try {
+      // 변환 없는 상태: 얼굴(있으면, 바꾼 뒤 위치를 예측한다)과 속도 기준
+      await openWithCamera({ mirror: false });
+      await sleep(1500); // 감지·효과 빈도는 최근 1초로 잰다
+      const videoSize = /^(\d+)x(\d+)/.exec((await app.dev()).get('video') ?? '');
+      const facesBefore = facesXY(await app.devText());
+      const base = await measureSpeed();
+      // 옆으로 세운 가로 카메라(가짜 카메라 정사각형 포함)를 90° 돌리는 쓰임: 카메라 기준 1920x1080으로 요청.
+      // 세로 카메라(OBS 9:16 출력)는 90° 돌리면 가로 그림이 되므로 0°에 미세 회전만
+      const landscape = videoSize && Number(videoSize[1]) >= Number(videoSize[2]);
+      const T = {
+        mirror: false, rotation: landscape ? 90 : 0, rotationFine: 3, zoom: 1.3, panX: 0.05, panY: -0.04,
+        brightness: 0.06, contrast: 1.15, saturation: 0.6, gamma: 1.2, temperature: 0.3, tint: -0.2, resolution: landscape ? '1920x1080' : 'auto',
+      };
+      const camera = { ...CAMERA_DEFAULTS, ...T };
+      await openWithCamera(T);
+      const dev = await app.dev();
+      const transform = dev.get('transform') ?? '';
+      expect(new RegExp(`^rotate ${T.rotation}\\+3deg, zoom 1\\.3 \\(used [\\d.]+(?: auto)?\\), pan 0\\.05,-0\\.04, source \\d+x\\d+px$`).test(transform), `D transform ${transform}`);
+      expect(/^brightness 0\.06 contrast 1\.15 saturation 0\.6 gamma 1\.2 temperature 0\.3 tint -0\.2$/.test(dev.get('color') ?? ''), `D color ${dev.get('color')}`);
+      expect(/^\d+x\d+ @/.test(dev.get('track') ?? '') && new RegExp(`resolution ${T.resolution}\\)$`).test(dev.get('track') ?? ''), `D track ${dev.get('track')}`);
+      details.push(`video ${videoSize?.[0]} -> ${dev.get('video')} (resolution ${T.resolution})`);
+      details.push(`D ${transform}; caps ${dev.get('caps')}`);
+
+      // ① 같은 프레임의 2D(앱 SVG 필터) = core 기준식, ② 효과 셰이더 입력 = 2D (화소·격자)
+      const path = await app.evaluate(cameraPathCheck(camera));
+      expect(path.filter.startsWith('url(#camera-color-'), `app filter ${path.filter}`);
+      expect(path.svgVsRef.p99 <= 3 && path.svgVsRef.mean <= 1.5, `2D SVG filter vs reference ${JSON.stringify(path)}`);
+      expect(path.glVs2d.mean <= 3 && path.gridGlVs2d <= 3, `shader input vs 2D ${JSON.stringify(path)}`);
+      expect(path.colorEffect >= 3, `color correction had no effect ${JSON.stringify(path)}`);
+      details.push(`path ${path.size} from ${path.video}: 2D filter~reference mean ${path.svgVsRef.mean} p99 ${path.svgVsRef.p99},`
+        + ` shader~2D mean ${path.glVs2d.mean} p99 ${path.glVs2d.p99} grid max ${path.gridGlVs2d}, color change ${path.colorEffect}`);
+
+      // ③ 효과 미리보기 ↔ 같은 순간 변환한 영상 (변환 전 cover 영상보다 뚜렷이 높아야)
+      await app.evaluate(`(async () => { const cv = await import('/core/camera-view.js'); const r = window.__mirrorReader, v = document.getElementById('preview');
+        r.canvasTransform = cv.canvasTransform; r.view = cv.computeCameraView({ videoWidth: v.videoWidth, videoHeight: v.videoHeight, stageAspect: 9 / 16, camera: ${JSON.stringify(camera)} });
+        r.samples.length = 0; return true; })()`);
+      await app.waitFor('transformed drawings', async () => (await app.evaluate(CAMERA_PREVIEW)).n >= 8, 5000);
+      const preview = await app.evaluate(CAMERA_PREVIEW);
+      expect(preview.stage >= 0.6 && preview.stage - preview.cover >= 0.1, `preview vs transformed video ${JSON.stringify(preview)}`);
+      details.push(`preview~transformed video ${preview.stage} (min ${preview.stageMin}) vs untransformed ${preview.cover}`);
+
+      // ④ 결과 사진 = 셔터 순간 그림, 결과 ↔ 그 순간 변환한 영상. D capture 줄에 회전·배율·색 보정
+      await app.evaluate('window.__mirrorReader.shutter = null; true');
+      const { completedDelta, resources, dev: after, extra } = await withAutoPaused(app, () => manualCycle(app, { onResult: () => app.evaluate(MIRROR_RESULT) }));
+      expect(completedDelta === 1 && photoFree(resources), `S +${completedDelta}, ${after.get('resources')}`);
+      const capture = after.get('capture') ?? '';
+      expect(new RegExp(`^\\d+x\\d+ from video \\d+x\\d+ \\(rotate ${T.rotation + 3} zoom [\\d.]+(?: auto)?, color\\)`).test(capture), `capture ${capture}`);
+      expect(/^applied gray-oil 1080x1920 /.test(after.get('photo-fx') ?? ''), `photo-fx ${after.get('photo-fx')}`);
+      expect(extra.drawing && extra.drawing.same >= 0.9, `result vs shutter drawing ${JSON.stringify(extra)}`);
+      expect(extra.stage && extra.stage.same >= 0.6, `result vs transformed video ${JSON.stringify(extra)}`);
+      details.push(`capture ${capture.split(', image')[0].split(' grab')[0]}; result~drawing ${extra.drawing.same}, result~transformed video ${extra.stage.same}`);
+
+      // ⑤ 얼굴(실제 카메라 앞 사람): 변환 전 화면 위치 → 원본 → 변환 뒤 화면 위치로 예측한 곳에 있다. 없으면 미검증
+      const facesAfter = facesXY(await app.devText());
+      if (facesBefore.length === 1 && facesAfter.length === 1 && videoSize) {
+        const [W, H] = [Number(videoSize[1]), Number(videoSize[2])];
+        const v0 = computeCameraView({ videoWidth: W, videoHeight: H, stageAspect: 9 / 16, camera: { ...CAMERA_DEFAULTS, mirror: false } });
+        const v1 = computeCameraView({ videoWidth: W, videoHeight: H, stageAspect: 9 / 16, camera });
+        const predicted = mapPoint(v1.sourceToStage, mapPoint(v0.stageToSource, facesBefore[0]));
+        const off = Math.hypot(predicted.x - facesAfter[0].x, predicted.y - facesAfter[0].y);
+        expect(off < 0.1, `face before ${JSON.stringify(facesBefore[0])} -> predicted ${JSON.stringify(predicted)}, seen ${JSON.stringify(facesAfter[0])}`);
+        details.push(`face ${facesBefore[0].x},${facesBefore[0].y} -> predicted ${predicted.x.toFixed(2)},${predicted.y.toFixed(2)}, seen ${facesAfter[0].x},${facesAfter[0].y}`);
+      } else {
+        details.push(`face position not checked (faces before ${facesBefore.length}, after ${facesAfter.length})`);
+      }
+
+      // ⑥ 속도: 변환·색 보정을 켠 상태가 변환 없는 같은 환경보다 떨어지지 않는다 (화면 −10% 안, 감지 12fps·효과 11장/초 이상)
+      const speed = await measureSpeed();
+      expect(speed.raf >= base.raf * 0.9 && speed.detect >= 12 && speed.drawings >= 11,
+        `speed ${JSON.stringify(speed)} vs without transform ${JSON.stringify(base)}`);
+      details.push(`speed: screen ${speed.raf}fps (without transform ${base.raf}), detect ${speed.detect}fps (${base.detect}, input ${speed.input}),`
+        + ` effect ${speed.drawings} drawings/s (${base.drawings})`);
+      return details.join('; ');
+    } finally {
+      const restored = restoreSettings('after camera transform scenario');
+      if (!restored.ok) throw new Error(`could not restore settings files: ${restored.detail}`);
+      await app.open();
+      await waitReady(app);
+    }
+  });
+
+  await scenario('카메라 장치·해상도(9-1): 해상도 프리셋 요청 → 실제 트랙·캡처, 다른 카메라가 있으면 그 라벨로 열기, 없는 라벨이면 OBS·기본 규칙 (파일은 원래대로)', async () => {
+    const details = [];
+    try {
+      // 해상도 프리셋: ideal로만 요청하므로 장치가 고른 값을 그대로 보고, 그 크기로 캡처·결과가 돈다
+      await openWithCamera({ resolution: '1280x720' });
+      let dev = await app.dev();
+      expect(/\(ideal 1280x720, resolution 1280x720\)$/.test(dev.get('track') ?? ''), `D track ${dev.get('track')}`);
+      const video = /^(\d+)x(\d+)$/.exec(dev.get('video') ?? '');
+      expect(video && Number(video[1]) > 0, `video ${dev.get('video')}`);
+      const { completedDelta, resources, dev: shot } = await withAutoPaused(app, () => manualCycle(app));
+      expect(completedDelta === 1 && photoFree(resources), `S +${completedDelta}, ${shot.get('resources')}`);
+      details.push(`preset 1280x720 -> video ${dev.get('video')}, track ${(dev.get('track') ?? '').split(' (')[0]}; S ok (${(shot.get('capture') ?? '').split(' (')[0]})`);
+      // 다른 카메라: 지금 장치와 라벨이 다른 장치가 있으면 그 라벨로 연다 (deviceId가 아니라 라벨로 저장)
+      const labels = await app.evaluate(`(async () => (await navigator.mediaDevices.enumerateDevices())
+        .filter((d) => d.kind === 'videoinput').map((d) => d.label))()`);
+      const current = dev.get('camera');
+      const other = labels.find((label) => label && label !== current);
+      if (other) {
+        await openWithCamera({ deviceLabel: other });
+        dev = await app.dev();
+        expect(dev.get('camera') === other && /^device /.test(dev.get('selected') ?? ''), `camera ${dev.get('camera')}, selected ${dev.get('selected')}`);
+        details.push(`device "${other}" -> ${dev.get('video')} (selected device)`);
+      } else {
+        details.push(`only one camera (${labels.join(', ')}): device switch not checked`);
+      }
+      // 없는 라벨: OBS 규칙(있으면 preferred) 또는 기본 카메라
+      await openWithCamera({ deviceLabel: 'No Such Camera 9-1' });
+      dev = await app.dev();
+      expect(/^(preferred|default) \(device "No Such Camera 9-1"/.test(dev.get('selected') ?? ''), `selected ${dev.get('selected')}`);
+      details.push(`missing label -> ${(dev.get('selected') ?? '').split(' (')[0]} "${dev.get('camera')}"`);
+      return details.join('; ');
+    } finally {
+      const restored = restoreSettings('after camera device scenario');
+      if (!restored.ok) throw new Error(`could not restore settings files: ${restored.detail}`);
+      await app.open();
+      await waitReady(app);
     }
   });
 
@@ -1383,6 +1615,8 @@ async function main() {
   log(`settings file backup: ${owned.settingsBackup.existed ? `${owned.settingsBackup.bytes.length} bytes` : 'none (will stay absent)'}`);
   owned.effectBackup = backupFile(EFFECT_SETTINGS_FILE);
   log(`effect settings file backup: ${owned.effectBackup.existed ? `${owned.effectBackup.bytes.length} bytes` : 'none (will stay absent)'}`);
+  owned.cameraBackup = backupFile(CAMERA_SETTINGS_FILE);
+  log(`camera settings file backup: ${owned.cameraBackup.existed ? `${owned.cameraBackup.bytes.length} bytes` : 'none (will stay absent)'}`);
   const port = await freePort();
   const origin = `http://localhost:${port}`;
   log(`repo ${repo}`);
