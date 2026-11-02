@@ -1,6 +1,8 @@
-// 운영자용 인식 범위 조절 화면 (숨김 단축키로 연다, 관람객용 아님).
+// 운영자 조절 화면(E, operator-panel.js)의 "인식" 섹션 (관람객용 아님): 인식 범위·얼굴 크기·신뢰도·반응 속도·카메라 회복 시간(9-2).
 // 조절하는 즉시 감지 루프에 반영하고, "저장"을 눌러야 조절값 파일(서버 config/presence.local.json)에 기록한다.
-// 저장하지 않고 닫으면 저장된 값으로 되돌린다: 실행 중인 값과 다시 시작했을 때의 값이 항상 같게 하기 위해서다.
+// 패널을 닫을 때 저장하지 않은 변경은 저장된 값으로 되돌린다: 실행 중인 값과 다시 시작했을 때의 값이 항상 같게 하기 위해서다.
+// 패널 표시·섹션 고르기는 operator-panel.js가 하고, 이 모듈은 이 섹션이 보이는 동안(setActive) 실시간 줄과 영역 편집 층을 보인다.
+// 카메라 회복 시간은 감지 루프 설정에 함께 들어가고, 카메라 감시·관람객 안내가 쓸 때마다 읽는다(main.js).
 
 import {
   normalizePresenceSettings,
@@ -21,8 +23,12 @@ const SLIDERS = [
   ['presentHoldMs', presenceLimits.presentHoldMs, 2, 1000],
   ['absentGraceMs', presenceLimits.absentGraceMs, 2, 1000],
 ];
+// 카메라 회복 시간 (settings.cameraRecovery 안, ms로 저장하고 초로 보인다)
+const RECOVERY_SLIDERS = [
+  ['retryIntervalMs', 1], ['firstFrameTimeoutMs', 1], ['stallTimeoutMs', 1], ['staffNoticeMs', 0],
+].map(([key, digits]) => [key, presenceLimits.cameraRecovery[key], digits, 1000]);
 
-const clone = (settings) => ({ ...settings, region: { ...settings.region } });
+const clone = (settings) => ({ ...settings, region: { ...settings.region }, cameraRecovery: { ...settings.cameraRecovery } });
 
 /**
  * @param {{ stage: HTMLElement, panel: HTMLElement, layer: HTMLElement, monitor: object, defaults: object,
@@ -37,13 +43,15 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, i
   const stateText = panel.querySelector('[data-state]');
   const messageText = panel.querySelector('[data-message]');
   const jsonText = panel.querySelector('[data-json]');
-  const sliders = new Map(SLIDERS.map(([key, limits, digits, scale]) => {
+  const sliderOf = ([key, limits, digits, scale]) => {
     const input = panel.querySelector(`input[data-key="${key}"]`);
     input.min = String(limits.min);
     input.max = String(limits.max);
     input.step = String(limits.step);
     return [key, { input, output: panel.querySelector(`output[data-key="${key}"]`), digits, scale }];
-  }));
+  };
+  const sliders = new Map(SLIDERS.map(sliderOf));
+  const recoverySliders = new Map(RECOVERY_SLIDERS.map(sliderOf));
 
   const loaded = initial;
   if (loaded.issues.length > 0) console.warn('[presence-tuning] stored settings adjusted:', loaded.issues);
@@ -58,6 +66,7 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, i
   let closeAfterSave = false;
   let current = clone(saved);
   let open = false;
+  let active = false; // 패널에서 이 섹션이 보이는지
   let liveTimer = null;
   monitor.setSettings(current);
 
@@ -92,6 +101,11 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, i
       input.value = String(current[key]);
       output.textContent = (current[key] / scale).toFixed(digits);
     }
+    for (const [key, { input, output, digits, scale }] of recoverySliders) {
+      const value = current.cameraRecovery?.[key];
+      input.value = String(value);
+      output.textContent = value === undefined ? '-' : (value / scale).toFixed(digits);
+    }
     renderSaveState();
     jsonText.value = serializePresenceSettings(current);
   }
@@ -120,6 +134,20 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, i
     return parts.join(' ');
   }
 
+  // 보이는 동안만: 영역 편집 층(끌기), 실시간 줄 갱신
+  function syncActive() {
+    const visible = open && active;
+    layer.hidden = !visible;
+    clearInterval(liveTimer);
+    liveTimer = null;
+    if (visible) {
+      renderLive();
+      liveTimer = setInterval(renderLive, 200);
+    } else {
+      regionDrag.end();
+    }
+  }
+
   function setOpen(next) {
     if (open === next) return;
     if (!next && saving) {
@@ -128,22 +156,14 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, i
       return;
     }
     open = next;
-    panel.hidden = !open;
-    layer.hidden = !open;
-    clearInterval(liveTimer);
-    liveTimer = null;
     if (open) {
       render();
-      renderLive();
-      liveTimer = setInterval(renderLive, 200);
       showMessage(openingMessage());
-    } else {
-      regionDrag.end();
-      if (!samePresenceSettings(current, saved)) {
-        console.info('[presence-tuning] closed without saving; reverted to saved settings');
-        apply(saved);
-      }
+    } else if (!samePresenceSettings(current, saved)) {
+      console.info('[presence-tuning] closed without saving; reverted to saved settings');
+      apply(saved);
     }
+    syncActive();
     onOpenChange?.(open);
   }
 
@@ -155,6 +175,12 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, i
       if (key === 'minFaceHeight') value = Math.min(value, current.maxFaceHeight);
       if (key === 'maxFaceHeight') value = Math.max(value, current.minFaceHeight);
       apply({ ...current, [key]: value });
+      showMessage('');
+    });
+  }
+  for (const [key, { input }] of recoverySliders) {
+    input.addEventListener('input', () => {
+      apply({ ...current, cameraRecovery: { ...current.cameraRecovery, [key]: Number(input.value) } });
       showMessage('');
     });
   }
@@ -197,10 +223,9 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, i
       apply(saved);
       showMessage('저장된 값으로 되돌렸습니다.');
     } else if (action === 'defaults') {
+      // 이 섹션의 값만 (영역·얼굴 크기·신뢰도·반응 속도·카메라 회복 시간). 다른 섹션은 그대로
       apply(defaults);
-      showMessage('기본값을 적용했습니다. 유지하려면 저장하세요.');
-    } else if (action === 'dock') {
-      panel.dataset.dock = panel.dataset.dock === 'top' ? 'bottom' : 'top';
+      showMessage('인식 기본값을 적용했습니다. 유지하려면 저장하세요.');
     } else if (action === 'copy') {
       try {
         await navigator.clipboard.writeText(jsonText.value);
@@ -209,8 +234,6 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, i
         jsonText.select();
         showMessage('JSON을 선택했습니다. Ctrl+C로 복사하세요.');
       }
-    } else if (action === 'close') {
-      setOpen(false);
     }
   });
 
@@ -234,8 +257,17 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, i
 
   return {
     isOpen: () => open,
+    open: () => setOpen(true),
     toggle: () => setOpen(!open),
     close: () => setOpen(false),
+    /** 패널에서 이 섹션이 보이는지 (operator-panel.js). 보이는 동안만 영역 편집 층·실시간 줄 */
+    setActive(next) {
+      if (active === next) return;
+      active = next;
+      syncActive();
+    },
+    isActive: () => open && active,
+    isDirty: () => !samePresenceSettings(current, saved),
     /**
      * D 화면용: 지금 판정에 쓰는 값의 출처. 예: 'file', 'saved', 'defaults (no file)', 'file + unsaved changes'.
      * 저장하기 전까지는 출처 설명(실패 이유 등)과 시작할 때 저장값을 고친 내용도 붙인다.

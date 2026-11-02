@@ -85,7 +85,9 @@ body {
 /* 9:16 영역 안은 hidden이면 언제나 숨긴다 (아래 규칙들의 display보다 우선) */
 #stage [hidden],
 .dev-info[hidden],
-.tuning-panel[hidden] {
+.op-panel[hidden],
+.op-section[hidden],
+.raw-window[hidden] {
   display: none;
 }
 
@@ -342,7 +344,7 @@ body {
   pointer-events: none;
 }
 
-/* ---- 운영자 화면 (6-3 구조, 7-2 미니멀): R·E 조절 패널, D 개발 정보, P 표시, 조절 영역. 관람객용이 아니다.
+/* ---- 운영자 화면 (6-3 구조, 7-2 미니멀, 9-2 통합): E 조절 패널(카메라·인식·필터 섹션), 원본 창, D 개발 정보, P 표시, 조절 영역. 관람객용이 아니다.
    차콜 반투명 패널, 가는 구분선, 작은 글자. 9:16 영역 밖(body)에 고정되는 패널은 vmin 기준 글자 크기 하나(--op-size)에
    em으로 맞춰 1080×1920·2160×3840·가로 화면에서 같은 비율로 보인다. 움직임·블러는 없다(미리보기 성능). ---- */
 :root {
@@ -384,8 +386,8 @@ body {
   scrollbar-width: thin;
 }
 
-/* R 조절 중에는 D가 영역·핸들 끌기를 막지 않게 마우스를 통과시킨다 (그동안 D는 넘기지 못한다) */
-body:has(#tuning-panel:not([hidden])) .dev-info {
+/* 인식 섹션(영역 편집)이 보이는 동안 D가 영역·핸들 끌기를 막지 않게 마우스를 통과시킨다 (그동안 D는 넘기지 못한다) */
+body:has(#operator-panel:not([hidden]) #tuning-panel:not([hidden])) .dev-info {
   pointer-events: none;
 }
 
@@ -450,7 +452,7 @@ body:has(#tuning-panel:not([hidden])) .dev-info {
   background: linear-gradient(90deg, currentColor 0 30%, transparent 30% 70%, currentColor 70%);
 }
 
-/* 인식 범위 조절(R) 중 9:16 영역 위의 편집 층. 영역 사각형과 핸들만 마우스를 받는다 */
+/* 인식 섹션(E 패널)이 보이는 동안 9:16 영역 위의 편집 층. 영역 사각형과 핸들만 마우스를 받는다 */
 .tuning-layer {
   position: absolute;
   inset: 0;
@@ -509,7 +511,7 @@ body:has(#tuning-panel:not([hidden])) .dev-info {
 .tuning-handle[data-handle="e"] { right: 0; top: calc(50% - 1.7cqw); cursor: ew-resize; }
 .tuning-handle[data-handle="w"] { left: 0; top: calc(50% - 1.7cqw); cursor: ew-resize; }
 
-/* 조절 패널(R·E): 차콜 반투명. 아래(기본)·위로 옮길 수 있다(위·아래 버튼, data-dock).
+/* 조절 패널(E, 9-2): 차콜 반투명. 아래(기본)·위로 옮길 수 있다(위·아래 버튼, data-dock).
    얼굴을 덜 가리게 세로 화면에서는 높이를 화면의 절반 남짓으로 제한하고 안쪽만 넘긴다 */
 .op-panel {
   position: fixed;
@@ -590,6 +592,69 @@ body:has(#tuning-panel:not([hidden])) .dev-info {
 .op-header-buttons {
   display: flex;
   flex: none;
+  gap: 0.4em;
+}
+
+/* 섹션 버튼 (9-2): 가는 밑줄 세그먼트. 섹션마다 저장 상태 점(data-save, save-state.js 색)을 붙인다 */
+.op-tabs {
+  display: flex;
+  gap: 0.2em;
+  padding: 0 1.2em;
+  border-bottom: 1px solid var(--op-line);
+}
+
+.op-panel .op-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
+  padding: 0.55em 0.9em 0.5em;
+  border: 0;
+  border-bottom: 0.14em solid transparent;
+  border-radius: 0;
+  color: var(--op-muted);
+  font-size: 0.92em;
+  letter-spacing: 0.04em;
+}
+
+.op-panel .op-tabs button.is-active {
+  border-bottom-color: var(--op-text);
+  color: var(--op-text);
+  font-weight: 500;
+}
+
+.op-tabs button::after {
+  content: '';
+  width: 0.42em;
+  height: 0.42em;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.op-tabs button[data-save="dirty"]::after,
+.op-tabs button[data-save="saving"]::after,
+.op-tabs button[data-save="adjusted"]::after { background: var(--op-warn); }
+.op-tabs button[data-save="failed"]::after,
+.op-tabs button[data-save="load-failed"]::after { background: var(--op-error); }
+
+/* 섹션: 실시간 줄 · 넘기는 몸통 · 아래(저장) */
+.op-section {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* 카메라 섹션 맨 위 안내 (OBS 보정과 중복 적용 주의) */
+.op-note {
+  margin-top: 0.7em !important;
+  padding: 0.45em 0.7em;
+  border-left: 0.16em solid var(--op-warn);
+  color: var(--op-muted);
+  font-size: 0.82em;
+}
+
+.op-segment {
+  display: inline-flex;
   gap: 0.4em;
 }
 
@@ -841,4 +906,99 @@ body:has(#tuning-panel:not([hidden])) .dev-info {
 
 [data-save="failed"] .op-message {
   color: var(--op-error);
+}
+
+/* 원본 창 (9-2): 카메라·인식 섹션을 연 동안 필터 없는 카메라 처리 경로 그림과 감지 박스. 얼굴(가운데 위)과 패널을 가리지 않게
+   세로 화면은 9:16 영역의 위 구석(패널이 위에 있으면 아래 구석), 옆에 패널이 서는 가로 화면은 패널 반대쪽 빈 곳 아래(위·아래 버튼에 따라).
+   "옮기기"는 두 자리(data-pos a·b)를 오간다: 세로는 오른쪽(기본, 왼쪽 위는 D 표)·왼쪽, 가로는 아래·위 */
+.raw-window {
+  --raw-w: calc(min(100vw, 100vh * var(--stage-ratio-w) / var(--stage-ratio-h)) * 0.27);
+  position: fixed;
+  top: 1em;
+  right: calc(max(0px, var(--op-side)) + 1em);
+  z-index: 19;
+  width: var(--raw-w);
+  margin: 0;
+  border: 1px solid var(--op-line);
+  border-radius: 0.3em;
+  overflow: hidden;
+  background: #000;
+  box-shadow: 0 0.4em 1.4em rgba(0, 0, 0, 0.4);
+  font: 400 var(--op-size) / 1.3 var(--font-sans);
+}
+
+/* 원본 창은 마우스를 통과시킨다(옮기기 버튼만 받는다): 세로 화면에서 인식 영역의 위 모서리 핸들과 겹쳐도 끌 수 있게.
+   인식 섹션이 보이는 동안은 반투명으로 해 아래 핸들이 보이게 한다 */
+.raw-window {
+  pointer-events: none;
+}
+
+.raw-window button {
+  pointer-events: auto;
+}
+
+body:has(#operator-panel:not([hidden]) #tuning-panel:not([hidden])) .raw-window {
+  opacity: 0.6;
+}
+
+.raw-window[data-pos="b"] {
+  right: auto;
+  left: calc(max(0px, var(--op-side)) + 1em);
+}
+
+body:has(#operator-panel[data-dock="top"]) .raw-window {
+  top: auto;
+  bottom: 1em;
+}
+
+.op-side-room .raw-window {
+  --raw-w: clamp(8em, calc(var(--op-side) - 2em), calc((100vh - 4em) * 9 / 16 * 0.62));
+  top: auto;
+  bottom: 1em;
+  left: calc((var(--op-side) - var(--raw-w)) / 2);
+  right: auto;
+}
+
+.op-side-room .raw-window[data-pos="b"] {
+  top: 1em;
+  bottom: auto;
+}
+
+.op-side-room:has(#operator-panel[data-dock="top"]) .raw-window {
+  left: auto;
+  right: calc((var(--op-side) - var(--raw-w)) / 2);
+}
+
+.raw-window-canvas {
+  display: block;
+  width: 100%;
+  aspect-ratio: var(--stage-ratio-w) / var(--stage-ratio-h);
+}
+
+.raw-window-canvas + .raw-window-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.raw-window-caption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5em;
+  padding: 0.3em 0.5em;
+  background: var(--op-bg);
+  color: var(--op-muted);
+  font-size: 0.74em;
+}
+
+.raw-window-caption button {
+  padding: 0.15em 0.5em;
+  border: 1px solid rgba(236, 235, 231, 0.22);
+  border-radius: 0.25em;
+  background: transparent;
+  color: var(--op-text);
+  font: inherit;
+  cursor: pointer;
 }

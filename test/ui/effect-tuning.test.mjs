@@ -75,7 +75,7 @@ describe('effect-tuning (E)', () => {
     assert.deepEqual([t.input('strength').min, t.input('strength').max], ['0', '1.6']);
     assert.deepEqual([t.input('previewScale').min, t.input('previewScale').max], ['0.25', '1']);
     t.tuning.toggle();
-    assert.equal(t.panel.hidden, false);
+    assert.equal(t.tuning.isOpen(), true); // 패널 표시는 operator-panel.js가 한다 (9-2)
     t.slide('fps', 18);
     t.slide('refineThreshold', 0.4);
     assert.equal(t.running().fps, 18);

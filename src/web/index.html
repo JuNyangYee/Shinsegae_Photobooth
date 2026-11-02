@@ -53,7 +53,7 @@
     <!-- 촬영 순간 짧은 흰 페이드 -->
     <div id="flash" class="flash"></div>
     <canvas id="dev-overlay" class="dev-overlay" hidden></canvas>
-    <!-- 운영자용 인식 영역 편집 (R 키). 관람객 화면에는 보이지 않는다. -->
+    <!-- 운영자용 인식 영역 편집 (E 패널 인식 섹션). 관람객 화면에는 보이지 않는다. -->
     <div id="tuning-layer" class="tuning-layer" hidden>
       <div class="tuning-region" data-region>
         <span class="tuning-handle" data-handle="nw"></span>
@@ -75,208 +75,345 @@
   <!-- 개발 정보 (D 키): 구역별 표. 줄 내용은 main.js, 표 모양은 ui/dev-panel.js -->
   <section id="dev-info" class="dev-info" aria-label="개발 정보" hidden></section>
 
-  <!-- 운영자용 인식 범위 조절 (R 키로 열고 닫는다. Esc로도 닫는다.) -->
-  <section id="tuning-panel" class="tuning-panel op-panel" data-dock="bottom" data-save="saved" aria-label="인식 범위 조절" hidden>
+  <!-- 운영자 조절 화면 (9-2, E 키로 열고 닫는다. Esc로도 닫는다. ui/operator-panel.js).
+       섹션 셋: 카메라(config/camera.local.json, ui/camera-tuning.js) · 인식(presence.local.json, ui/presence-tuning.js) ·
+       필터(effect.local.json, ui/effect-tuning.js). 섹션마다 저장 상태·저장·취소·기본값을 따로 가진다.
+       섹션 id(#camera-panel·#tuning-panel·#effect-panel)와 [data-key]·[data-action]·[data-state]·[data-message]는 확인 도구·테스트가 쓴다 -->
+  <section id="operator-panel" class="op-panel" data-dock="bottom" aria-label="운영자 조절" hidden>
     <header class="op-header">
       <div class="op-heading">
-        <h2 class="op-title">인식 범위 조절</h2>
-        <p class="op-keys">R·Esc 닫기 · 저장하지 않은 변경은 닫을 때 취소</p>
+        <h2 class="op-title">운영자 조절</h2>
+        <p class="op-keys">E·Esc 닫기 · 저장하지 않은 섹션은 닫을 때 취소</p>
       </div>
       <div class="op-header-buttons">
         <button type="button" data-action="dock" title="패널을 위·아래로 옮긴다">위·아래</button>
         <button type="button" data-action="close">닫기</button>
       </div>
     </header>
-    <p class="op-live tuning-live" data-live></p>
-    <div class="op-body">
-      <fieldset class="op-group">
-        <legend>영역</legend>
-        <p class="op-help">화면의 흰 사각형을 끌어 옮기고, 모서리·변으로 크기를 바꾼다. 얼굴 중심이 이 안에 있어야 인정한다.</p>
-        <p class="op-readout" data-region-text></p>
-      </fieldset>
-      <fieldset class="op-group">
-        <legend>얼굴 크기 <small>화면 높이 대비</small></legend>
-        <label class="op-row">
-          <span class="op-label"><i class="op-swatch is-min"></i>최소 얼굴 크기<small>파란 가이드보다 작으면 멀리 있는 것으로 보고 뺀다</small></span>
-          <input type="range" data-key="minFaceHeight">
-          <span class="op-value"><output data-key="minFaceHeight"></output><span class="op-unit">비율</span></span>
-        </label>
-        <label class="op-row">
-          <span class="op-label"><i class="op-swatch is-max"></i>최대 얼굴 크기<small>붉은 가이드보다 크면 잘못 잡은 것으로 보고 뺀다</small></span>
-          <input type="range" data-key="maxFaceHeight">
-          <span class="op-value"><output data-key="maxFaceHeight"></output><span class="op-unit">비율</span></span>
-        </label>
-      </fieldset>
-      <fieldset class="op-group">
-        <legend>신뢰도</legend>
-        <label class="op-row">
-          <span class="op-label">최소 신뢰도<small>얼굴 감지 점수가 이보다 낮으면 뺀다</small></span>
-          <input type="range" data-key="minScore">
-          <span class="op-value"><output data-key="minScore"></output><span class="op-unit">점수</span></span>
-        </label>
-      </fieldset>
-      <fieldset class="op-group">
-        <legend>반응 속도</legend>
-        <p class="op-help">짧을수록 빨리 바뀐다. 너무 짧으면 잠깐 가려지거나 고개를 돌려도 바뀐다.</p>
-        <label class="op-row">
-          <span class="op-label">인식까지<small>이만큼 계속 보여야 인식됨 (자동 촬영 시작)</small></span>
-          <input type="range" data-key="presentHoldMs">
-          <span class="op-value"><output data-key="presentHoldMs"></output><span class="op-unit">초</span></span>
-        </label>
-        <label class="op-row">
-          <span class="op-label">이탈까지<small>이만큼 계속 안 보여야 인식 안됨 (카운트다운 취소)</small></span>
-          <input type="range" data-key="absentGraceMs">
-          <span class="op-value"><output data-key="absentGraceMs"></output><span class="op-unit">초</span></span>
-        </label>
-      </fieldset>
-      <details class="op-group op-json">
-        <summary>현재값 JSON (복사용)</summary>
-        <textarea data-json readonly rows="10" spellcheck="false"></textarea>
-        <button type="button" data-action="copy">복사</button>
-      </details>
-    </div>
-    <footer class="op-footer">
-      <p class="op-state" data-state></p>
-      <div class="op-buttons">
-        <button type="button" class="is-primary" data-action="save">저장</button>
-        <button type="button" data-action="revert">취소 (저장된 값으로)</button>
-        <button type="button" data-action="defaults">기본값으로</button>
+    <nav class="op-tabs" role="tablist" aria-label="섹션">
+      <button type="button" role="tab" data-section="camera">카메라</button>
+      <button type="button" role="tab" data-section="presence">인식</button>
+      <button type="button" role="tab" data-section="effect">필터</button>
+    </nav>
+    <section id="camera-panel" class="op-section" data-section-panel="camera" data-save="saved" aria-label="카메라" hidden>
+      <p class="op-live" data-live></p>
+      <div class="op-body">
+        <p class="op-note">OBS 보정과 중복 적용 주의: 여기서 크롭·회전·색 보정을 하면 OBS는 원본만 넘긴다(OBS에서는 하지 않는다). 모든 값은 인식·미리보기·결과·인쇄에 같게 적용된다.</p>
+        <fieldset class="op-group">
+          <legend>장치 <small>라벨로 저장한다</small></legend>
+          <label class="op-row">
+            <span class="op-label">카메라<small>자동 = OBS 가상카메라, 없으면 기본 카메라</small></span>
+            <select data-key="deviceLabel"><option value="">자동 (OBS 가상카메라 → 기본 카메라)</option></select>
+            <span class="op-value"><button type="button" data-action="refresh-devices" title="장치 목록을 다시 읽는다">목록</button></span>
+          </label>
+          <label class="op-row">
+            <span class="op-label">해상도<small>요청값(ideal). OBS 가상카메라는 자동 권장 (다른 비율은 잘려서 온다)</small></span>
+            <select data-key="resolution">
+              <option value="auto">자동 (세로 4K까지, 90°·270°면 가로)</option>
+              <option value="2160x3840">2160 × 3840 (세로 4K)</option>
+              <option value="1080x1920">1080 × 1920 (세로 FHD)</option>
+              <option value="720x1280">720 × 1280 (세로 HD)</option>
+              <option value="3840x2160">3840 × 2160 (가로 4K)</option>
+              <option value="1920x1080">1920 × 1080 (가로 FHD)</option>
+              <option value="1280x720">1280 × 720 (가로 HD)</option>
+            </select>
+            <span class="op-value"><output data-key="resolution"></output></span>
+          </label>
+          <p class="op-readout" data-camera-info></p>
+        </fieldset>
+        <fieldset class="op-group">
+          <legend>방향 · 위치</legend>
+          <label class="op-row">
+            <span class="op-label">좌우 반전<small>거울처럼 보이게. 반전은 여기서만 한다(OBS에서 하지 않는다)</small></span>
+            <select data-key="mirror">
+              <option value="true">켬 (거울처럼)</option>
+              <option value="false">끔 (카메라 그대로)</option>
+            </select>
+            <span class="op-value"><output data-key="mirror"></output></span>
+          </label>
+          <div class="op-row">
+            <span class="op-label">회전<small>90° 단위 (옆으로 세운 카메라). 화면에서 시계 방향</small></span>
+            <span class="op-segment">
+              <button type="button" data-action="rotate-left" title="반시계 방향 90°">↺ 90°</button>
+              <button type="button" data-action="rotate-right" title="시계 방향 90°">↻ 90°</button>
+            </span>
+            <span class="op-value"><output data-key="rotation"></output><span class="op-unit">°</span></span>
+          </div>
+          <label class="op-row">
+            <span class="op-label">미세 회전<small>카메라가 조금 기울었을 때</small></span>
+            <input type="range" data-key="rotationFine">
+            <span class="op-value"><output data-key="rotationFine"></output><span class="op-unit">°</span></span>
+          </label>
+          <label class="op-row">
+            <span class="op-label">확대<small>빈 곳이 생기면 자동으로 더 확대한다</small></span>
+            <input type="range" data-key="zoom">
+            <span class="op-value"><output data-key="zoom"></output><span class="op-unit">배</span></span>
+          </label>
+          <label class="op-row">
+            <span class="op-label">가로 이동<small>+ 이면 그림이 오른쪽으로</small></span>
+            <input type="range" data-key="panX">
+            <span class="op-value"><output data-key="panX"></output><span class="op-unit">폭</span></span>
+          </label>
+          <label class="op-row">
+            <span class="op-label">세로 이동<small>+ 이면 그림이 아래로</small></span>
+            <input type="range" data-key="panY">
+            <span class="op-value"><output data-key="panY"></output><span class="op-unit">높이</span></span>
+          </label>
+        </fieldset>
+        <fieldset class="op-group">
+          <legend>색 보정 <small>카메라 원본 자체</small></legend>
+          <label class="op-row">
+            <span class="op-label">밝기<small>더한다</small></span>
+            <input type="range" data-key="brightness">
+            <span class="op-value"><output data-key="brightness"></output><span class="op-unit">±</span></span>
+          </label>
+          <label class="op-row">
+            <span class="op-label">대비<small>0.5를 중심으로 늘린다</small></span>
+            <input type="range" data-key="contrast">
+            <span class="op-value"><output data-key="contrast"></output><span class="op-unit">배</span></span>
+          </label>
+          <label class="op-row">
+            <span class="op-label">채도<small>0 = 흑백, 1 = 그대로</small></span>
+            <input type="range" data-key="saturation">
+            <span class="op-value"><output data-key="saturation"></output><span class="op-unit">배</span></span>
+          </label>
+          <label class="op-row">
+            <span class="op-label">감마<small>1보다 크면 중간 밝기가 밝아진다</small></span>
+            <input type="range" data-key="gamma">
+            <span class="op-value"><output data-key="gamma"></output><span class="op-unit">γ</span></span>
+          </label>
+          <label class="op-row">
+            <span class="op-label">색온도<small>+ 따뜻하게 (빨강↑ 파랑↓)</small></span>
+            <input type="range" data-key="temperature">
+            <span class="op-value"><output data-key="temperature"></output><span class="op-unit">±</span></span>
+          </label>
+          <label class="op-row">
+            <span class="op-label">색조<small>+ 자홍, − 초록</small></span>
+            <input type="range" data-key="tint">
+            <span class="op-value"><output data-key="tint"></output><span class="op-unit">±</span></span>
+          </label>
+        </fieldset>
       </div>
-      <p class="op-message" data-message></p>
-    </footer>
+      <footer class="op-footer">
+        <p class="op-state" data-state></p>
+        <div class="op-buttons">
+          <button type="button" class="is-primary" data-action="save">저장</button>
+          <button type="button" data-action="revert">취소 (저장된 값으로)</button>
+          <button type="button" data-action="defaults">기본값으로</button>
+        </div>
+        <p class="op-message" data-message></p>
+      </footer>
+    </section>
+    <section id="tuning-panel" class="op-section" data-section-panel="presence" data-save="saved" aria-label="인식" hidden>
+      <p class="op-live tuning-live" data-live></p>
+      <div class="op-body">
+        <fieldset class="op-group">
+          <legend>영역</legend>
+          <p class="op-help">화면의 흰 사각형을 끌어 옮기고, 모서리·변으로 크기를 바꾼다. 얼굴 중심이 이 안에 있어야 인정한다.</p>
+          <p class="op-readout" data-region-text></p>
+        </fieldset>
+        <fieldset class="op-group">
+          <legend>얼굴 크기 <small>화면 높이 대비</small></legend>
+          <label class="op-row">
+            <span class="op-label"><i class="op-swatch is-min"></i>최소 얼굴 크기<small>파란 가이드보다 작으면 멀리 있는 것으로 보고 뺀다</small></span>
+            <input type="range" data-key="minFaceHeight">
+            <span class="op-value"><output data-key="minFaceHeight"></output><span class="op-unit">비율</span></span>
+          </label>
+          <label class="op-row">
+            <span class="op-label"><i class="op-swatch is-max"></i>최대 얼굴 크기<small>붉은 가이드보다 크면 잘못 잡은 것으로 보고 뺀다</small></span>
+            <input type="range" data-key="maxFaceHeight">
+            <span class="op-value"><output data-key="maxFaceHeight"></output><span class="op-unit">비율</span></span>
+          </label>
+        </fieldset>
+        <fieldset class="op-group">
+          <legend>신뢰도</legend>
+          <label class="op-row">
+            <span class="op-label">최소 신뢰도<small>얼굴 감지 점수가 이보다 낮으면 뺀다</small></span>
+            <input type="range" data-key="minScore">
+            <span class="op-value"><output data-key="minScore"></output><span class="op-unit">점수</span></span>
+          </label>
+        </fieldset>
+        <fieldset class="op-group">
+          <legend>반응 속도</legend>
+          <p class="op-help">짧을수록 빨리 바뀐다. 너무 짧으면 잠깐 가려지거나 고개를 돌려도 바뀐다.</p>
+          <label class="op-row">
+            <span class="op-label">인식까지<small>이만큼 계속 보여야 인식됨 (자동 촬영 시작)</small></span>
+            <input type="range" data-key="presentHoldMs">
+            <span class="op-value"><output data-key="presentHoldMs"></output><span class="op-unit">초</span></span>
+          </label>
+          <label class="op-row">
+            <span class="op-label">이탈까지<small>이만큼 계속 안 보여야 인식 안됨 (카운트다운 취소)</small></span>
+            <input type="range" data-key="absentGraceMs">
+            <span class="op-value"><output data-key="absentGraceMs"></output><span class="op-unit">초</span></span>
+          </label>
+        </fieldset>
+        <fieldset class="op-group">
+          <legend>카메라 회복 <small>연결이 끊기거나 열리지 않을 때</small></legend>
+          <label class="op-row">
+            <span class="op-label">다시 시도 간격<small>실패·끊김 뒤 다시 여는 간격</small></span>
+            <input type="range" data-key="retryIntervalMs">
+            <span class="op-value"><output data-key="retryIntervalMs"></output><span class="op-unit">초</span></span>
+          </label>
+          <label class="op-row">
+            <span class="op-label">첫 프레임 기다림<small>열고 나서 이 안에 그림이 없으면 다시 연다</small></span>
+            <input type="range" data-key="firstFrameTimeoutMs">
+            <span class="op-value"><output data-key="firstFrameTimeoutMs"></output><span class="op-unit">초</span></span>
+          </label>
+          <label class="op-row">
+            <span class="op-label">정지 판정<small>새 그림이 이만큼 없으면 끊김으로 본다</small></span>
+            <input type="range" data-key="stallTimeoutMs">
+            <span class="op-value"><output data-key="stallTimeoutMs"></output><span class="op-unit">초</span></span>
+          </label>
+          <label class="op-row">
+            <span class="op-label">직원 문의 전환<small>준비 중이 이만큼 이어지면 "직원에게 문의" 문구</small></span>
+            <input type="range" data-key="staffNoticeMs">
+            <span class="op-value"><output data-key="staffNoticeMs"></output><span class="op-unit">초</span></span>
+          </label>
+        </fieldset>
+        <details class="op-group op-json">
+          <summary>현재값 JSON (복사용)</summary>
+          <textarea data-json readonly rows="10" spellcheck="false"></textarea>
+          <button type="button" data-action="copy">복사</button>
+        </details>
+      </div>
+      <footer class="op-footer">
+        <p class="op-state" data-state></p>
+        <div class="op-buttons">
+          <button type="button" class="is-primary" data-action="save">저장</button>
+          <button type="button" data-action="revert">취소 (저장된 값으로)</button>
+          <button type="button" data-action="defaults">기본값으로</button>
+        </div>
+        <p class="op-message" data-message></p>
+      </footer>
+    </section>
+    <section id="effect-panel" class="op-section" data-section-panel="effect" data-save="saved" aria-label="필터" hidden>
+      <p class="op-live" data-live></p>
+      <div class="op-body">
+        <fieldset class="op-group">
+          <legend>효과 <small>유화 · 획</small></legend>
+          <label class="op-row">
+            <span class="op-label">강도<small>요철·광택·캔버스 결의 세기</small></span>
+            <input type="range" data-key="strength">
+            <span class="op-value"><output data-key="strength"></output><span class="op-unit">세기</span></span>
+          </label>
+          <label class="op-row">
+            <span class="op-label">붓 크기<small>획 굵기·간격·길이에 곱한다</small></span>
+            <input type="range" data-key="size">
+            <span class="op-value"><output data-key="size"></output><span class="op-unit">배</span></span>
+          </label>
+          <label class="op-row">
+            <span class="op-label">획 다시 그리기<small>그림마다 새로 칠하는 획 (0 고정 ~ 1 전부)</small></span>
+            <input type="range" data-key="boil">
+            <span class="op-value"><output data-key="boil"></output><span class="op-unit">비율</span></span>
+          </label>
+          <label class="op-row">
+            <span class="op-label">색 보정<small>따뜻한 색 보정을 섞는 정도</small></span>
+            <input type="range" data-key="grade">
+            <span class="op-value"><output data-key="grade"></output><span class="op-unit">비율</span></span>
+          </label>
+          <label class="op-row">
+            <span class="op-label">세부 보존 문턱<small>낮을수록 얼굴 등 세부를 더 살린다</small></span>
+            <input type="range" data-key="refineThreshold">
+            <span class="op-value"><output data-key="refineThreshold"></output><span class="op-unit">거리</span></span>
+          </label>
+        </fieldset>
+        <fieldset class="op-group">
+          <legend>출력 단계 <small>화면 표시와 인쇄용 1비트</small></legend>
+          <label class="op-row">
+            <span class="op-label">출력 모드<small>회색조 유화 = 흑백 위에 유화(인쇄 1비트는 촬영 때 따로). 감열지 = 화면도 1비트 점</small></span>
+            <select data-key="outputMode">
+              <option value="gray-oil">회색조 유화 (흑백 → 유화)</option>
+              <option value="thermal">감열지 (1비트 점)</option>
+              <option value="gray">회색조 (컬러 유화를 회색으로)</option>
+              <option value="off">끔 (컬러 유화)</option>
+            </select>
+            <span class="op-value"><output data-key="outputMode"></output></span>
+          </label>
+          <label class="op-row">
+            <span class="op-label">점 방식<small>회색조 유화의 인쇄 데이터, 감열지 톤 점·질감 강조 점. 오차 확산(CPU)은 지글거리고 무겁다</small></span>
+            <select data-key="dither">
+              <option value="blue-noise">블루 노이즈 (GPU)</option>
+              <option value="bayer">Bayer 순서 디더 (GPU)</option>
+              <option value="atkinson">Atkinson 오차 확산 (CPU)</option>
+              <option value="floyd-steinberg">Floyd–Steinberg 오차 확산 (CPU)</option>
+            </select>
+            <span class="op-value"><output data-key="dither"></output></span>
+          </label>
+          <label class="op-row">
+            <span class="op-label">용지 폭<small>203dpi 감열지의 가로 점 수</small></span>
+            <select data-key="paperDots">
+              <option value="576">80mm · 576점</option>
+              <option value="384">58mm · 384점</option>
+            </select>
+            <span class="op-value"><output data-key="paperDots"></output></span>
+          </label>
+          <label class="op-row">
+            <span class="op-label">흑백 스타일<small>유화 느낌을 1비트에 남기는 방식 (감열지)</small></span>
+            <select data-key="bwStyle">
+              <option value="stroke">붓 결 선 (획마다 획 방향 선)</option>
+              <option value="flow">흐름 선 (흐름을 따라 번진 결)</option>
+              <option value="texture">질감 강조 점 (획 볼록 + 점 방식)</option>
+              <option value="tone">톤 점 (질감 강조 없음)</option>
+            </select>
+            <span class="op-value"><output data-key="bwStyle"></output></span>
+          </label>
+          <label class="op-row">
+            <span class="op-label">질감 세기<small>획 볼록 조명·국소 대비 (톤 점 제외)</small></span>
+            <input type="range" data-key="bwTexture">
+            <span class="op-value"><output data-key="bwTexture"></output><span class="op-unit">세기</span></span>
+          </label>
+          <label class="op-row">
+            <span class="op-label">선 간격<small>붓 결 선·흐름 선의 주기</small></span>
+            <input type="range" data-key="lineSpacing">
+            <span class="op-value"><output data-key="lineSpacing"></output><span class="op-unit">점</span></span>
+          </label>
+          <label class="op-row">
+            <span class="op-label">밝기<small>회색조에 더한다 (끔 제외)</small></span>
+            <input type="range" data-key="brightness">
+            <span class="op-value"><output data-key="brightness"></output><span class="op-unit">±</span></span>
+          </label>
+          <label class="op-row">
+            <span class="op-label">대비<small>0.5를 중심으로 늘린다 (끔 제외)</small></span>
+            <input type="range" data-key="contrast">
+            <span class="op-value"><output data-key="contrast"></output><span class="op-unit">배</span></span>
+          </label>
+          <label class="op-row">
+            <span class="op-label">감마<small>1보다 크면 중간 밝기가 밝아진다</small></span>
+            <input type="range" data-key="gamma">
+            <span class="op-value"><output data-key="gamma"></output><span class="op-unit">γ</span></span>
+          </label>
+        </fieldset>
+        <fieldset class="op-group">
+          <legend>미리보기 <small>느리면 초당 그림부터 낮춘다</small></legend>
+          <label class="op-row">
+            <span class="op-label">초당 그림<small>1초에 새로 그리는 그림 (스톱모션 느낌)</small></span>
+            <input type="range" data-key="fps">
+            <span class="op-value"><output data-key="fps"></output><span class="op-unit">장/초</span></span>
+          </label>
+          <label class="op-row">
+            <span class="op-label">처리 해상도<small>결과 크기 대비. 낮추면 미리보기가 결과보다 부드럽다</small></span>
+            <input type="range" data-key="previewScale">
+            <span class="op-value"><output data-key="previewScale"></output><span class="op-unit">배</span></span>
+          </label>
+        </fieldset>
+      </div>
+      <footer class="op-footer">
+        <p class="op-state" data-state></p>
+        <div class="op-buttons">
+          <button type="button" class="is-primary" data-action="save">저장</button>
+          <button type="button" data-action="revert">취소 (저장된 값으로)</button>
+          <button type="button" data-action="defaults">기본값으로</button>
+        </div>
+        <p class="op-message" data-message></p>
+      </footer>
+    </section>
   </section>
 
-  <!-- 운영자용 사진 효과 조절 (E 키로 열고 닫는다. Esc로도 닫는다.) -->
-  <section id="effect-panel" class="tuning-panel op-panel" data-dock="bottom" data-save="saved" aria-label="사진 효과 조절" hidden>
-    <header class="op-header">
-      <div class="op-heading">
-        <h2 class="op-title">사진 효과 조절</h2>
-        <p class="op-keys">E·Esc 닫기 · 저장하지 않은 변경은 닫을 때 취소</p>
-      </div>
-      <div class="op-header-buttons">
-        <button type="button" data-action="dock" title="패널을 위·아래로 옮긴다">위·아래</button>
-        <button type="button" data-action="close">닫기</button>
-      </div>
-    </header>
-    <p class="op-live" data-live></p>
-    <div class="op-body">
-      <fieldset class="op-group">
-        <legend>효과 <small>유화 · 획</small></legend>
-        <label class="op-row">
-          <span class="op-label">강도<small>요철·광택·캔버스 결의 세기</small></span>
-          <input type="range" data-key="strength">
-          <span class="op-value"><output data-key="strength"></output><span class="op-unit">세기</span></span>
-        </label>
-        <label class="op-row">
-          <span class="op-label">붓 크기<small>획 굵기·간격·길이에 곱한다</small></span>
-          <input type="range" data-key="size">
-          <span class="op-value"><output data-key="size"></output><span class="op-unit">배</span></span>
-        </label>
-        <label class="op-row">
-          <span class="op-label">획 다시 그리기<small>그림마다 새로 칠하는 획 (0 고정 ~ 1 전부)</small></span>
-          <input type="range" data-key="boil">
-          <span class="op-value"><output data-key="boil"></output><span class="op-unit">비율</span></span>
-        </label>
-        <label class="op-row">
-          <span class="op-label">색 보정<small>따뜻한 색 보정을 섞는 정도</small></span>
-          <input type="range" data-key="grade">
-          <span class="op-value"><output data-key="grade"></output><span class="op-unit">비율</span></span>
-        </label>
-        <label class="op-row">
-          <span class="op-label">세부 보존 문턱<small>낮을수록 얼굴 등 세부를 더 살린다</small></span>
-          <input type="range" data-key="refineThreshold">
-          <span class="op-value"><output data-key="refineThreshold"></output><span class="op-unit">거리</span></span>
-        </label>
-      </fieldset>
-      <fieldset class="op-group">
-        <legend>출력 단계 <small>화면 표시와 인쇄용 1비트</small></legend>
-        <label class="op-row">
-          <span class="op-label">출력 모드<small>회색조 유화 = 흑백 위에 유화(인쇄 1비트는 촬영 때 따로). 감열지 = 화면도 1비트 점</small></span>
-          <select data-key="outputMode">
-            <option value="gray-oil">회색조 유화 (흑백 → 유화)</option>
-            <option value="thermal">감열지 (1비트 점)</option>
-            <option value="gray">회색조 (컬러 유화를 회색으로)</option>
-            <option value="off">끔 (컬러 유화)</option>
-          </select>
-          <span class="op-value"><output data-key="outputMode"></output></span>
-        </label>
-        <label class="op-row">
-          <span class="op-label">점 방식<small>회색조 유화의 인쇄 데이터, 감열지 톤 점·질감 강조 점. 오차 확산(CPU)은 지글거리고 무겁다</small></span>
-          <select data-key="dither">
-            <option value="blue-noise">블루 노이즈 (GPU)</option>
-            <option value="bayer">Bayer 순서 디더 (GPU)</option>
-            <option value="atkinson">Atkinson 오차 확산 (CPU)</option>
-            <option value="floyd-steinberg">Floyd–Steinberg 오차 확산 (CPU)</option>
-          </select>
-          <span class="op-value"><output data-key="dither"></output></span>
-        </label>
-        <label class="op-row">
-          <span class="op-label">용지 폭<small>203dpi 감열지의 가로 점 수</small></span>
-          <select data-key="paperDots">
-            <option value="576">80mm · 576점</option>
-            <option value="384">58mm · 384점</option>
-          </select>
-          <span class="op-value"><output data-key="paperDots"></output></span>
-        </label>
-        <label class="op-row">
-          <span class="op-label">흑백 스타일<small>유화 느낌을 1비트에 남기는 방식 (감열지)</small></span>
-          <select data-key="bwStyle">
-            <option value="stroke">붓 결 선 (획마다 획 방향 선)</option>
-            <option value="flow">흐름 선 (흐름을 따라 번진 결)</option>
-            <option value="texture">질감 강조 점 (획 볼록 + 점 방식)</option>
-            <option value="tone">톤 점 (질감 강조 없음)</option>
-          </select>
-          <span class="op-value"><output data-key="bwStyle"></output></span>
-        </label>
-        <label class="op-row">
-          <span class="op-label">질감 세기<small>획 볼록 조명·국소 대비 (톤 점 제외)</small></span>
-          <input type="range" data-key="bwTexture">
-          <span class="op-value"><output data-key="bwTexture"></output><span class="op-unit">세기</span></span>
-        </label>
-        <label class="op-row">
-          <span class="op-label">선 간격<small>붓 결 선·흐름 선의 주기</small></span>
-          <input type="range" data-key="lineSpacing">
-          <span class="op-value"><output data-key="lineSpacing"></output><span class="op-unit">점</span></span>
-        </label>
-        <label class="op-row">
-          <span class="op-label">밝기<small>회색조에 더한다 (끔 제외)</small></span>
-          <input type="range" data-key="brightness">
-          <span class="op-value"><output data-key="brightness"></output><span class="op-unit">±</span></span>
-        </label>
-        <label class="op-row">
-          <span class="op-label">대비<small>0.5를 중심으로 늘린다 (끔 제외)</small></span>
-          <input type="range" data-key="contrast">
-          <span class="op-value"><output data-key="contrast"></output><span class="op-unit">배</span></span>
-        </label>
-        <label class="op-row">
-          <span class="op-label">감마<small>1보다 크면 중간 밝기가 밝아진다</small></span>
-          <input type="range" data-key="gamma">
-          <span class="op-value"><output data-key="gamma"></output><span class="op-unit">γ</span></span>
-        </label>
-      </fieldset>
-      <fieldset class="op-group">
-        <legend>미리보기 <small>느리면 초당 그림부터 낮춘다</small></legend>
-        <label class="op-row">
-          <span class="op-label">초당 그림<small>1초에 새로 그리는 그림 (스톱모션 느낌)</small></span>
-          <input type="range" data-key="fps">
-          <span class="op-value"><output data-key="fps"></output><span class="op-unit">장/초</span></span>
-        </label>
-        <label class="op-row">
-          <span class="op-label">처리 해상도<small>결과 크기 대비. 낮추면 미리보기가 결과보다 부드럽다</small></span>
-          <input type="range" data-key="previewScale">
-          <span class="op-value"><output data-key="previewScale"></output><span class="op-unit">배</span></span>
-        </label>
-      </fieldset>
-    </div>
-    <footer class="op-footer">
-      <p class="op-state" data-state></p>
-      <div class="op-buttons">
-        <button type="button" class="is-primary" data-action="save">저장</button>
-        <button type="button" data-action="revert">취소 (저장된 값으로)</button>
-        <button type="button" data-action="defaults">기본값으로</button>
-      </div>
-      <p class="op-message" data-message></p>
-    </footer>
-  </section>
+  <!-- 원본 창 (9-2): 카메라·인식 섹션을 연 동안 필터 없는 카메라 처리 경로 그림(보정·변환 적용)과 감지 박스. 패널을 닫으면 그리지 않는다 -->
+  <figure id="raw-window" class="raw-window" data-pos="a" aria-label="원본 창" hidden>
+    <canvas id="raw-window-canvas" class="raw-window-canvas"></canvas>
+    <canvas id="raw-window-overlay" class="raw-window-canvas"></canvas>
+    <figcaption class="raw-window-caption"><span data-raw-caption>원본 · 필터 없음</span><button type="button" data-action="raw-move" title="원본 창 위치를 바꾼다">옮기기</button></figcaption>
+  </figure>
 </body>
 </html>

@@ -7,17 +7,20 @@
  * @param {{ canvas: HTMLCanvasElement, video: HTMLVideoElement,
  *   camera: { isReady: () => boolean, getFrameInfo: () => { at: number | null, count: number } },
  *   frame: { draw: Function, getView: Function, getSettings: Function },
- *   getSize: (view: object) => { width: number, height: number }, raf?: Function, cancelRaf?: Function }} options
+ *   getSize: (view: object) => { width: number, height: number }, maxFps?: number,
+ *   raf?: Function, cancelRaf?: Function, now?: () => number }} options
  *   getSize: 그릴 캔버스 화소 크기 (화면에 보이는 크기와 원본 화소 수 중 작은 쪽을 권장)
+ *   maxFps: 새 프레임이 더 자주 와도 이보다 자주 그리지 않는다 (9-2 원본 창. 설정·크기가 바뀐 것은 바로 그린다)
  */
 export function createRawPreview({
-  canvas, video, camera, frame, getSize,
-  raf = (fn) => requestAnimationFrame(fn), cancelRaf = (id) => cancelAnimationFrame(id),
+  canvas, video, camera, frame, getSize, maxFps = Infinity,
+  raf = (fn) => requestAnimationFrame(fn), cancelRaf = (id) => cancelAnimationFrame(id), now = () => performance.now(),
 }) {
+  const minIntervalMs = 1000 / maxFps;
   let context = null;
   let active = false;
   let frameId = null;
-  let drawn = null; // 마지막으로 그린 { count, settings, width, height }
+  let drawn = null; // 마지막으로 그린 { count, settings, width, height, at }
   let draws = 0;
 
   function loop() {
@@ -31,14 +34,16 @@ export function createRawPreview({
     const { width, height } = getSize(view);
     const { count } = camera.getFrameInfo();
     const settings = frame.getSettings();
-    if (drawn && drawn.count === count && drawn.settings === settings && drawn.width === width && drawn.height === height) return;
+    const t = now();
+    if (drawn && drawn.settings === settings && drawn.width === width && drawn.height === height
+      && (drawn.count === count || t - drawn.at < minIntervalMs - 1)) return;
     if (canvas.width !== width || canvas.height !== height) {
       canvas.width = width;
       canvas.height = height;
     }
     context ??= canvas.getContext('2d', { alpha: false });
     frame.draw(context, video, width, height);
-    drawn = { count, settings, width, height };
+    drawn = { count, settings, width, height, at: t };
     draws += 1;
     canvas.hidden = false;
   }

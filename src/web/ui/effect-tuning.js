@@ -1,11 +1,11 @@
-// 운영자용 사진 효과 조절 화면 (숨김 단축키 E, 관람객용 아님, 5-2).
+// 운영자 조절 화면(E, operator-panel.js)의 "필터" 섹션 (관람객용 아님, 5-2): 사진 효과·출력 단계·흑백 스타일·미리보기.
 // 조절하는 즉시 미리보기에 반영하고, "저장"을 눌러야 효과 조절값 파일(서버 config/effect.local.json)에 기록한다.
-// 저장·취소·기본값·닫기 규칙은 인식 범위 조절(presence-tuning.js, R)과 같다:
-// 저장하지 않고 닫으면 저장된 값으로 되돌리고(실행 중인 값 = 다시 시작했을 때의 값), 저장 중에 닫으면 저장이 끝난 뒤 닫는다.
+// 저장·취소·기본값·닫기 규칙은 인식 섹션(presence-tuning.js)과 같다:
+// 패널을 닫을 때 저장하지 않은 변경은 저장된 값으로 되돌리고(실행 중인 값 = 다시 시작했을 때의 값), 저장 중이면 저장이 끝난 뒤 닫는다.
 // 출력 단계(6-1): 모드(감열지·회색조·끔)·점 방식·용지 폭은 선택 상자, 밝기·대비·감마는 슬라이더. 기능만 넣었다(디자인은 6-3).
 // 흑백 스타일(7-1): 스타일은 선택 상자, 질감 세기·선 간격은 슬라이더. 감열지에서만 쓰고, 스타일에 따라 쓰지 않는 항목을 막는다.
 // 회색조 유화(8단계 기본 모드): 흑백 스타일 항목은 막고, 점 방식·용지 폭은 결과의 인쇄용 1비트 데이터에 쓰므로 연다.
-// 좌우 반전(2026-10-26 ~ 9-1에는 여기 "카메라" 묶음)은 카메라 설정으로 옮겼다 (config/camera-settings.js, 운영자 화면은 9-2).
+// 좌우 반전(2026-10-26 ~ 9-1에는 여기 "카메라" 묶음)은 카메라 섹션으로 옮겼다 (camera-tuning.js, config/camera-settings.js).
 // Node 테스트: test/ui/effect-tuning.test.mjs
 
 import {
@@ -97,6 +97,7 @@ export function createEffectTuning({ panel, preview, defaults, initial, saveSett
   let closeAfterSave = false;
   let current = saved;
   let open = false;
+  let active = false; // 패널에서 이 섹션이 보이는지
   let liveTimer = null;
   preview.setSettings(current);
 
@@ -168,19 +169,25 @@ export function createEffectTuning({ panel, preview, defaults, initial, saveSett
       return;
     }
     open = next;
-    panel.hidden = !open;
-    timers.clearInterval(liveTimer);
-    liveTimer = null;
     if (open) {
       render();
-      renderLive();
-      liveTimer = timers.setInterval(renderLive, 500);
       showMessage(openingMessage());
     } else if (!sameEffectSettings(current, saved)) {
       console.info('[effect-tuning] closed without saving; reverted to saved settings');
       apply(saved);
     }
+    syncLive();
     onOpenChange?.(open);
+  }
+
+  // 보이는 동안만 실시간 줄을 갱신한다
+  function syncLive() {
+    timers.clearInterval(liveTimer);
+    liveTimer = null;
+    if (open && active) {
+      renderLive();
+      liveTimer = timers.setInterval(renderLive, 500);
+    }
   }
 
   for (const [key, { input }] of sliders) {
@@ -233,12 +240,9 @@ export function createEffectTuning({ panel, preview, defaults, initial, saveSett
       apply(saved);
       showMessage('저장된 값으로 되돌렸습니다.');
     } else if (action === 'defaults') {
+      // 이 섹션의 값만 (효과·출력·흑백 스타일·미리보기). 카메라·인식 섹션은 그대로
       apply(baseDefaults);
-      showMessage('기본값을 적용했습니다. 유지하려면 저장하세요.');
-    } else if (action === 'dock') {
-      panel.dataset.dock = panel.dataset.dock === 'top' ? 'bottom' : 'top';
-    } else if (action === 'close') {
-      setOpen(false);
+      showMessage('필터 기본값을 적용했습니다. 유지하려면 저장하세요.');
     }
   });
 
@@ -246,8 +250,16 @@ export function createEffectTuning({ panel, preview, defaults, initial, saveSett
 
   return {
     isOpen: () => open,
+    open: () => setOpen(true),
     toggle: () => setOpen(!open),
     close: () => setOpen(false),
+    /** 패널에서 이 섹션이 보이는지 (operator-panel.js). 보이는 동안만 실시간 줄 */
+    setActive(next) {
+      if (active === next) return;
+      active = next;
+      syncLive();
+    },
+    isDirty: () => !sameEffectSettings(current, saved),
     /** D 화면용: 지금 효과에 쓰는 값의 출처. 예: 'file', 'saved', 'defaults (no file)', 'file + unsaved changes' */
     describeSettingsSource() {
       const dirty = !sameEffectSettings(current, saved);

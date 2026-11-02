@@ -50,7 +50,7 @@ function setup({ loaded = {} } = {}) {
   });
   const saveButton = { dataset: { action: 'save' }, disabled: false };
   return {
-    tuning, saves, saveButton, panel, element,
+    tuning, saves, saveButton, panel, layer, element,
     running: () => applied.at(-1),
     message: () => element('[data-message]').textContent,
     slide(key, value) {
@@ -179,5 +179,42 @@ describe('presence-tuning: 반응 속도 (2026-10-27)', () => {
     assert.equal(t.element('output[data-key="presentHoldMs"]').textContent, '1.50');
     // 다른 슬라이더 표시는 그대로
     assert.equal(t.element('output[data-key="minScore"]').textContent, '0.70');
+  });
+});
+
+describe('presence-tuning: 운영자 패널의 인식 섹션 (9-2)', () => {
+  it('카메라 회복 시간 슬라이더: ms 값을 초로 보이고, 움직이면 바로 감지 루프 설정(cameraRecovery)에 들어간다', () => {
+    const t = current = setup();
+    t.tuning.open();
+    const input = t.element('input[data-key="retryIntervalMs"]');
+    assert.deepEqual([input.min, input.max, input.step, input.value], ['1000', '30000', '500', '3000']);
+    assert.equal(t.element('output[data-key="retryIntervalMs"]').textContent, '3.0');
+    assert.equal(t.element('output[data-key="staffNoticeMs"]').textContent, '30');
+    t.slide('retryIntervalMs', 5500);
+    assert.deepEqual(t.running().cameraRecovery, { ...defaults.cameraRecovery, retryIntervalMs: 5500 });
+    assert.equal(t.element('output[data-key="retryIntervalMs"]').textContent, '5.5');
+    assert.equal(t.panel.dataset.save, 'dirty');
+  });
+
+  it('영역 편집 층은 패널이 열려 있고 이 섹션이 보일 때만 보인다', () => {
+    const t = current = setup();
+    const layer = t.tuning; // 아래 setActive로만 바뀐다
+    t.tuning.open();
+    assert.equal(t.layer.hidden, true, '열렸지만 다른 섹션이 보이는 중');
+    layer.setActive(true);
+    assert.equal(t.layer.hidden, false);
+    layer.setActive(false);
+    assert.equal(t.layer.hidden, true);
+    layer.setActive(true);
+    t.tuning.close();
+    assert.equal(t.layer.hidden, true, '닫으면 숨는다');
+  });
+
+  it('"기본값으로"는 이 섹션의 값(영역·크기·신뢰도·반응 속도·카메라 회복)만 기본값으로 바꾼다', () => {
+    const saved = { ...defaults, minScore: 0.9, cameraRecovery: { ...defaults.cameraRecovery, retryIntervalMs: 9000 } };
+    const t = current = setup({ loaded: { settings: saved } });
+    t.tuning.open();
+    t.panel.fire('click', { target: { closest: () => ({ dataset: { action: 'defaults' } }) } });
+    assert.deepEqual(t.running(), { ...defaults, region: { ...defaults.region }, cameraRecovery: { ...defaults.cameraRecovery } });
   });
 });

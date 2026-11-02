@@ -4,7 +4,7 @@ import { CameraStatus, createCameraMonitor } from './camera/camera-monitor.js';
 import { createCameraFrame } from './camera/camera-frame.js';
 import { createCapture } from './camera/capture.js';
 import { createRawPreview } from './camera/raw-preview.js';
-import { normalizeCameraSettings, resolutionRequest } from './config/camera-settings.js';
+import { normalizeCameraSettings, resolutionRequest, serializeCameraSettings } from './config/camera-settings.js';
 import { cameraGeometryKey } from './core/camera-view.js';
 import { DetectorHealth } from './vision/detector-keeper.js';
 import { Guidance, decideGuidance } from './core/guidance.js';
@@ -19,6 +19,8 @@ import { effectTunables, serializeEffectSettings } from './config/effect-setting
 import { EffectStatus, createEffectPreview } from './effect/effect-preview.js';
 import { createPhotoEffect } from './effect/photo-effect.js';
 import { createEffectTuning } from './ui/effect-tuning.js';
+import { createCameraTuning } from './ui/camera-tuning.js';
+import { PanelSection, createOperatorPanel, showsPresenceEditing, showsRawWindow } from './ui/operator-panel.js';
 import { renderDevPanel } from './ui/dev-panel.js';
 import { guestText } from './config/guest-text.js';
 import { createGuestScreen } from './ui/guest-screen.js';
@@ -27,13 +29,16 @@ const stage = document.getElementById('stage');
 const video = document.getElementById('preview');
 const effectCanvas = document.getElementById('effect');
 const rawCanvas = document.getElementById('camera-raw');
+const rawWindow = document.getElementById('raw-window');
+const rawWindowCanvas = document.getElementById('raw-window-canvas');
+const rawWindowOverlay = document.getElementById('raw-window-overlay');
 const devInfo = document.getElementById('dev-info');
 const devOverlay = document.getElementById('dev-overlay');
 const pauseBadge = document.getElementById('pause-badge');
 
-// 운영자 단축키 (관람객용 아님): D 개발용 정보, R 인식 범위 조절, E 사진 효과 조절, S 수동 촬영 시작, X 강제 초기화,
-// P 자동 촬영 일시정지
-const Keys = Object.freeze({ devInfo: 'KeyD', tuning: 'KeyR', effectTuning: 'KeyE', start: 'KeyS', reset: 'KeyX', pause: 'KeyP' });
+// 운영자 단축키 (관람객용 아님): D 개발용 정보, E 운영자 조절 화면(카메라·인식·필터, 9-2. 예전 R은 인식 섹션으로 합쳤다),
+// S 수동 촬영 시작, X 강제 초기화, P 자동 촬영 일시정지
+const Keys = Object.freeze({ devInfo: 'KeyD', operatorPanel: 'KeyE', start: 'KeyS', reset: 'KeyX', pause: 'KeyP' });
 
 // 관람객 화면 표현 (6-2, 7-2 미니멀). 문구는 config/guest-text.js 한곳에 있고, 상태 상세는 D 키 개발용 정보에만 보인다.
 const guest = createGuestScreen({ root: document, text: guestText, countdownSeconds: config.session.countdownSeconds });
@@ -118,6 +123,56 @@ function updateRawPreview() {
   rawPreview.setActive(effect.getState().status !== EffectStatus.RUNNING);
 }
 
+// 원본 창 (9-2): 운영자 화면의 카메라·인식 섹션을 연 동안 구석에 필터 없는 카메라 처리 경로 그림(보정·변환 적용)과 감지 박스.
+// 원본 미리보기와 같은 모듈을 작은 캔버스로 쓴다. 크기는 창의 장치 화소(긴 변 최대 RAW_WINDOW_MAX_PX), 그리는 빈도는
+// 초당 RAW_WINDOW_FPS 이하(가안, 미리보기·감지·효과 속도를 떨어뜨리지 않게. 측정은 로그 2026-11-02-02). 패널을 닫으면 그리지 않는다
+const RAW_WINDOW_MAX_PX = 640;
+const RAW_WINDOW_FPS = 30;
+const rawWindowPreview = createRawPreview({
+  canvas: rawWindowCanvas,
+  video,
+  camera,
+  frame: cameraFrame,
+  maxFps: RAW_WINDOW_FPS,
+  getSize(view) {
+    const box = rawWindow.getBoundingClientRect();
+    const longest = Math.max(2, Math.min(RAW_WINDOW_MAX_PX, Math.round(box.height * window.devicePixelRatio), view.visibleHeightPx));
+    return { width: Math.max(2, Math.round(longest * stageAspect)), height: Math.round(longest) };
+  },
+});
+let rawWindowFrame = null;
+const panelView = () => ({ open: operatorPanel.isOpen(), section: operatorPanel.getSection() });
+
+function updateRawWindow() {
+  const visible = showsRawWindow(panelView());
+  rawWindow.hidden = !visible;
+  rawWindowPreview.setActive(visible);
+  if (visible && rawWindowFrame === null) {
+    drawRawWindowOverlay();
+  } else if (!visible && rawWindowFrame !== null) {
+    cancelAnimationFrame(rawWindowFrame);
+    rawWindowFrame = null;
+  }
+}
+
+// 원본 창 위 감지 박스·인식 영역 (판정 좌표 = 화면 좌표라 원본 창에도 그대로)
+function drawRawWindowOverlay() {
+  rawWindowFrame = requestAnimationFrame(drawRawWindowOverlay);
+  const { width, height } = rawWindowCanvas;
+  if (rawWindowOverlay.width !== width || rawWindowOverlay.height !== height) {
+    rawWindowOverlay.width = width;
+    rawWindowOverlay.height = height;
+  }
+  const ctx = rawWindowOverlay.getContext('2d');
+  ctx.clearRect(0, 0, width, height);
+  if (rawWindowCanvas.hidden) return;
+  drawPresenceOverlay(ctx, width, height, { guides: false, scores: false });
+}
+
+rawWindow.addEventListener('click', (event) => {
+  if (event.target.closest('button[data-action="raw-move"]')) rawWindow.dataset.pos = rawWindow.dataset.pos === 'b' ? 'a' : 'b';
+});
+
 /**
  * 카메라 설정을 바꾼다 (시작할 때 불러온 값, 9-2 운영자 화면). 다음 그림부터 감지·미리보기·결과가 모두 이 값이다.
  * 기하(반전·회전·확대·이동)가 바뀌면 인식을 처음부터 다시 재고, 장치·해상도 요청이 바뀌면 카메라 스트림을 다시 연다
@@ -152,13 +207,20 @@ const session = createSession({
 // 조절값 파일 (서버 config/presence.local.json). 불러오기가 끝나면 조절 화면을 만들고 그 값을 감지 루프에 넣는다.
 // 그 전까지 감지 루프는 config.presence 기본값으로 돌지만, 자동 시작은 막는다(기본값으로 잠깐 판정해 시작하지 않게).
 const settingsFile = createSettingsFileClient(config.settingsFile);
-let tuning = null; // 불러오기가 끝나면 만든다
+let tuning = null; // 인식 섹션. 불러오기가 끝나면 만든다
 let settingsReady = false;
 // 효과 조절값 파일 (서버 config/effect.local.json). 불러오기 전에는 config.effect 기본값으로 그린다 (판정과 무관하므로 막지 않는다)
 const effectSettingsFile = createSettingsFileClient(config.effectSettingsFile);
 // 카메라 조절값 파일 (서버 config/camera.local.json, 9-1). 카메라를 열기 전에 읽는다
 const cameraSettingsFile = createSettingsFileClient(config.cameraSettingsFile);
-let effectTuning = null; // 불러오기가 끝나면 만든다
+let effectTuning = null; // 필터 섹션. 불러오기가 끝나면 만든다
+let cameraTuning = null; // 카메라 섹션. 불러오기가 끝나면 만든다
+// 운영자 조절 화면 (9-2, E): 섹션 셋. 섹션 모듈은 각 조절값을 불러온 뒤 붙는다(다 붙어야 열린다)
+const operatorPanel = createOperatorPanel({
+  root: document.getElementById('operator-panel'),
+  onOpenChange: handlePanelOpenChange,
+  onSectionChange: handlePanelSectionChange,
+});
 // 자동 촬영 일시정지 (P). 저장하지 않는다: 새로고침·재시작하면 다시 켜진다(운영자가 해제를 잊어도 회복되게).
 let autoPaused = false;
 
@@ -168,7 +230,7 @@ const autoStart = createAutoStart({
   session, presence,
   // 인식 범위(R)·효과(E) 조절 화면이 열려 있으면 막는다. 효과를 조절하는 운영자가 화면 앞에 서서 보므로,
   // 자동 회차가 끼어들면 결과 사진이 미리보기를 가린다.
-  isTuningOpen: () => (tuning?.isOpen() ?? false) || (effectTuning?.isOpen() ?? false),
+  isTuningOpen: () => operatorPanel.isOpen(),
   isPaused: () => autoPaused,
   isSettingsReady: () => settingsReady,
 });
@@ -240,16 +302,26 @@ function renderPresence() {
 
 // ---- 촬영 한 사이클 화면 ----
 
-// 조절 화면을 닫으면 그 시점의 인식 상태로 자동 시작을 다시 판단한다.
-function handleTuningOpenChange(open) {
+// 조절 화면을 닫으면 그 시점의 인식 상태로 자동 시작을 다시 판단한다 (어느 섹션이든 열려 있는 동안은 막는다).
+function handlePanelOpenChange(open) {
   updateOverlay();
-  if (!open) autoStart.evaluate('tuning-closed');
-}
-
-function handleEffectTuningOpenChange(open) {
-  if (!open) autoStart.evaluate('effect-tuning-closed');
+  updateRawWindow();
+  if (!open) autoStart.evaluate('panel-closed');
   if (!devInfo.hidden) renderDevInfo();
 }
+
+function handlePanelSectionChange() {
+  updateOverlay();
+  updateRawWindow();
+}
+
+// 섹션 모듈이 닫혔다고 알리면(저장 중 닫기가 끝난 경우 포함) 패널이 다 닫혔는지 본다
+const handleSectionOpenChange = (open) => {
+  if (!open) operatorPanel.sectionClosed();
+};
+
+// 인식 섹션이 보이는지 (영역 편집 층·얼굴 크기 가이드)
+const isPresenceSectionShown = () => showsPresenceEditing(panelView());
 
 // 카운트다운·플래시·결과 사진은 guest-screen이 보인다. 결과가 끝나면 그 안에서 <img>의 src를 먼저 지우고,
 // 그 뒤 session이 Object URL을 정리한다 (같은 알림 안에서 동기로).
@@ -268,14 +340,14 @@ function applyLayout() {
   updateOperatorRoom();
 }
 
-// 운영자 패널(R·E)을 9:16 영역 옆 빈 곳에 세울 공간이 실제로 있는지 (6단계 검수 2). 화면 비율만 보면 좁은 가로 창
+// 운영자 패널(E)을 9:16 영역 옆 빈 곳에 세울 공간이 실제로 있는지 (6단계 검수 2). 화면 비율만 보면 좁은 가로 창
 // (예: 1200×1080)에서 패널이 영상을 가린다. 옆 빈 폭에 패널 최소 폭(24em)과 여백(2em)이 들어갈 때만 옆으로 세운다
 // (style.css의 .op-side-room). 1080×1920·2160×3840(세로)은 공간이 없어 아래·위, 1920×1080은 옆이다.
 const OPERATOR_PANEL_ROOM_EM = 26;
 
 function updateOperatorRoom() {
   const side = (window.innerWidth - stage.getBoundingClientRect().width) / 2;
-  const em = parseFloat(getComputedStyle(document.getElementById('effect-panel')).fontSize);
+  const em = parseFloat(getComputedStyle(document.getElementById('operator-panel')).fontSize);
   document.documentElement.classList.toggle('op-side-room', side >= OPERATOR_PANEL_ROOM_EM * em);
 }
 
@@ -327,7 +399,9 @@ function renderDevInfo() {
     `color      : brightness ${cam.brightness} contrast ${cam.contrast} saturation ${cam.saturation} gamma ${cam.gamma}`
       + ` temperature ${cam.temperature} tint ${cam.tint}${cameraFrame.getColor().identity ? ' (neutral)' : ''}`,
     `raw-view   : ${raw.active ? (raw.shown ? `shown ${raw.width}x${raw.height}` : 'waiting camera') : 'off (effect running)'}, draws ${raw.draws}`,
-    `camera-cfg : ${describeCameraSource()} (${config.cameraSettingsFile.url})`,
+    `camera-cfg : ${cameraTuning ? cameraTuning.describeSettingsSource() : describeCameraSource()} (${config.cameraSettingsFile.url})`,
+    `raw-window : ${rawWindow.hidden ? 'off' : `shown ${rawWindowCanvas.width}x${rawWindowCanvas.height}, draws ${rawWindowPreview.getStats().draws}`}`
+      + ` (max ${RAW_WINDOW_FPS}fps)`,
   ];
   // 구역별 표 (ui/dev-panel.js). 글자는 예전과 같다(구역 사이 빈 줄) — 확인 도구가 줄 머리말로 읽는다
   renderDevPanel(devInfo, [
@@ -479,21 +553,10 @@ const OVERLAY = Object.freeze({
   outline: 'rgba(16, 16, 16, 0.85)',
 });
 
-// 감지 박스와 인식 영역을 9:16 영역 위에 겹쳐 그린다. 인정된 얼굴은 초록, 제외된 얼굴은 빨강.
-// 판정 좌표가 이미 관람객 화면 기준(지금 반전 값으로 바꾼 뒤)이므로 그대로 그린다.
-// 조절 화면이 열려 있으면 영역은 편집 사각형이 대신 보이고, 얼굴 크기 기준 가이드를 영역 가운데에 그린다.
-function drawDevOverlay() {
-  devOverlayFrame = requestAnimationFrame(drawDevOverlay);
-  const rect = stage.getBoundingClientRect();
-  const dpr = window.devicePixelRatio;
-  const width = Math.round(rect.width * dpr);
-  const height = Math.round(rect.height * dpr);
-  if (devOverlay.width !== width || devOverlay.height !== height) {
-    devOverlay.width = width;
-    devOverlay.height = height;
-  }
-  const ctx = devOverlay.getContext('2d');
-  ctx.clearRect(0, 0, width, height);
+// 감지 박스와 인식 영역을 9:16 화면 크기(width × height) 캔버스에 겹쳐 그린다. 인정된 얼굴은 초록, 제외된 얼굴은 빨강.
+// 판정 좌표가 이미 관람객 화면 기준(카메라 처리 경로를 거친 감지 입력)이므로 그대로 그린다 — 원본 창에도 같다.
+// guides: 인식 섹션이 보이면 영역은 편집 사각형이 대신 보이고 얼굴 크기 기준 가이드를 영역 가운데에 그린다
+function drawPresenceOverlay(ctx, width, height, { guides, scores = true }) {
   const d = presence.getDebugSnapshot();
   const line = Math.max(2, Math.round(width * 0.003)); // 9:16 영역 폭에 비례 (1080 → 3px)
   ctx.font = `${Math.round(width * 0.022)}px Consolas, monospace`;
@@ -508,7 +571,7 @@ function drawDevOverlay() {
 
   const { region } = d.settings;
   ctx.setLineDash([line * 4, line * 3]);
-  if (tuning?.isOpen()) {
+  if (guides) {
     // 얼굴 박스는 거의 정사각형이므로 한 변 = 기준 높이 x 9:16 영역 높이(px)인 정사각형으로 보인다.
     const cx = (region.x + region.width / 2) * width;
     const cy = (region.y + region.height / 2) * height;
@@ -528,6 +591,7 @@ function drawDevOverlay() {
     strokeBox(x, y, face.box.width * width, face.box.height * height, color);
     ctx.fillStyle = color;
     ctx.fillRect(face.center.x * width - line * 2, face.center.y * height - line * 2, line * 4, line * 4);
+    if (!scores) continue;
     const ty = Math.max(y - line * 3, width * 0.03);
     ctx.lineWidth = line * 2;
     ctx.strokeStyle = OVERLAY.outline;
@@ -536,9 +600,24 @@ function drawDevOverlay() {
   }
 }
 
-// 겹쳐 그리기는 D 화면이나 조절 화면이 열려 있을 때만 그린다. 둘 다 닫히면 흔적 없이 지운다.
+function drawDevOverlay() {
+  devOverlayFrame = requestAnimationFrame(drawDevOverlay);
+  const rect = stage.getBoundingClientRect();
+  const dpr = window.devicePixelRatio;
+  const width = Math.round(rect.width * dpr);
+  const height = Math.round(rect.height * dpr);
+  if (devOverlay.width !== width || devOverlay.height !== height) {
+    devOverlay.width = width;
+    devOverlay.height = height;
+  }
+  const ctx = devOverlay.getContext('2d');
+  ctx.clearRect(0, 0, width, height);
+  drawPresenceOverlay(ctx, width, height, { guides: isPresenceSectionShown() });
+}
+
+// 겹쳐 그리기는 D 화면이 켜져 있거나 운영자 화면의 인식 섹션이 보일 때만 그린다. 둘 다 아니면 흔적 없이 지운다.
 function updateOverlay() {
-  const visible = !devInfo.hidden || (tuning?.isOpen() ?? false);
+  const visible = !devInfo.hidden || isPresenceSectionShown();
   devOverlay.hidden = !visible;
   if (visible && devOverlayFrame === null) {
     drawDevOverlay();
@@ -570,6 +649,18 @@ async function loadCameraSettings() {
     if (initial.issues.length) console.warn('[camera-settings]', `adjusted: ${initial.issues.join('; ')}`);
     cameraSettingsInfo = { source: initial.source, note: initial.note, issues: initial.issues };
     applyCameraSettings(initial.settings);
+    cameraTuning = createCameraTuning({
+      panel: document.getElementById('camera-panel'),
+      camera,
+      frame: cameraFrame,
+      video,
+      defaults: config.camera,
+      initial,
+      applySettings: applyCameraSettings,
+      saveSettings: (settings) => cameraSettingsFile.write(serializeCameraSettings(settings)),
+      onOpenChange: handleSectionOpenChange,
+    });
+    operatorPanel.attach(PanelSection.CAMERA, cameraTuning);
   } catch (error) {
     console.error('[camera-settings] setup failed; continuing with defaults', error);
     cameraSettingsInfo = { source: 'defaults', note: `setup failed: ${error?.message ?? error}`, issues: [] };
@@ -590,8 +681,9 @@ async function loadSettings() {
       defaults: config.presence,
       initial,
       saveSettings: (settings) => settingsFile.write(serializePresenceSettings(settings)),
-      onOpenChange: handleTuningOpenChange,
+      onOpenChange: handleSectionOpenChange,
     });
+    operatorPanel.attach(PanelSection.PRESENCE, tuning);
   } catch (error) {
     // 여기까지 오면 코드 오류다. 자동 촬영이 영영 막히지 않게 기본값으로 계속한다.
     console.error('[settings] setup failed; continuing with defaults', error);
@@ -612,8 +704,9 @@ async function loadEffectSettings() {
       defaults: config.effect,
       initial,
       saveSettings: (settings) => effectSettingsFile.write(serializeEffectSettings(settings)),
-      onOpenChange: handleEffectTuningOpenChange,
+      onOpenChange: handleSectionOpenChange,
     });
+    operatorPanel.attach(PanelSection.EFFECT, effectTuning);
   } catch (error) {
     console.error('[effect-settings] setup failed; continuing with defaults', error);
   }
@@ -633,18 +726,12 @@ function toggleDevInfo() {
 
 window.addEventListener('keydown', (event) => {
   if (event.repeat || event.ctrlKey || event.altKey || event.metaKey) return;
-  // R·E 조절 화면은 한 번에 하나만 연다 (다른 쪽이 열려 있으면 키를 무시한다)
   if (event.code === Keys.devInfo) toggleDevInfo();
-  else if (event.code === Keys.tuning) {
-    if (!effectTuning?.isOpen()) tuning?.toggle();
-  } else if (event.code === Keys.effectTuning) {
-    if (!tuning?.isOpen()) effectTuning?.toggle();
-  }
+  else if (event.code === Keys.operatorPanel) operatorPanel.toggle();
   else if (event.code === Keys.start) session.request('start', 'key');
   else if (event.code === Keys.reset) session.request('reset', 'key');
   else if (event.code === Keys.pause) togglePause();
-  else if (event.code === 'Escape' && tuning?.isOpen()) tuning.close();
-  else if (event.code === 'Escape' && effectTuning?.isOpen()) effectTuning.close();
+  else if (event.code === 'Escape' && operatorPanel.isOpen()) operatorPanel.close();
 });
 
 applyLayout();

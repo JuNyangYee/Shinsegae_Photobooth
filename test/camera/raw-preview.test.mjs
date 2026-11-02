@@ -7,8 +7,9 @@ import { createCameraFrame } from '../../src/web/camera/camera-frame.js';
 import { createRawPreview } from '../../src/web/camera/raw-preview.js';
 import { config } from '../../src/web/config/config.js';
 
-function setup() {
+function setup({ maxFps } = {}) {
   let queued = null;
+  let time = 0;
   const frames = { count: 1 };
   const camera = { ready: true, isReady: () => camera.ready, getFrameInfo: () => ({ at: 0, count: frames.count }) };
   const video = { videoWidth: 1080, videoHeight: 1920 };
@@ -20,10 +21,11 @@ function setup() {
   const frame = createCameraFrame({ doc: {}, stageAspect: 9 / 16, settings: config.camera });
   const size = { width: 540, height: 960 };
   const preview = createRawPreview({
-    canvas, video, camera, frame, getSize: () => size,
+    canvas, video, camera, frame, getSize: () => size, maxFps, now: () => time,
     raf: (fn) => { queued = fn; return 1; }, cancelRaf: () => { queued = null; },
   });
-  const tick = (n = 1) => { for (let i = 0; i < n; i += 1) { const fn = queued; queued = null; fn?.(); } };
+  // 60Hz 화면 갱신 한 번 (time += 1000/60)
+  const tick = (n = 1) => { for (let i = 0; i < n; i += 1) { time += 1000 / 60; const fn = queued; queued = null; fn?.(); } };
   return { preview, camera, video, canvas, draws, frames, frame, size, tick, queued: () => queued };
 }
 
@@ -65,6 +67,20 @@ describe('createRawPreview', () => {
     t.tick();
     assert.equal(t.canvas.hidden, false);
     assert.equal(t.draws.length, 2);
+  });
+
+  it('maxFps: 새 프레임이 화면 갱신마다 와도 초당 그 수 이하로 그린다(원본 창, 9-2). 설정이 바뀐 것은 바로 그린다', () => {
+    const t = setup({ maxFps: 30 });
+    t.preview.setActive(true);
+    for (let i = 0; i < 60; i += 1) {
+      t.frames.count += 1;
+      t.tick();
+    }
+    assert.ok(t.draws.length >= 29 && t.draws.length <= 31, `${t.draws.length} draws in 1s`);
+    const before = t.draws.length;
+    t.frame.setSettings({ ...t.frame.getSettings(), brightness: 0.1 });
+    t.tick();
+    assert.equal(t.draws.length, before + 1);
   });
 
   it('끄면 숨기고 멈춘다 (효과 미리보기가 그리는 동안 비용 없음)', () => {
