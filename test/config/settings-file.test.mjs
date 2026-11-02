@@ -293,6 +293,21 @@ describe('loadInitialCameraSettings (카메라 설정, 9-1): 카메라 파일 �
     assert.equal(effectFile.writes.length, 0);
   });
 
+  it('원자성 (9단계 검수 2): 카메라 파일이 확인되지 않으면(쓰기 실패·다시 읽은 내용이 다름) 효과 파일은 바이트 그대로 mirror를 남긴다', async () => {
+    for (const camera of [
+      fakeFile({ failWrite: 'HTTP 500' }),
+      // 쓰기는 됐다고 했지만 다시 읽으면 다른 내용 (다른 프로그램이 덮어씀 등)
+      Object.assign(fakeFile(), { async write(value) { this.writes.push(value); this.text = '{"version":1,"settings":{}}'; } }),
+    ]) {
+      const original = effectWith(false);
+      const effectFile = fakeFile({ text: original });
+      const r = await loadInitialCameraSettings({ file: camera, effectFile, defaults: config.camera });
+      assert.equal(r.source, SettingsSource.EFFECT_FILE_ONLY);
+      assert.deepEqual([effectFile.writes.length, effectFile.text], [0, original]);
+      assert.equal(JSON.parse(effectFile.text).settings.mirror, false);
+    }
+  });
+
   it('효과 파일에서 키를 빼지 못해도 옮긴 것으로 본다 (카메라 파일이 있으니 다시 옮기지 않는다)', async () => {
     const r = await loadInitialCameraSettings({ file: fakeFile(), effectFile: fakeFile({ text: effectWith(true), failWrite: 'HTTP 413' }), defaults: config.camera });
     assert.equal(r.source, SettingsSource.MIGRATED);

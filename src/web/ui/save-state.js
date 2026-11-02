@@ -1,4 +1,4 @@
-// 운영자 조절 화면(R·E)의 저장 상태 표시 (6-3). 상태는 패널의 data-save(CSS 색)와 [data-state] 글자로 보인다.
+// 운영자 조절 화면(E)의 섹션별 저장 상태 표시 (6-3, 9-2). 상태는 패널의 data-save(CSS 색)와 [data-state] 글자로 보인다.
 // 저장 규칙 자체(저장·되돌리기·저장 중 닫기)는 각 조절 화면 모듈이 정한다. 이 모듈은 보이는 방식만 맡는다.
 // 바꾸지 않았을 때도 "파일과 같은 값"인지는 시작할 때 불러온 결과(출처·고친 내용)로 가린다 (6단계 검수 1).
 
@@ -32,7 +32,8 @@ const TEXT = Object.freeze({
 export function loadedSaveState({ source, note, issues }) {
   if (source === SettingsSource.SAVED) return SaveState.SAVED;
   if (source === SettingsSource.DEFAULTS) return note === 'no file' ? SaveState.DEFAULTS : SaveState.LOAD_FAILED;
-  if (source === SettingsSource.LOCAL_ONLY || issues.length > 0) return SaveState.ADJUSTED;
+  // 파일에 없는 값을 쓰는 중: 옮기지 못한 브라우저 저장값(인식), 카메라 파일로 옮기지 못한 효과 파일의 좌우 반전(카메라, 9단계 검수 2)
+  if (source === SettingsSource.LOCAL_ONLY || source === SettingsSource.EFFECT_FILE_ONLY || issues.length > 0) return SaveState.ADJUSTED;
   return SaveState.SAVED; // FILE, MIGRATED (파일에 옮김)
 }
 

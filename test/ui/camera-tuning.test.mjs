@@ -153,6 +153,29 @@ describe('camera-tuning: 섹션 단위 저장 규칙', () => {
     assert.deepEqual([t.running().rotation, t.running().zoom, t.running().mirror], [90, 2, false]);
   });
 
+  it('discardUnsaved: 저장하지 않은 변경을 저장된 값으로 되돌려 다시 적용한다 (패널이 닫히는 순간, 9단계 검수 1)', () => {
+    const t = current = setup();
+    t.tuning.open();
+    t.slide('zoom', 2);
+    assert.equal(t.tuning.isDirty(), true);
+    t.tuning.discardUnsaved();
+    assert.deepEqual([t.tuning.isDirty(), t.running().zoom, t.panel.dataset.save], [false, 1, 'saved']);
+  });
+
+  it('반전 옮기기 실패(effect file 출처)는 "저장됨"이 아니라 "파일 값을 고쳐 사용 · 저장 필요", 저장하면 저장됨 (9단계 검수 2)', async () => {
+    const t = current = setup({ loaded: { settings: { ...base, mirror: false }, source: SettingsSource.EFFECT_FILE_ONLY,
+      note: 'mirror off from effect file; migration to camera file failed: HTTP 500' } });
+    assert.equal(t.panel.dataset.save, 'adjusted');
+    assert.equal(t.element('[data-state]').textContent, '파일 값을 고쳐 사용 · 저장 필요');
+    t.tuning.open();
+    assert.match(t.message(), /카메라 파일로 옮기지 못했습니다/);
+    t.click('save');
+    t.saves[0].resolve();
+    await flush();
+    assert.equal(t.panel.dataset.save, 'saved');
+    assert.equal(t.saves[0].settings.mirror, false);
+  });
+
   it('D 출처: file, + unsaved changes, defaults (no file)', () => {
     const t = current = setup();
     t.tuning.open();

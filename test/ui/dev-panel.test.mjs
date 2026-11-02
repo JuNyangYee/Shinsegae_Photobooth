@@ -71,7 +71,7 @@ describe('dev-panel (D)', () => {
   });
 });
 
-describe('save-state (R·E 저장 상태)', () => {
+describe('save-state (E 섹션 저장 상태)', () => {
   it('저장 중 > 실패 > 저장 안 된 변경 > 저장됨', () => {
     assert.equal(saveStateOf({ saving: true, failed: true, dirty: true }), SaveState.SAVING);
     assert.equal(saveStateOf({ saving: false, failed: true, dirty: true }), SaveState.FAILED);
@@ -86,6 +86,7 @@ describe('save-state (R·E 저장 상태)', () => {
     assert.equal(base(SettingsSource.DEFAULTS, 'file read failed: timeout 3000ms'), SaveState.LOAD_FAILED);
     assert.equal(base(SettingsSource.FILE, '', ['fps: 99 -> 30']), SaveState.ADJUSTED);
     assert.equal(base(SettingsSource.LOCAL_ONLY, 'migration to file failed'), SaveState.ADJUSTED);
+    assert.equal(base(SettingsSource.EFFECT_FILE_ONLY, 'mirror off from effect file; migration to camera file failed'), SaveState.ADJUSTED, '반전 옮기기 실패는 저장 필요 (9단계 검수 2)');
     assert.equal(base(SettingsSource.FILE), SaveState.SAVED);
     assert.equal(base(SettingsSource.MIGRATED), SaveState.SAVED);
     assert.equal(base(SettingsSource.SAVED, '', ['old issue']), SaveState.SAVED, '이번 실행에 저장했으면 저장됨');
