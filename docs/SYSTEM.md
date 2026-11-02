@@ -6,7 +6,7 @@
 
 1. 전체 구성 — 구성도, 폴더 구성, 정적 서버, 조절값 파일 API, CSP, 스크립트 인코딩, 현장 실행 스크립트, 브라우저 확인 도구
 2. 코드 책임 구분 — 모듈 경계, 폴더 규칙, 반복 오류 로그 제한
-3. 카메라와 영상 — OBS 가상카메라, 화면 배치, 관람객 화면(서체), 좌우 반전, 권한, 카메라 상태와 자동 회복
+3. 카메라와 영상 — OBS 가상카메라, 카메라 처리 경로(장치·해상도·색 보정·반전·회전·확대·이동), 화면 배치, 관람객 화면(서체), 좌우 반전, 권한, 카메라 상태와 자동 회복
 4. 촬영 상태 — 촬영 한 사이클, 실패와 취소 경계, 운영자 단축키, 운영자 화면, 자동 시작과 이탈 취소, 출력 연동 시 참고 흐름
 5. 촬영 시작 인식 — 얼굴 감지와 인식 상태, 감지기 상태와 장애 안내, 설정값, 인식 범위 조절, 다인원과 성능, MediaPipe 로컬 라이브러리
 6. 사진 처리 — 캡처와 결과 이미지, 사진 효과(유화 · 획), 회색조 유화, 출력 단계(감열지 흑백), 흑백 스타일
@@ -15,14 +15,15 @@
 ## 1. 전체 구성
 
 ```text
-웹캠 ──▶ OBS (9:16 크롭·회전·보정) ──▶ OBS 가상카메라
-                                              │ getUserMedia()
+웹캠 ──▶ OBS (9:16 크롭·회전·보정, 9-1부터 웹에서도 가능) ──▶ OBS 가상카메라 (또는 웹캠 직접)
+                                              │ getUserMedia() (장치·해상도: 카메라 설정)
 로컬 정적 서버 (localhost) ──▶ 같은 PC 브라우저 (세로 9:16 전체화면)
-  <video> ─┬─▶ 효과 캔버스 (WebGL2: 회색조 → 유화 → 출력 단계, <video> 위를 덮음. 실패하면 원본 미리보기)
-           └─▶ 얼굴 감지 (MediaPipe) ─▶ 인식 상태 ─┐
-                                 키보드 S·X·P ────┤
-                                                   ▼
-  촬영 진행 (상태 기계) ─▶ 캡처(반전·9:16) ─▶ 결과 사진(셔터 순간 미리보기와 같은 그림) + 인쇄용 1비트 ─▶ 결과 화면
+  <video> ─▶ 카메라 처리 경로 (색 보정 → 반전·회전·확대·이동 → 9:16, 설정 하나·계산 하나)
+             ├─▶ 효과 캔버스 (WebGL2 첫 패스: 회색조 → 유화 → 출력 단계. 실패하면 원본 미리보기 캔버스)
+             └─▶ 얼굴 감지 (MediaPipe, 9:16 화면 영역 그대로) ─▶ 인식 상태 ─┐
+                                                    키보드 S·X·P ────┤
+                                                                      ▼
+  촬영 진행 (상태 기계) ─▶ 캡처(카메라 처리 경로) ─▶ 결과 사진(셔터 순간 미리보기와 같은 그림) + 인쇄용 1비트 ─▶ 결과 화면
                                                                      (이후) ─▶ 로컬 인쇄 서비스
 ```
 
@@ -34,16 +35,18 @@
 ```text
 Launch.bat · Shutdown.bat · Setup-Startup.bat   현장 실행·종료·시작 프로그램 등록 → bin/launch.ps1 · shutdown.ps1 · setup-startup.ps1
 settings.example.ini        현장 설정 예시. settings.ini는 여기서 만들어지고 Git 제외
-config/*.local.json         운영자 조절값 파일(presence = R, effect = E). 서버 API만 쓴다. Git 제외. src/web/config/와 다른 폴더
+config/*.local.json         운영자 조절값 파일(presence = R, effect = E, camera = 카메라 설정 9-1). 서버 API만 쓴다. Git 제외. src/web/config/와 다른 폴더
 bin/common.ps1              실행 스크립트 공용 (로그, 설정, 프로그램 탐색, 프로세스 식별·종료)
 bin/server/serve.ps1        정적 서버, 조절값 파일 API
 src/web/                    index.html(진입점 /) · main.js(화면 조립·단축키·D 정보·연결) · style.css
   assets/fonts/             서체 부분 집합과 OFL 라이선스 (3절 "서체")
-  config/   config.js(바꿀 수 있는 값) · presence-settings.js · effect-settings.js(검증·정규화·저장 형식)
+  config/   config.js(바꿀 수 있는 값) · presence-settings.js · effect-settings.js · camera-settings.js(검증·정규화·저장 형식)
             settings-file.js(조절값 파일 API 클라이언트·불러오기 순서) · guest-text.js(관람객 문구)
   core/     session.js(촬영 상태 기계) · auto-start.js · presence.js(인식 판정) · guidance.js(관람객 안내 규칙)
             log-limit.js · oil-paint.js(획 목록·해상도 비례·tick) · thermal.js(감열지 출력 단계·입력 회색조 계수)
-  camera/   camera.js(장치·스트림) · camera-monitor.js(상태 감시·자동 회복) · capture.js(캡처·결과 이미지·자원 정리)
+            camera-view.js(카메라 처리 경로의 변환·색 보정 계수)
+  camera/   camera.js(장치·스트림) · camera-monitor.js(상태 감시·자동 회복·다시 열기) · capture.js(캡처·결과 이미지·자원 정리)
+            camera-frame.js(카메라 처리 경로 2D 그리기·색 보정 SVG 필터) · raw-preview.js(원본 미리보기 캔버스)
   vision/   face-detector.js · detector-keeper.js(재생성·감지기 상태) · presence-monitor.js(감지 루프)
   effect/   oil-shaders.js · oil-renderer.js(WebGL2) · effect-preview.js(실시간 미리보기) · photo-effect.js(결과 사진 효과)
   ui/       guest-screen.js · presence-tuning.js(R) · effect-tuning.js(E) · region-drag.js · dev-panel.js(D) · save-state.js
@@ -72,8 +75,9 @@ package.json · package-lock.json · .npmrc   개발 PC 전용. @mediapipe/tasks
 |---|---|---|
 | `/local-api/presence-settings` | `config/presence.local.json` | `R` (5절) |
 | `/local-api/effect-settings` | `config/effect.local.json` | `E` (6절) |
+| `/local-api/camera-settings` | `config/camera.local.json` | 카메라 설정 (3절 "카메라 처리 경로", 운영자 화면은 9-2) |
 
-- `GET`: 있으면 200 `application/json; charset=utf-8`(저장한 바이트 그대로), 없으면 404. `PUT`: 아래 조건을 모두 만족하면 원자적으로 쓰고 204, 아니면 4xx와 짧은 이유. 그 밖은 405 `Allow: GET, PUT`. 두 경로가 같은 함수(`Invoke-SettingsApi`)를 쓴다. 파일 이름은 클라이언트가 정할 수 없다.
+- `GET`: 있으면 200 `application/json; charset=utf-8`(저장한 바이트 그대로), 없으면 404. `PUT`: 아래 조건을 모두 만족하면 원자적으로 쓰고 204, 아니면 4xx와 짧은 이유. 그 밖은 405 `Allow: GET, PUT`. 세 경로가 같은 함수(`Invoke-SettingsApi`)를 쓴다. 파일 이름은 클라이언트가 정할 수 없다.
 - **CSRF 방어** (루프백 제한은 같은 PC의 다른 웹페이지 요청을 막지 못하므로): `X-Photobooth: 1` 헤더(없으면 403), `Content-Type: application/json`(charset은 `utf-8`만, 아니면 415), `Host`가 `localhost:<port>`(403), `Origin`이 있으면 `http://localhost:<port>`(403), `Sec-Fetch-Site`가 있으면 `same-origin`(403). 다른 출처는 사전 요청 `OPTIONS`가 405이고 CORS 허용 헤더(`Access-Control-Allow-*`)를 보내지 않아 `PUT`이 나가지 않고, 헤더 없는 단순 요청(`no-cors`)은 위 조건에서 거절된다. `Origin`·`Sec-Fetch-Site`가 없는 같은 PC 프로그램은 받는다. DNS 리바인딩은 `Host` 검사로 막는다.
 - **본문:** 상한 16KB(16384바이트, 넘으면 413, chunked 포함). 엄격한 UTF-8이 아니거나 `JavaScriptSerializer`로 푼 결과가 JSON **객체**가 아니면 400. 값의 의미는 검사하지 않는다(클라이언트 정규화가 맡아 어떤 내용이든 안전하게 불러온다).
 - **원자적 쓰기:** 같은 폴더 `<파일 이름>.<guid>.tmp`에 쓰고 flush한 뒤 `File.Replace`(처음이면 `File.Move`). 잠겨 있으면 50ms 간격 5번 재시도, 끝내 실패하면 500. 임시 파일은 늘 지운다. PowerShell 5.1이 `$null`을 빈 문자열로 바꾸므로 백업 경로는 `[NullString]::Value`.
@@ -142,21 +146,24 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 
 ### 브라우저 확인 도구
 
-`tools/browser-check.mjs` (`npm run check:browser`): 개발 PC에서 실제 앱을 headless Chrome으로 띄워 시나리오 17개를 확인한다(한 번에 약 6분). Windows, Chrome, Node 22 이상, 설치 필요 없음.
+`tools/browser-check.mjs` (`npm run check:browser`): 개발 PC에서 실제 앱을 headless Chrome으로 띄워 시나리오 19개를 확인한다(한 번에 약 7분). Windows, Chrome, Node 22 이상, 설치 필요 없음.
 
 ```powershell
 npm run check:browser                              # 가짜 카메라
 npm run check:browser -- --camera real             # 실제 카메라 (OBS 가상카메라 우선)
 npm run check:browser -- --soak --camera real      # 장시간 실측 기본 10분 (20초마다 S, 1분마다 → logs\soak_*.csv)
 npm run check:browser -- --soak 60 --camera real   # 분 지정
+npm run check:browser -- --camera real --only "카메라 변환|카메라 장치"   # 이름에 그 글자가 든 시나리오만 (첫 페이지 로드는 늘)
+npm run check:browser -- --camera real --camera-label "Logitech StreamCam (046d:0893)" --only "카메라"   # 카메라 설정 시나리오를 그 장치로
 ```
 
 - **구조:** Node 내장 `WebSocket`으로 CDP에 직접 붙는다. `serve.ps1`을 빈 포트로, Chrome을 `%TEMP%\photobooth-check-*` 임시 프로필·`--headless=new`·`--remote-debugging-port=0`으로 띄운다(늘 `--user-data-dir`이라 사용자 Chrome에 붙지 않는다). 카메라는 기본 가짜 장치(`--use-fake-device-for-media-stream`), 권한은 CDP `Browser.setPermission`.
-- **앱 상태:** D 화면 글자를 줄 머리말로, 관람객 안내를 `#status`로 읽는다. **앱에 확인 전용 훅이 없다** — D 줄 형식·확정 문구를 바꾸면 도구도 고친다. 조작은 CDP 키 입력·`Fetch`(모델 404). 외부 요청·CSP 위반·페이지 예외를 기록한다(MediaPipe 통계 차단은 따로 세고 실패로 보지 않음). 생성 실패 시나리오용으로 `setInterval`·`clearInterval`을 페이지보다 먼저 감싸 센다.
+- **앱 상태:** D 화면 글자를 줄 머리말로, 관람객 안내를 `#status`로 읽는다. **앱에 확인 전용 훅이 없다** — D 줄 형식·확정 문구를 바꾸면 도구도 고친다. 카메라 처리 경로 확인은 페이지 안에서 앱의 순수 모듈(`/core/camera-view.js`)과 셰이더 문자열(`/effect/oil-shaders.js`)을 `import()`해 같은 계산을 따로 그려 비교한다(앱 상태를 바꾸지 않는다). 조작은 CDP 키 입력·`Fetch`(모델 404). 외부 요청·CSP 위반·페이지 예외를 기록한다(MediaPipe 통계 차단은 따로 세고 실패로 보지 않음). 생성 실패 시나리오용으로 `setInterval`·`clearInterval`을 페이지보다 먼저 감싸 센다.
 - **정리:** 어떤 끝이든 자신이 띄운 Chrome·서버·임시 프로필만 정리한다(`--keep-profile`이면 프로필을 남김). 사진을 저장하지 않는다. 결과 표를 출력하고 하나라도 실패하면 종료 코드 1.
-- **조절값 파일:** 시작할 때 `config/*.local.json`을 바이트 그대로(또는 "없음") 백업하고, 시나리오 뒤와 마지막에 **파일 시스템으로 직접** 되돌린다(없던 파일·빈 `config/`는 지운다). 그사이 몇 초 시험 값이 들어 있으므로 **현장 키오스크가 같은 저장소에서 도는 PC에서는 실행하지 않는다.**
+- **조절값 파일:** 시작할 때 `config/*.local.json`(인식·효과·카메라)을 바이트 그대로(또는 "없음") 백업하고, 시나리오 뒤와 마지막에 **파일 시스템으로 직접** 되돌린다(없던 파일·빈 `config/`는 지운다). 그사이 몇 초 시험 값이 들어 있으므로 **현장 키오스크가 같은 저장소에서 도는 PC에서는 실행하지 않는다.**
+- **기다림 시간 초과:** 메시지 끝에 그때의 D `status`·`reason`·`video`·`effect`·`raw-view`를 붙인다(실제 카메라에서 원인을 바로 보이게).
 - **CDP:** 요청마다 제한 시간 15초. 연결이 끊기면 모든 요청이 바로 실패해 몇 초 안에 끝나고 정리한다(`browser-check-lib.mjs`).
-- **시나리오:** 페이지 로드(서체 포함) · `S` 한 사이클과 자원 정리 · 조절값 API · 감지기 생성 실패 정리 · 권한 거절 → 허용 · 모델 차단 · 효과 미리보기(기본값, 결과 사진 준비, 컨텍스트 손실·복구) · 회색조 유화 기본 촬영(결과 = 셔터 직전 그림, 무채색, 인쇄 576×1024 1비트, 출력물 폭 1/2) · 출력 모드 전환 · 흑백 스타일 4가지 · 흑백 스타일 GPU = CPU · GPU 디더 = CPU·1비트 PNG · 효과 WebGL2 생성 실패 · `E` 저장 유지 · 좌우 반전 켬·끔(`<video>` CSS, 효과 미리보기·결과 사진 방향, 인식 다시 재기·얼굴이 보이면 화면 x가 `1 - x`로, 저장 유지) · 결과 효과 렌더 실패 · 외부 요청·CSP 위반·예외 0. 확인 값은 `tools/browser-check.mjs`에 있다. 좌우 방향은 효과 그림·결과 사진·같은 순간의 영상을 페이지 안에서 18×32 밝기 격자로 줄여 비대칭 성분(`g - flip(g)`)의 상관 부호로 본다(같은 방향 +, 거울 −, 기준 ±0.3. 가짜 카메라 화면은 거의 좌우 대칭이라 그냥 상관으로는 갈리지 않는다). 페이지 로드 줄에 쓰인 카메라 라벨이 나온다. 화소 일치 시나리오는 `E`에서 처리 해상도를 1로 두고 실제 `1080x1920`으로 그린 뒤 시작한다.
+- **시나리오:** 페이지 로드(서체 포함) · `S` 한 사이클과 자원 정리 · 조절값 API · 감지기 생성 실패 정리 · 권한 거절 → 허용 · 모델 차단 · 효과 미리보기(기본값, 결과 사진 준비, 컨텍스트 손실·복구) · 회색조 유화 기본 촬영(결과 = 셔터 직전 그림, 무채색, 인쇄 576×1024 1비트, 출력물 폭 1/2) · 출력 모드 전환 · 흑백 스타일 4가지 · 흑백 스타일 GPU = CPU · GPU 디더 = CPU·1비트 PNG · 효과 WebGL2 생성 실패(원본 미리보기 캔버스가 계속 그림) · `E` 저장 유지 · 좌우 반전 켬·끔(카메라 설정 파일 → 새로고침. CSS 반전 없음, 효과 미리보기·결과 사진 방향, 얼굴이 보이면 화면 x가 `1 - x`로, 효과 파일의 예전 `mirror` 옮기기) · 카메라 장치·해상도(프리셋 요청 → 실제 트랙·캡처, 다른 카메라가 있으면 그 라벨로, 없는 라벨이면 OBS·기본 규칙) · 카메라 변환·색 보정(회전 90°+3°·확대·이동·색 보정 6개: 같은 프레임의 2D 그림(앱 SVG 필터) = core 기준식, 효과 셰이더 입력(`FS_GRADE` uAmt 0) = 2D, 미리보기·결과 = 변환한 영상, 얼굴이 보이면 예측 위치, 화면·감지·효과 속도) · 결과 효과 렌더 실패 · 외부 요청·CSP 위반·예외 0. 확인 값은 `tools/browser-check.mjs`에 있다. 좌우 방향은 효과 그림·결과 사진·같은 순간의 영상을 페이지 안에서 18×32 밝기 격자로 줄여 비대칭 성분(`g - flip(g)`)의 상관 부호로 본다(같은 방향 +, 거울 −, 기준 ±0.3. 가짜 카메라 화면은 거의 좌우 대칭이라 그냥 상관으로는 갈리지 않는다). 페이지 로드 줄에 쓰인 카메라 라벨이 나온다. 화소 일치 시나리오는 `E`에서 처리 해상도를 1로 두고 실제 `1080x1920`으로 그린 뒤 시작한다.
 - **범위 밖:** 가짜 카메라에 얼굴이 없어 자동 시작·이탈 취소·인식 중 `P`는 확인하지 않는다(Node 테스트 `test/core/auto-start.test.mjs`·`test/vision/presence-monitor.test.mjs`와 사람 실측). 키오스크, OBS 시작·중지, 절전 복귀, 4K도 범위 밖. `S` 사이클은 `P`를 켜고 돌려 실제 카메라 앞에 사람이 있어도 된다.
 - **장시간 실측:** `--interval`(기본 20초)마다 대기면 `S`. 1분마다 CSV에 JS 힙·DOM 노드·리스너·문서 수(`Performance.getMetrics`), D 화면 값, 이 프로필 `chrome.exe` 메모리(`PrivatePageCount`·`WorkingSetSize` 합), 콘솔·예외 수. 끝나면 항목별 통계와 시간당 기울기(처음 5분 제외 포함). 통과: 모든 기록에서 카메라 `ready`·감지기 `ok`, `S` 직전마다 사진 자원 0·`taken = released`, 측정값을 모두 읽음, 외부 요청·CSP 위반·예외 0, 완료 1회 이상.
 
@@ -164,12 +171,12 @@ npm run check:browser -- --soak 60 --camera real   # 분 지정
 
 | 영역 | 경계 |
 |---|---|
-| 카메라 | 장치 선택·스트림(`camera.js`), 첫 프레임·끊김·자동 회복(`camera-monitor.js`) |
+| 카메라 | 장치 선택·스트림(`camera.js`), 첫 프레임·끊김·자동 회복·설정이 바뀌면 다시 열기(`camera-monitor.js`), 카메라 처리 경로(계산 `core/camera-view.js`, 2D 그리기 `camera-frame.js`, 원본 미리보기 `raw-preview.js`) |
 | 얼굴 감지 | `face-detector.js`는 사전 확인·생성·실패 정리·감지·종료만 하고 영상 기준 정규화 박스·점수만 돌려준다(MediaPipe 자료형을 내보내지 않음). `detector-keeper.js`가 재생성·감지기 상태 |
 | 인식 판정 | `presence.js` 순수 함수, `presence-monitor.js`는 "인식됨 / 인식 안됨"과 감지기 상태(`{ health, cause, since }`)만 밖에 알린다. 좌표·점수는 `getDebugSnapshot()`(D 전용)으로만 |
 | 촬영 시작 입력 | 키보드(`main.js`)와 인식(`auto-start.js`)이 `session.request('start' \| 'cancel' \| 'reset')` 한 입구로 요청만 보낸다. 시작 여부는 상태 기계가 정한다 |
 | 촬영 진행 | `session.js`: 상태 전환·타이머·회차·취소·초기화·결과 종료 시계. DOM·카메라를 모르고 시계·타이머·사진 함수를 주입받는다 |
-| 이미지 | `capture.js`: 반전 캡처, 효과 단계 호출, 인코딩, 인쇄 데이터 붙이기, Object URL 생성·정리, 남은 자원 수 |
+| 이미지 | `capture.js`: 카메라 처리 경로로 캡처, 효과 단계 호출, 인코딩, 인쇄 데이터 붙이기, Object URL 생성·정리, 남은 자원 수 |
 | 관람객 화면 | 무엇을 보일지는 `main.js`(안내 규칙·인식 표시 조건·쿨타임), 어떻게 보일지는 `ui/guest-screen.js`, 문구는 `config/guest-text.js`. 결과가 끝나면 `<img>`의 `src`를 먼저 지운 뒤 상태 기계가 Object URL을 정리한다(같은 알림 안, 동기) |
 | 사진 효과 | `oil-paint.js`·`thermal.js`(core 계산), `oil-renderer.js`(WebGL2), `effect-preview.js`(미리보기·결과용 같은 그림), `photo-effect.js`(결과·인쇄 데이터·실패 대체), `effect-tuning.js`(`E`). 카메라·감지·촬영 상태는 모르고 `camera.isReady()`와 `<video>`만 받는다 |
 
@@ -192,7 +199,7 @@ npm run check:browser -- --soak 60 --camera real   # 분 지정
 
 - **`core` 규칙(`test/core-deps.test.mjs`가 검사):** `core`와 거기서 전이적으로 닿는 파일은 `core/`·`config/` 안에 있고, 브라우저 전역(`document`, `window`, `navigator`, `location`, `localStorage`, `fetch`, `WebSocket`, 캔버스·이미지·미디어 생성자, `requestAnimationFrame` 등)을 쓰지 않는다. 동적 `import()`는 문자열 경로만. 타이머·`performance`·`Date`·`console`·`URL`은 허용. `globalThis`·`window`·`self`는 어느 형태로든 쓰면 위반이고, 예외는 매개변수 기본값 `timers = globalThis`(`core/session.js`)를 타이머 네 함수 호출로만 쓸 때뿐이다. 검사기는 완전한 파서가 아니다(범위를 추적하지 않아 한 파일의 지역·전역 같은 이름은 놓칠 수 있고, 애매한 `/`는 나눗셈으로 본다).
 - `config/settings-file.js`는 기본 `fetch`가 전역이라 순수하지 않으므로 `core`에서 부르면 검사가 실패한다.
-- `camera`·`vision`·`ui`·`effect`끼리는 서로 부르지 않고 `main.js`가 잇는다(효과 미리보기는 `camera`의 `isReady`와 `<video>`를 주입받는다). `ui`는 `core/session`의 상태 이름을 쓴다. `config`·`core`는 바깥 폴더를 부르지 않는다. 자동 검사는 `core` 행뿐이고 나머지는 규칙으로 지킨다.
+- `camera`·`vision`·`ui`·`effect`끼리는 서로 부르지 않고 `main.js`가 잇는다(효과 미리보기는 `camera`의 `isReady`·`<video>`·카메라 처리 경로 객체를, 감지 루프는 그 2D 그리기 함수 `drawFrame`을 주입받는다). `ui`는 `core/session`의 상태 이름을 쓴다. `config`·`core`는 바깥 폴더를 부르지 않는다. 자동 검사는 `core` 행뿐이고 나머지는 규칙으로 지킨다.
 - 테스트는 `test/` 아래 소스와 같은 이름 폴더에, 주 대상 모듈 위치를 따라 둔다(1개짜리라도 둔다: `test/camera/`, `test/tools/`).
 
 ### 반복 오류 로그 제한
@@ -203,15 +210,67 @@ npm run check:browser -- --soak 60 --camera real   # 분 지정
 
 ### OBS 가상카메라
 
-- 9:16 크롭·회전·색 보정은 OBS가 하고, 출력 해상도는 화면에 맞춘다(1080×1920 ~ 2160×3840). 캡처 해상도 상한은 OBS 출력이다.
-- 라벨에 `OBS Virtual Camera`(`config.preferredCameraLabel`, 대소문자 무시)가 있는 장치를, 없으면 기본 카메라를 쓴다. 라벨이 비어 있으면(권한 전) 권한을 한 번 요청하고 다시 읽으며, 그 스트림이 고른 장치면 그대로 쓴다. 기본 카메라로 연결된 뒤 OBS가 나타나면 OBS로 바꾼다.
-- 해상도는 **`ideal`로만** 요청한다(`config.idealResolution` 2160×3840). `exact`·`min`은 지원하지 않는 장치에서 실패하고, 제약이 없으면 640×480 같은 낮은 형식이 올 수 있다. Chrome은 장치 범위에서 가장 가까운 값을 원본보다 키우지 않고 고르며 잘라 줄일 수 있다(가짜 카메라 2160×2160). 실제 크기는 D `video`·`track`.
-- OBS 없이 일반 웹캠도 동작한다(9:16이 아니면 가운데 기준으로 잘라 채운다).
+- 9:16 크롭·회전·색 보정은 OBS에서 하고 출력 해상도를 화면에 맞춰 왔다(1080×1920 ~ 2160×3840). 9-1부터는 같은 일을 웹의 카메라 처리 경로(아래)로도 할 수 있다(OBS 세로 회전 대신 90° 회전, 색 보정). 둘 다에서 하면 두 번 적용되므로 현장에서 한쪽만 쓴다. 캡처 해상도 상한은 카메라(OBS) 출력이다.
+- 장치는 카메라 설정의 **장치 라벨**(`deviceLabel`, 정확히 같은 라벨, 앞뒤 공백·대소문자 무시)을 먼저, 없거나 비어 있으면 라벨에 `OBS Virtual Camera`(`config.preferredCameraLabel`, 포함)가 있는 장치를, 그것도 없으면 기본 카메라를 쓴다(`camera.js` `pickCamera`). `deviceId`는 다시 연결·재부팅 때 바뀔 수 있어 저장하지 않는다. 같은 라벨의 장치가 둘이면 앞의 것(구분하지 못한다). 라벨이 비어 있으면(권한 전) 권한을 한 번 요청하고 다시 읽으며, 그 스트림이 고른 장치면 그대로 쓴다. 더 우선인 장치가 없어 대신 연결된 뒤 그 장치가 나타나면(`devicechange`) 바꾼다. D `selected`(`device`·`preferred`·`default`).
+- 해상도는 **`ideal`로만** 요청한다. 카메라 설정 `resolution`이 `auto`면 `config.idealResolution`(2160×3840, 90°·270° 회전이면 3840×2160), 프리셋이면 그 값(카메라 기준 가로×세로). `exact`·`min`은 지원하지 않는 장치에서 실패하고, 제약이 없으면 640×480 같은 낮은 형식이 올 수 있다. Chrome은 장치 범위에서 가장 가까운 값을 원본보다 키우지 않고 고르며 잘라 줄일 수 있다(가짜 카메라 2160×2160). **OBS 가상카메라(출력 1080×1920)에 다른 비율을 요청하면 그 비율로 잘라 준다**(실측: 1280×720 → 1080×720, 1920×1080 → 1080×1080, 2160×3840·1080×1920 → 1080×1920). 그래서 OBS는 `auto`(또는 OBS 출력과 같은 프리셋)로 둔다. 실제 크기는 D `video`·`track`, 트랙이 지원하는 범위(`getCapabilities`)는 D `caps`.
+- 다른 프로그램이 쓰는 장치(예: OBS가 소스로 잡은 웹캠)를 장치 라벨로 고르면 `NotReadableError`로 열리지 않아 `unavailable`(`in-use`)로 간격 재시도한다. 있는 장치라 OBS·기본 카메라로 대신하지 않는다(운영자가 고른 장치이고, 화면 D·안내로 드러난다).
+- OBS 없이 일반 웹캠도 동작한다(9:16이 아니면 가운데 기준으로 잘라 채운다. 옆으로 세운 웹캠은 90° 회전).
+
+### 카메라 처리 경로 (9-1)
+
+카메라 설정은 **카메라 원본 자체를 고치는 값**이다. 그래서 감지(MediaPipe) 입력, 인식 좌표·D 박스, 효과 미리보기, 원본 미리보기, 촬영 결과, 인쇄 데이터가 모두 **같은 변환 하나**를 거친 같은 그림을 본다. 결정 경위는 [로그 2026-11-02-01](logs/2026-11-02-01-stage9-camera-pipeline.md).
+
+```text
+카메라 원본 (videoWidth × videoHeight)
+  → 색 보정: c' = clamp(M·c + b, 0, 1) ^ (1/감마)        M = 대비 · 채도 · 화이트밸런스(색온도·색조), b = 0.5 − 0.5·대비 + 밝기
+  → 원본 가운데 기준 회전(90° 단위 × 미세) → 덮기 배율 × 확대 → 좌우 반전(화면 기준) → 이동(화면 기준)
+  → 9:16 화면 영역 (u, v ∈ 0~1, 관람객이 보는 그대로)
+```
+
+- **계산 한 곳:** `core/camera-view.js`(순수). `computeCameraView`가 영상 크기·화면 비율·설정으로 화면 → 원본(`stageToSource`)·원본 → 화면(`sourceToStage`) 아핀과 실제 배율을, `cameraColorMatrix`가 색 행렬·b·지수를 만든다. 이 값에서 2D 캔버스용(`canvasTransform`, `svgColorMatrixValues`)과 셰이더용(`shaderSourceAffine`, `shaderColorUniforms`)을 꺼낸다.
+- **구현 방식:** 소비자마다 같은 계수를 쓴다(한 번 처리한 프레임을 공유하지 않는다). 효과는 초당 12장, 감지는 15장, 원본 미리보기는 효과가 없을 때만 그리므로, 매 카메라 프레임을 화면 크기(4K면 2160×3840)로 한 번 더 그려 두는 비용과 지연이 없다. 일치는 두 구현이 같은 순수 함수의 계수만 받도록 해서 보장하고, Node 테스트(`test/core/camera-view.test.mjs`)가 같은 원본 점이 감지 입력(360×640)·캡처 캔버스·셰이더 소스 uv에서 같은 화면 점이 되는지, SVG 필터 값·셰이더 uniform이 기준식과 같은 색을 내는지 확인한다. 브라우저 확인은 실제 Chrome에서 같은 프레임의 2D 그림(앱 SVG 필터)·기준식·셰이더 그림을 비교한다(1절).
+- **2D 캔버스** (`camera/camera-frame.js` `draw`: 감지 입력, 캡처, 원본 미리보기): 검게 칠한 뒤 `setTransform(canvasTransform)` + `ctx.filter = url(#camera-color-N)` + `drawImage(video, 0, 0)`. 색 보정은 문서 안 SVG 필터(`feColorMatrix` → `feComponentTransfer` gamma, `color-interpolation-filters="sRGB"`)이고, 값이 바뀌면 새 id로 다시 만든다(같은 url로는 캔버스가 바뀐 필터를 다시 읽는다는 보장이 없다). 중립이면 필터를 걸지 않는다. 변환이 없을 때 변환 행렬이 정확히 단위(반전이면 `[-1, 0, 0, 1, 폭, 0]`)라 원본 화소 그대로 옮긴다.
+- **셰이더** (`effect/oil-shaders.js` `CAMERA_INPUT`, 효과 첫 패스 `FS_INPUT_GRAY`·`FS_GRADE`): 소스 uv = (`uSrcX`·p, `uSrcY`·p), p = (출력 uv, 1). 색은 `uCamM`(mat3)·`uCamB`·`uCamExp`. 변환·보정이 없으면 계산이 예전과 같다(지수 1이면 거듭제곱을 하지 않는다).
+- **순서를 이렇게 둔 이유:** 반전을 회전 뒤(화면 기준)에 두어 90° 회전해도 반전은 늘 화면의 좌우다(회전 전에 두면 회전한 화면에서 위아래가 뒤집힌다). 이동도 화면 기준이라 반전과 관계없이 민 방향으로 움직이고, 확대는 화면 가운데 기준이다. 회전 양수는 화면에서 시계 방향.
+- **빈 영역:** 회전·이동으로 화면에 카메라 밖이 보이게 되면 **확대를 자동으로 키워 늘 덮는다**(네 모서리가 원본 안에 드는 최소 배율). 검정 칸이 사진·인쇄·감지 입력에 남지 않는다. 요청한 확대가 이미 충분하면 그대로. D `transform`의 `used … auto`.
+- **크기:** 캡처는 화면 영역이 덮는 원본 화소 수(`visibleWidthPx`×`visibleHeightPx`, 변환이 없으면 예전 cover 크롭과 같다. 확대 2면 절반). 효과 결과는 그것을 짧은 변 1080으로(확대해 작아져도 1080×1920). 감지 입력은 9:16 화면 영역을 긴 변 640으로(360×640, 영상 비율과 관계없이). 원본 미리보기는 화면 장치 화소와 원본 화소 수 중 작은 쪽.
+- **바꾸는 순간:** `main.js` `applyCameraSettings(settings)` 한 입구. 다음 그림부터 모든 경로가 새 값이다. 기하(반전·회전·확대·이동)가 바뀌면 인식을 처음부터 다시 잰다(`presence-monitor.js` `setCameraGeometry`, 바뀌는 순간 "인식 안됨"·박스 지움·D `criteria resets` +1, 인식으로 시작한 카운트다운은 "떠남"으로 취소). 색 보정만 바뀌면 다시 재지 않는다. 장치·해상도 요청이 바뀌면 카메라를 다시 연다(아래 "카메라 상태와 자동 회복"). 캡처·결과 사진은 **셔터 순간**의 값이고, 셔터 직전 그림을 그린 뒤 설정이 바뀌었으면 결과는 지금 프레임·지금 설정으로 새로 그린다(D `photo-fx` `new drawing`). 이미 보이는 결과 사진은 다시 만들지 않는다.
+- **D:** `selected`, `video`·`track`(요청 ideal·`resolution`), `caps`, `mirror`, `transform`(회전·요청 배율·실제 배율·이동·덮는 원본 화소), `color`(`neutral`), `raw-view`, `camera-cfg`(출처). `capture` 줄에 회전·배율·`color`·`mirrored`.
+
+**카메라 설정** (`config.camera` 기본값, 범위·정규화 `config/camera-settings.js`, 저장 `config/camera.local.json`)
+
+| 값 | 기본값 | 범위 (단계) | 뜻 |
+|---|---|---|---|
+| `deviceLabel` | `''` (자동) | 문자열, 앞뒤 공백 제거, 256자까지 | 쓸 카메라 라벨. 없거나 비면 OBS → 기본 카메라 |
+| `resolution` | `'auto'` | `auto`·`2160x3840`·`1080x1920`·`720x1280`·`3840x2160`·`1920x1080`·`1280x720` | 카메라 기준 요청 해상도(ideal) |
+| `brightness` / `contrast` | 0 / 1 | −0.5~0.5 (0.01) / 0.5~2 (0.05) | 밝기(더함)·대비(0.5 중심). 효과 레벨과 같은 뜻 |
+| `saturation` | 1 | 0~2 (0.05) | 채도. 0은 Rec.709 밝기 회색 |
+| `gamma` | 1 | 0.4~2.5 (0.05) | 지수 1/감마. 1보다 크면 중간 밝기를 밝게 |
+| `temperature` / `tint` | 0 / 0 | −1~1 (0.05) | 색온도(빨강 × 1 + 0.2t, 파랑 × 1 − 0.2t) / 색조(초록 × 1 − 0.2t, 양수 자홍) (세기 가안) |
+| `mirror` | `true` | 참·거짓 | 좌우 반전(아래 "좌우 반전") |
+| `rotation` / `rotationFine` | 0 / 0 | 0·90·180·270 / −15~15° (0.1) | 90° 단위 + 미세 회전, 화면에서 시계 방향 |
+| `zoom` | 1 | 1~4 (0.01) | cover 크롭 위에 곱하는 확대(빈 영역이 생기면 자동으로 더 키운다) |
+| `panX` / `panY` | 0 / 0 | −0.5~0.5 (0.005) | 화면 폭·높이 대비 이동. 양수면 그림이 오른쪽·아래로 |
+
+- **파일** `config/camera.local.json`: `{ "version": 1, "settings": { deviceLabel, resolution, brightness, contrast, saturation, gamma, temperature, tint, mirror, rotation, rotationFine, zoom, panX, panY } }`(2칸 들여쓰기). 숫자가 아니거나 없는 항목은 그 항목만 기본값, 범위 밖은 범위로·단계 자릿수로 반올림, 회전·해상도는 목록에 없으면 기본값(알림 `adjusted`, D `camera-cfg`). 손상·`version` ≠ 1은 전체 기본값.
+- **불러오기** (`settings-file.js` `loadInitialCameraSettings`, **카메라를 열기 전에** 읽는다 — 장치·해상도 요청이 이 값이라 기본 장치로 먼저 열었다가 다시 여는 일이 없게. 제한 `config.cameraSettingsFile.timeoutMs` 3초, 가안, 넘으면 기본값으로 연다):
+
+| 상황 | 쓰는 값 | D `camera-cfg` |
+|---|---|---|
+| 카메라 파일 200 | 파일 값(형식이 틀리면 기본값, 파일은 그대로) | `file` / `defaults (file is invalid)` |
+| 카메라 파일 404 + 효과 파일에 `mirror`(참·거짓) | 기본값에 그 반전을 얹어 카메라 파일로 옮기고(`PUT` → 다시 `GET`해 확인) 효과 파일에서 **그 키만** 뺀다 | `migrated (mirror off from effect file (removed from effect file))` |
+| 위에서 카메라 파일 쓰기 실패 | 이번엔 옮긴 값, 효과 파일은 그대로(다음 시작에 다시 옮긴다) | `effect file (…; migration to camera file failed: …)` |
+| 위에서 효과 파일 키 빼기만 실패 | 옮긴 값(카메라 파일이 있으니 다시 옮기지 않는다. 그 키는 효과 쪽에서 읽지 않는다) | `migrated (… not removed from effect file: …)` |
+| 둘 다 없음·효과 파일에 `mirror` 없음 | 기본값(파일을 만들지 않음) | `defaults (no file)` |
+| 카메라 파일 읽기 실패·시간 초과 | 기본값, 옮기지 않음(파일이 있는데 못 읽었을 수 있다) | `defaults (file read failed: …)` |
+
+- 효과 파일에서 키를 빼는 이유: 남겨 두면 운영자가 카메라를 초기화하려고 `camera.local.json`을 지웠을 때 옛 반전 값이 말없이 다시 옮겨진다(인식 조절값의 `localStorage` 옮기기와 같은 이유). 다른 효과 값은 건드리지 않고 같은 내용으로 다시 쓴다.
+- **9-2(운영자 화면 통합)에 넘기는 입구:** `main.js` `applyCameraSettings(settings)`(정규화된 설정), 저장은 `cameraSettingsFile.write(serializeCameraSettings(settings))`, 출처 `cameraSettingsInfo`, 장치 목록 `camera.listDevices()`(`{ label, deviceId, current }`), 지원 범위 `camera.getState().capabilities`, 실제 크기 `video.videoWidth`·트랙 `getSettings()`, 지금 변환 `cameraFrame.getView(w, h)`(실제 배율·자동 확대), 원본 창은 `createRawPreview`를 다른 캔버스로(같은 `cameraFrame`), 감지 박스는 지금처럼 `presence.getDebugSnapshot().faces`(화면 좌표).
 
 ### 화면 배치
 
 - 9:16 영역(`#stage`)을 뷰포트 가운데에 최대 크기로 두고 밖은 검정(꾸미지 않음), 영역 바탕은 차콜(`--charcoal`). 비율은 `config.aspectRatio`.
-- `<video>`는 `object-fit: cover`(가운데 기준). 효과 캔버스(`#effect`)가 그 바로 위를 같은 크롭으로 덮고, 효과를 못 쓰면 숨긴다.
+- `<video>`는 `object-fit: cover`(가운데 기준)로 깔려 계속 재생되지만(감지·캡처·프레임 감시용) 직접 보이지 않는다. 그 위에 원본 미리보기 캔버스(`#camera-raw`)와 효과 캔버스(`#effect`)가 같은 영역을 덮는다. 둘 다 카메라 처리 경로를 거친 9:16 그림이다. 효과가 그리고 있으면 효과 캔버스만, 효과를 끄거나 쓸 수 없으면(장애·손실) 원본 미리보기 캔버스만 보인다(`main.js` `updateRawPreview`). 카메라가 준비되지 않으면 둘 다 숨긴다.
 - D 정보는 기본 숨김이고 관람객 화면에 노출하지 않는다.
 
 ### 관람객 화면
@@ -251,19 +310,18 @@ npm run check:browser -- --soak 60 --camera real   # 분 지정
 
 ### 좌우 반전
 
-- 기본은 미리보기와 결과 모두 반전(켬)이고, 운영자가 `E` 화면 "카메라"의 **좌우 반전**(켬·끔)으로 바꿀 수 있다(현장 카메라 배치·OBS 설정에 따라 필요 없을 수 있다). 값은 효과 조절값의 `mirror` **한 곳**(기본값 `config.effect.mirror` `true`, 저장은 `config/effect.local.json`, 6절 "운영자 조절 화면 `E`")이고, 효과를 끄거나(`enabled: false`) 쓸 수 없어도 이 값을 따른다.
-- 반전은 **웹에서만**(OBS에서 하지 않음, 이중 반전 방지), 경로마다 한 번:
+- 기본은 미리보기와 결과 모두 반전(켬)이다(현장 카메라 배치·OBS 설정에 따라 필요 없을 수 있다). 값은 **카메라 설정의 `mirror` 한 곳**(기본값 `config.camera.mirror` `true`, 저장 `config/camera.local.json`, 위 "카메라 처리 경로")이고, 효과를 끄거나(`enabled: false`) 쓸 수 없어도 이 값을 따른다. 2026-10-26 ~ 9-1에는 효과 조절값(`E` "카메라", `effect.local.json`)에 있었고, 그 값은 처음 읽을 때 카메라 파일로 옮긴다. 9-1에는 운영자 화면 항목이 없고(파일·API) 9-2 통합 화면 "카메라"에서 바꾼다.
+- 반전은 **웹에서만**(OBS에서 하지 않음, 이중 반전 방지), 카메라 처리 경로의 한 단계로 경로마다 한 번:
 
 | 경로 | 반전하는 곳 | 값을 읽는 때 |
 |---|---|---|
-| 효과 미리보기 | 입력을 읽을 때(`computeEffectView`의 소스 uv). 효과 캔버스에는 CSS 반전 없음. 획이 좌우 대칭이 아니므로 반전된 그림에 칠한다 | 설정이 바뀌면 다음 화면 갱신에 다시 그린다 |
-| 원본 미리보기(`<video>`, 효과 끔·장애) | `.preview.is-mirrored { transform: scaleX(-1) }` | `main.js` `applyMirror()`가 효과 설정이 바뀔 때마다 맞춘다 |
-| 촬영 결과·인쇄용 1비트 | 효과 결과는 `renderStill`이 그림의 소스 uv로, 원본 대체 사진은 `capture.js`가 캔버스에(`translate` + `scale(-1, 1)`). 인쇄 데이터는 결과 그림에서 만든다 | **셔터 순간**(프레임을 잡는 순간, `getMirror()`) |
-| 인식 판정·D 겹쳐 그리기 | 영상 좌표 → 화면 좌표 변환(`videoBoxToStage`, `x' = 1 - x - width`) | `presence-monitor.js` `setMirror()`, 다음 감지부터 |
+| 효과 미리보기 | 입력을 읽을 때(셰이더 소스 uv, `shaderSourceAffine`). 효과 캔버스에는 CSS 반전 없음. 획이 좌우 대칭이 아니므로 반전된 그림에 칠한다 | 설정이 바뀌면 다음 화면 갱신에 다시 그린다 |
+| 원본 미리보기(`#camera-raw`, 효과 끔·장애) | 2D 그리기 변환(`camera-frame.js` `draw`). CSS 반전 없음 | 다음 그림부터 |
+| 촬영 결과·인쇄용 1비트 | 효과 결과는 `renderStill`이 그림의 소스 uv로, 원본 대체 사진은 `capture.js`가 같은 2D 그리기로. 인쇄 데이터는 결과 그림에서 만든다 | **셔터 순간**(프레임을 잡는 순간) |
+| 인식 판정·D 겹쳐 그리기 | 감지 입력을 그릴 때(2D 그리기). 감지 박스가 곧 화면 좌표 | 다음 감지부터. 바뀌면 인식을 처음부터(`setCameraGeometry`) |
 
-- **바꾸는 순간:** 미리보기·`<video>`·인식 좌표는 바로 바뀐다. 인식 영역이 관람객 화면 기준이라 같은 얼굴이 영역의 반대쪽에 오므로, 인식 상태는 기준을 바꿀 때와 같이 처음부터 다시 잰다(바뀌는 순간 "인식 안됨", 얼굴 박스도 지움, D `criteria resets` +1). 그래서 인식으로 시작한 카운트다운은 "떠남"으로 취소되고(`left during countdown`), `E`가 열려 있는 동안은 다시 시작하지 않는다. `S` 수동 카운트다운은 그대로 이어지고 셔터 순간의 값으로 찍는다. 이미 보이는 결과 사진은 다시 만들지 않는다(그 셔터 순간의 값으로 만든 사진이다).
-- **미리보기 = 결과:** 셔터 직전 그림을 그린 뒤 반전이 바뀌었으면(다음 화면 갱신 전, 길어야 한 화면 갱신) 결과는 그 그림을 쓰지 않고 지금 프레임·지금 설정으로 새로 그린다(D `photo-fx` `new drawing`). 효과 결과와 원본 대체 사진이 같은 순간의 값을 읽으므로 방향이 어긋나지 않는다.
-- 보이는 영역과 캡처 영역이 일치한다. D 카메라 구역 `mirror`(`on`·`off`), `capture`의 `mirrored`, `values`의 `mirror`.
+- **바꾸는 순간·미리보기 = 결과:** 위 "카메라 처리 경로"의 "바꾸는 순간"과 같다(반전은 기하 설정이라 인식을 처음부터 다시 잰다).
+- 보이는 영역과 캡처 영역이 일치한다. D 카메라 구역 `mirror`(`on`·`off`, `(camera settings)`), `capture`의 `mirrored`.
 
 ### 권한과 보안 컨텍스트
 
@@ -286,10 +344,11 @@ npm run check:browser -- --soak 60 --camera real   # 분 지정
 
 - `camera.js` 실패 종류: `unsupported`, `permission-denied`(`NotAllowedError`·`SecurityError`), `not-found`(`NotFoundError`·`OverconstrainedError`), `in-use`(`NotReadableError`), `unknown`.
 - `ready`는 `requestVideoFrameCallback`으로 실제 프레임을 받았을 때다. 프레임 정지는 마지막 프레임 시각으로 판정한다(`currentTime`은 쓰지 않음, 페이지가 숨겨져 있으면 판정하지 않음). `devicechange`는 0.5초 묶어 처리한다. 연결 시도는 한 번에 하나(진행 중 요청은 끝난 뒤 한 번 더, 그 사이 스트림은 닫음), 세대 번호로 늦은 결과를 무시한다.
-- **설정값 (확정, `config.cameraRecovery`):** 재시도 3초, 첫 프레임 제한 5초, 프레임 정지 3초, 직원 문의 전환 30초.
+- **설정값 (기본값 확정, `config.presence.cameraRecovery`):** 재시도 3초, 첫 프레임 제한 5초, 프레임 정지 3초, 직원 문의 전환 30초. 9-1부터 인식 조절값 파일(`presence.local.json`의 `cameraRecovery`, 5절 "인식 범위 조절")에 함께 저장하고, 쓸 때마다 지금 인식 설정에서 읽는다(9-2 운영자 화면 "인식" 묶음에서 조절. 9-1에는 화면 항목이 없다). 인식 파일에 두는 이유: 운영자 화면에서 인식 묶음에 보이므로 한 묶음 = 한 파일로 저장·취소·기본값 규칙을 그대로 쓴다. 카메라 감시는 이 값을 함수로 받아 다음 재시도·첫 프레임 대기·정지 판정부터 쓴다(이미 걸린 재시도 타이머는 그대로).
+- **다시 열기 (9-1):** 카메라 설정의 장치 라벨·해상도 요청이 바뀌면 `camera-monitor.js` `setRequest()`가 스트림을 닫고 다시 연다(상태 `starting`, 원인 `camera-settings`). 그동안 `ready`가 아니므로 진행 중인 카운트다운은 "카메라 준비 해제"로 취소되고(4절 기존 규칙), 촬영·결과 준비 중이면 계속, 결과 표시 중이면 그대로 보인다. 색 보정·반전·확대·미세 회전만 바뀐 것은 다시 열지 않는다(자동 해상도에서 90° 단위 회전이 0·180 ↔ 90·270으로 바뀌면 요청이 바뀌어 다시 연다). 시작 전에 부르면 저장만 한다.
 - **관람객 문구 (확정):** 정상이 아니면 "준비 중입니다. 잠시만 기다려 주세요.", 30초 이상이거나 `unsupported`·`permission-denied`면 "준비 중입니다. 직원에게 문의해 주세요." 끊기면 영상을 지우고 문구를 띄운다. 감지기 상태와 합쳐 판정한다(5절).
 - **D:** 상태, 원인과 원본 오류 이름, 시도·연속 실패 횟수, 마지막 시도 시각, 정상이 아닌 시간, 권한 상태.
-- **경계:** `createCameraMonitor()`의 `isReady()`, `getState()`, `subscribe(listener)`(해제 함수 반환), `getFrameInfo()`(실제 새 프레임의 마지막 시각 `performance.now()` 기준·누적 프레임 수, 영상 내용은 없음)만 쓴다. 캡처는 이 시각으로 정지 화면을 거르고, 감지 루프는 누적 수로 같은 프레임을 다시 세지 않는다.
+- **경계:** `createCameraMonitor()`의 `isReady()`, `getState()`(9-1: `selection`·`capabilities` 포함), `subscribe(listener)`(해제 함수 반환), `getFrameInfo()`(실제 새 프레임의 마지막 시각 `performance.now()` 기준·누적 프레임 수, 영상 내용은 없음), 카메라 설정용 `setRequest()`·`getRequest()`·`listDevices()`만 쓴다. 캡처는 이 시각으로 정지 화면을 거르고, 감지 루프는 누적 수로 같은 프레임을 다시 세지 않는다.
 - 경과 시간은 `performance.now()`, 사람이 읽는 시각(D `lastAttemptAt`, 자동 시작 기록)만 `Date`.
 
 ## 4. 촬영 상태
@@ -359,7 +418,7 @@ npm run check:browser -- --soak 60 --camera real   # 분 지정
 
 - **모양:** 차콜 반투명 패널(`--op-bg`), 1px 선, Pretendard 500·400, 숫자는 고정폭 오른쪽 정렬, 채도 낮은 상태 색은 점·글자·왼쪽 선에만, `color-scheme: dark`, 움직임·블러 없음(미리보기 성능). 크기는 `--op-size`(D는 `--op-dev-size`, 둘 다 `clamp(…vmin…)`)에 `em`으로 맞춰 해상도와 관계없이 같은 비율이고, 영역 안 요소는 `cqw`.
 - **패널 (`.op-panel`):** 머리(제목, "R·Esc 닫기 · 저장하지 않은 변경은 닫을 때 취소", `위·아래`(`data-action="dock"`)·`닫기`) / 실시간 줄(`[data-live]`, `R` 인식 상태·감지·인정 수, `E` 미리보기 해상도·초당 그림·그리기 시간·인쇄 해상도·점 방식) / 넘기는 몸통(묶음 `fieldset.op-group`, 줄 `.op-row` = 이름·도움말 · 조작 · 값·단위) / 늘 보이는 아래(저장 상태 `[data-state]`·패널 `data-save`, 저장·취소·기본값, 알림 `[data-message]`).
-- **묶음:** `E` = 효과(강도·붓 크기·획 다시 그리기·색 보정·세부 보존 문턱) / 출력 단계(출력 모드·점 방식·용지 폭·밝기·대비·감마·흑백 스타일·질감 세기·선 간격) / 미리보기(초당 그림·처리 해상도) / 카메라(좌우 반전). `R` = 영역 / 얼굴 크기(가이드 색 견본) / 신뢰도 / 반응 속도(인식까지·이탈까지, 초) / 현재값 JSON(접힘). 쓰지 않는 항목은 흐리게 막힌다.
+- **묶음:** `E` = 효과(강도·붓 크기·획 다시 그리기·색 보정·세부 보존 문턱) / 출력 단계(출력 모드·점 방식·용지 폭·밝기·대비·감마·흑백 스타일·질감 세기·선 간격) / 미리보기(초당 그림·처리 해상도). 카메라(좌우 반전) 묶음은 9-1에 카메라 설정으로 옮겨 없앴다(9-2 통합 화면). `R` = 영역 / 얼굴 크기(가이드 색 견본) / 신뢰도 / 반응 속도(인식까지·이탈까지, 초) / 현재값 JSON(접힘). 쓰지 않는 항목은 흐리게 막힌다.
 - **저장 상태 (`ui/save-state.js`, 문구 가안):** 바꾸는 중 `dirty`(저장 안 된 변경, 닫으면 취소)·`saving`·`failed`(파일은 이전 값, 다시 바꾸거나 저장 성공 때 풀림). 바꾸지 않았으면 불러온 결과: `saved`(파일에서 읽음·옮김·이번에 저장), `defaults`(파일 없음), `load-failed`(읽기 실패·시간 초과·형식 오류), `adjusted`(파일 값을 고쳐 씀·옮기지 못함 → 저장 필요). 저장할 것이 없으면 저장 버튼이 차분해진다(누를 수는 있다).
 - **위치:** 세로 화면은 아래(기본)·위, 높이 `50vh`까지(얼굴이 있는 위쪽 절반을 가리지 않음). 9:16 옆 빈 폭에 26em이 들어가면 옆(기본 오른쪽, `위·아래`로 왼쪽). `main.js` `updateOperatorRoom`이 창 크기마다 재서 루트에 `.op-side-room`(1920×1080은 옆, 1200×1080은 아래·위).
 - **선택자** `#effect-panel`·`#tuning-panel`, `input`·`select[data-key]`, `button[data-action]`, `[data-live]`·`[data-state]`·`[data-message]`·`[data-json]`·`[data-region-text]`는 확인 도구·테스트가 쓰므로 바꾸지 않는다.
@@ -400,8 +459,8 @@ npm run check:browser -- --soak 60 --camera real   # 분 지정
 
 ```text
 camera-monitor (ready·페이지 보임) ──▶ presence-monitor 감지 루프 (최대 15fps)
-  <video> ─drawImage─▶ 축소 캔버스(긴 변 ≤ 640px) ─▶ face-detector.detect()   영상 좌표 박스·점수
-                                                     ─▶ presence.classifyFaces()   화면 좌표, 얼굴별 인정 여부
+  <video> ─카메라 처리 경로(drawFrame)─▶ 9:16 화면 영역 캔버스(360×640) ─▶ face-detector.detect()   박스·점수 (= 화면 좌표)
+                                                     ─▶ presence.classifyFaces()   얼굴별 인정 여부
                                                      ─▶ presence.stepPresence()    시간 안정화 ─▶ isPresent() / subscribe({ present })
 ```
 
@@ -417,15 +476,15 @@ camera-monitor (ready·페이지 보임) ──▶ presence-monitor 감지 루�
 
 **판정 (`presence.js`)**
 
-- 모든 판정·영역·겹쳐 그리기는 **화면 좌표**(9:16 영역 기준 0~1, cover 크롭·반전 후)다. 영상이 9:16보다 넓으면 가운데 세로 띠(폭 `(9/16) / 영상 비율`), 좁으면 가로 띠만 보이고, 좌우 반전이 켜져 있으면(3절) `x' = 1 - x - width`. 잘려 안 보이는 얼굴은 제외된다.
+- 모든 판정·영역·겹쳐 그리기는 **화면 좌표**(9:16 영역 기준 0~1, 관람객이 보는 그대로)다. 9-1부터 감지 입력이 카메라 처리 경로(색 보정·반전·회전·확대·이동, 3절)를 거친 화면 영역 그대로라 감지 박스가 곧 화면 좌표다(`STAGE_MAPPING`). 화면 밖(cover로 잘리거나 확대·이동으로 밀려난 부분)의 얼굴은 감지기가 보지 않는다. 옆으로 세운 카메라도 회전한 뒤 넣으므로 감지기는 똑바로 선 얼굴을 본다. 변환이 없을 때의 결과는 예전 cover·반전 계산(`computeCoverMapping`·`videoBoxToStage`)과 같다(Node 테스트).
 - 얼굴 인정(경계 포함): 박스 중심이 `region` 안, 박스 높이(영역 높이 대비)가 `minFaceHeight` 이상·`maxFaceHeight` 이하(큰 오검출 박스를 거른다), 점수 `minScore` 이상. 인정 얼굴이 1명 이상이면 그 프레임은 "있음".
 - 처음은 인식 안됨. "있음"이 `presentHoldMs` 동안 끊기지 않으면 인식됨, "없음"이 `absentGraceMs` 동안이면 인식 안됨. 반대 프레임이 하나라도 나오면 처음부터. 감지 프레임이 올 때만 판정한다(15fps면 최대 약 67ms 늦음). 시간은 첫 반대 프레임부터 재므로 기본 250ms는 15fps에서 첫 반대 프레임 + 4프레임(약 267ms)에 바뀌고, "없음" 4프레임 연속(약 200ms)까지의 누락은 흡수한다.
 
 **감지 루프 (`presence-monitor.js`)**
 
 - 카메라 `ready`·페이지 보임·영상 크기 0 아님일 때만 돌고, 아니면 `paused`로 멈추고 인식 안됨으로 되돌린다.
-- 누적 프레임 수가 그대로면 감지를 건너뛴다(D `faces` `same-frame skips`). 판정 기준이 `setSettings()`로, 좌우 반전이 `setMirror()`로 바뀌면 인식 상태를 처음으로 돌리고 바로 "인식 안됨"을 알린다(값이 같으면 그대로, D `criteria resets`).
-- 입력은 긴 변 `inputMaxSize`(640) 이하(OBS 1080×1920 → 360×640). 간격은 `1000 / maxFps`에서 처리 시간을 뺀 값, `detectForVideo` 타임스탬프는 `max(performance.now(), 직전 + 1)`.
+- 누적 프레임 수가 그대로면 감지를 건너뛴다(D `faces` `same-frame skips`). 판정 기준이 `setSettings()`로, 카메라 기하 설정(반전·회전·확대·이동)이 `setCameraGeometry()`로 바뀌면 인식 상태를 처음으로 돌리고 바로 "인식 안됨"을 알린다(값이 같으면 그대로, D `criteria resets`).
+- 입력은 9:16 화면 영역을 긴 변 `inputMaxSize`(640)로 그린 캔버스(360×640, 영상 크기·비율과 관계없이). 그리는 함수는 `main.js`가 넘기는 `drawFrame`(`camera-frame.js` `draw`, 색 보정 포함). 간격은 `1000 / maxFps`에서 처리 시간을 뺀 값, `detectForVideo` 타임스탬프는 `max(performance.now(), 직전 + 1)`.
 - 실패한 프레임은 "없음". 15번 연속 실패(약 1초)면 감지기를 버린다. 시계·타이머·document를 주입할 수 있다(테스트용).
 - 상태(`DetectorStatus`): `loading`, `running`, `paused`, `error`(감지기 없음). 인식 알림은 감지 한 번 안에서 나가므로 그 안에서 읽어도 `running`이다.
 
@@ -463,6 +522,7 @@ camera-monitor (ready·페이지 보임) ──▶ presence-monitor 감지 루�
 | `presence.minFaceHeight` / `maxFaceHeight` | 0.185 / 0.47 | 얼굴 높이 / 영역 높이의 최소·최대 (개발 PC 저장값) |
 | `presence.minScore` | 0.65 | 최소 신뢰도 (개발 PC 저장값). 실제 얼굴 0.85~0.95, 가짜 카메라 오검출 최고 0.663이라 영역·크기가 함께 거른다([로그 07](logs/2026-10-19-07-saved-defaults.md)) |
 | `presence.presentHoldMs` / `absentGraceMs` | 250 / 250 | 인식됨·인식 안됨까지 유지 시간 (사용자 결정 2026-10-27, [로그 2026-10-27-01](logs/2026-10-27-01-presence-timing.md)) |
+| `presence.cameraRecovery` | 재시도 3000 / 첫 프레임 5000 / 정지 3000 / 직원 문의 30000 | 카메라 회복 시간 ms (3절, 9-1부터 이 파일에 저장) |
 | `showPresenceIndicator` / `showPauseIndicator` | `true` / `true` | 인식 표시 선 / `P` 운영자 표시 (가안) |
 | `settingsFile.url` / `timeoutMs` | `/local-api/presence-settings` / 3000 | 인식 조절값 파일 API, 읽기·쓰기 제한 (가안) |
 
@@ -478,13 +538,14 @@ camera-monitor (ready·페이지 보임) ──▶ presence-monitor 감지 루�
 | `minFaceHeight` / `maxFaceHeight` | 슬라이더 0.005 단위, 서로를 넘지 못함 | 0.01~1 |
 | `minScore` | 0.01 단위 | 0.3~1 (하한 = 감지기 자체 기준) |
 | 반응 속도 "인식까지" `presentHoldMs` / "이탈까지" `absentGraceMs` | 50ms 단위, 초로 표시(250 → 0.25초) | 0~2000ms |
+| 카메라 회복 `cameraRecovery` (9-1, 화면 항목은 9-2) | 재시도 `retryIntervalMs` · 첫 프레임 `firstFrameTimeoutMs` · 정지 `stallTimeoutMs` · 직원 문의 `staffNoticeMs`, 500·500·500·1000ms 단위(가안) | 1~30초 · 2~30초 · 1~10초(촬영 직전 정지 화면 검사 0.5초보다 길다) · 5~300초 |
 
 - **반응 속도**는 펼쳐진 묶음이다(2026-10-27 전에는 "고급" 접힘 안). 자동 시작·이탈 취소의 체감을 정하는 값이라 영역·신뢰도와 같이 자주 만진다. 파일에 예전 상한(5000)까지의 값이 있으면 불러올 때 2000으로 고친다(`adjusted`).
 - **저장 파일이 기본값보다 우선한다.** 기본값을 바꾼 뒤에도 그 PC에 예전 값(예: 500/1000)이 저장돼 있으면 그 값으로 돈다. 새 기본값을 쓰려면 `R` "반응 속도"를 옮기고 다시 저장한다("기본값으로"는 다른 항목도 기본값으로 바꾼다).
 
 - 끌기는 시작 위치 대비 이동량, 반대쪽 변 고정. `window`에서 포인터를 받아 영역·화면 밖에서도 이어지고, `pointerup`·`pointercancel`·`blur`·`lostpointercapture`·주 버튼이 떼어진 이동(`(buttons & 1) === 0`, 그 이동은 무시)·화면 닫기로 끝나며 리스너를 모두 푼다(`region-drag.js`).
 - **즉시 반영**(`setSettings()`)되고 인식을 다시 잰다(인식으로 시작된 카운트다운은 취소된다).
-- **저장**해야 `config/presence.local.json`에 남는다(서버 필요). 형식 `{ "version": 1, "settings": { "region": {...}, "minFaceHeight", "maxFaceHeight", "minScore", "presentHoldMs", "absentGraceMs" } }`(2칸 들여쓰기). 저장 중에는 버튼을 막고 "저장 중...", 204여야 저장으로 인정. 실패(서버 없음·거절·3초 초과)면 "저장하지 못했습니다: HTTP 500 (...)" 같은 이유를 보이고 저장 안 된 상태로 남는다. 누른 순간의 값만 저장한다.
+- **저장**해야 `config/presence.local.json`에 남는다(서버 필요). 형식 `{ "version": 1, "settings": { "region": {...}, "minFaceHeight", "maxFaceHeight", "minScore", "presentHoldMs", "absentGraceMs", "cameraRecovery": { "retryIntervalMs", "firstFrameTimeoutMs", "stallTimeoutMs", "staffNoticeMs" } } }`(2칸 들여쓰기). `cameraRecovery`가 없는 예전 파일은 기본값으로 채우고 알리지 않는다(그 값이 늘 기본값이던 때 저장한 것). 9-1의 `R`에는 회복 시간 항목이 없지만 저장할 때 지금 값을 그대로 넣고, "기본값으로"는 회복 시간도 기본값으로 바꾼다. 저장 중에는 버튼을 막고 "저장 중...", 204여야 저장으로 인정. 실패(서버 없음·거절·3초 초과)면 "저장하지 못했습니다: HTTP 500 (...)" 같은 이유를 보이고 저장 안 된 상태로 남는다. 누른 순간의 값만 저장한다.
 - **저장 중 닫기**(`R`·`Esc`·닫기)는 응답(최대 3초) 뒤 닫으면서 파일에 마지막으로 저장된 값으로 맞춘다("저장 중입니다. 저장이 끝나면 닫습니다.").
 - **취소**는 마지막 저장값(없으면 기본값), **기본값으로**는 `config.presence`(저장해야 유지). **저장하지 않고 닫으면 저장된 값으로 되돌린다** — 실행 중 값과 재시작 값이 늘 같게. 확인 창 대신 "저장하지 않은 변경이 있습니다 (닫으면 취소됩니다)"를 늘 보인다.
 - **현재값 JSON**: 저장 형식 그대로 보이고 "복사"(실패하면 선택만). 불러오기 기능은 없다. 파일을 지우면 기본값, 직접 고친 범위 밖 값은 불러올 때 고쳐진다.
@@ -540,12 +601,12 @@ const detector = await FaceDetector.createFromOptions(fileset, {
 `camera/capture.js`의 `createCapture().take()`:
 
 0. **확인:** 이전 작업이 남아 있으면 `capture busy`, 마지막 새 프레임이 `config.capture.maxFrameAgeMs`(500ms, 가안)보다 오래면 `stale frame`으로 캔버스를 만들기 전에 실패.
-1. **프레임 잡기(동기):** 미리보기와 같은 cover 계산(`computeCoverMapping` → `computeCaptureCrop`)으로 보이는 9:16 영역을 원본 화소 그대로, 좌우 반전이 켜져 있으면(셔터 순간 `getMirror()`, 3절) 반전(`translate` + `scale(-1, 1)`)해 그린다(OBS 1080×1920 → 1080×1920, 2160×3840 → 그대로, 가로 1920×1080 → 608×1080). 캔버스 생성 뒤 어디서 실패해도 비우고 실패.
+1. **프레임 잡기(동기):** 셔터 순간의 카메라 설정으로 카메라 처리 경로(3절, `camera-frame.js` `draw`: 색 보정·반전·회전·확대·이동)를 거친 9:16 화면 영역을, 화면이 덮는 원본 화소 수(`captureSizeFor`)의 캔버스에 그린다(변환이 없으면 OBS 1080×1920 → 1080×1920, 2160×3840 → 그대로, 가로 1920×1080 → 608×1080, 확대 2면 절반). 캔버스 생성 뒤 어디서 실패해도 비우고 실패.
 2. **사진 효과:** `effect(canvas, { signal })` 경계에 `photo-effect.js`의 `apply`. 셔터 순간 미리보기와 같은 그림을 결과 크기로 새 캔버스에 그린다. `{ canvas, type?, print, dots? }`를 돌려주면 그 형식으로 인코딩하고 사진 `{ url, width, height, print, dots }`에 인쇄 데이터를 붙인다(`dots` = 1비트 점 사진, 결과 출력물 폭을 고른다).
 3. **인코딩:** `canvas.toBlob()`, 기본 `config.capture` `image/jpeg` 품질 0.92(가안). 감열지는 `image/png`.
 4. **정리:** 성공·실패·취소 모두 캔버스 크기를 0으로. 결과는 `URL.createObjectURL(blob)`로만 들고 `release(photo)`가 `revokeObjectURL`과 인쇄 데이터 해제를 한 번만 한다. `release`는 결과 종료·강제 초기화·늦은 결과 폐기 때 불린다.
 
-- D `capture`(캡처·원본 크기, 잘라낸 위치·반전했으면 `mirrored`, 형식·용량, 시간)·`resources`(Object URL·캔버스·인쇄 데이터 수 — 대기 상태에서 0).
+- D `capture`(결과·원본 크기, 회전·실제 배율(`auto`)·색 보정했으면 `color`·반전했으면 `mirrored`, 형식·용량, 시간)·`resources`(Object URL·캔버스·인쇄 데이터 수 — 대기 상태에서 0).
 
 ### 사진 효과(유화 · 획)
 
@@ -596,8 +657,8 @@ const detector = await FaceDetector.createFromOptions(fileset, {
 
 **실시간 미리보기** (`effect/effect-preview.js`)
 
-- `<video>`는 감지·캡처·카메라 감시가 계속 쓰고, 그 바로 뒤의 `#effect`가 덮는다(결과·카운트다운·D·조절 화면은 그 위). 첫 패스가 보이는 영역(`computeCoverMapping`)을 효과 설정 `mirror`가 켜져 있으면 반전해 읽는다(3절 "좌우 반전").
-- 그리는 해상도 = 결과 크기(`resultSizeFor`, 보이는 영역을 짧은 변 1080으로) × `previewScale`. OBS 1080×1920·4K·가짜 카메라 2160×2160 모두 결과 1080×1920, 기본 540×960. CSS로 늘려 보인다.
+- `<video>`는 감지·캡처·카메라 감시가 계속 쓰고, 그 위를 `#effect`가 덮는다(결과·카운트다운·D·조절 화면은 그 위). 첫 패스(`FS_INPUT_GRAY`·`FS_GRADE`의 `CAMERA_INPUT`)가 카메라 처리 경로(3절: 색 보정·반전·회전·확대·이동)로 화면 영역을 읽는다. 설정은 `main.js`가 넘긴 `cameraFrame`에서 그릴 때마다 읽고, 바뀌면 그림 번호가 같아도 다음 화면 갱신에 다시 그린다.
+- 그리는 해상도 = 결과 크기(`resultSizeFor`, 화면이 덮는 원본 영역을 짧은 변 1080으로) × `previewScale`. OBS 1080×1920·4K·가짜 카메라 2160×2160 모두 결과 1080×1920, 기본 540×960. CSS로 늘려 보인다.
 - 카메라가 준비되지 않거나 끊기면 그리지 않고 숨긴다(멈춘 그림이 남지 않게). 결과 표시 중에도 그린다.
 
 | 장애 | 처리 |
@@ -611,17 +672,17 @@ const detector = await FaceDetector.createFromOptions(fileset, {
 
 **결과 사진** (`photo-effect.js`, `effect-preview.js` `renderStill`)
 
-- **셔터 순간 미리보기와 같은 그림:** 같은 프레임(마지막으로 올린 소스 텍스처를 그대로, `render(null, …)`)·tick·seed·설정으로 결과 크기에 화면 밖으로 다시 그린다. 캡처한 작업의 마이크로태스크에서 동기로 끝까지 그리고, 미리보기는 `requestAnimationFrame`에서만 프레임을 올리므로 끼어들 수 없다. 처리 해상도 1이면 같은 묶음이라 화소까지 같고(JPEG 전), 아니면 같은 구성을 1080으로 다시 그린 것이다. 보이는 그림이 없거나 영상 크기·좌우 반전이 바뀌었으면 지금 프레임으로 새로 그린다(D `new drawing`). `out`을 `readPixels`로 읽어 2D 캔버스에 넣고 나머지는 캡처 순서를 따른다.
+- **셔터 순간 미리보기와 같은 그림:** 같은 프레임(마지막으로 올린 소스 텍스처를 그대로, `render(null, …)`)·tick·seed·설정으로 결과 크기에 화면 밖으로 다시 그린다. 캡처한 작업의 마이크로태스크에서 동기로 끝까지 그리고, 미리보기는 `requestAnimationFrame`에서만 프레임을 올리므로 끼어들 수 없다. 처리 해상도 1이면 같은 묶음이라 화소까지 같고(JPEG 전), 아니면 같은 구성을 1080으로 다시 그린 것이다. 보이는 그림이 없거나 영상 크기·카메라 설정이 바뀌었으면 지금 프레임으로 새로 그린다(D `new drawing`). `out`을 `readPixels`로 읽어 2D 캔버스에 넣고 나머지는 캡처 순서를 따른다.
 - **결과 사진 준비:** 처리 해상도가 1이 아니면, 미리보기가 그린 뒤 `requestIdleCallback`(최대 2초, 가안)으로 마지막 그림을 결과 크기로 한 번 그린다(렌더러 `output: 'warm'`: 결과와 같은 대상·패스·획 목록, 감열지면 흑백 스타일 대상·인쇄 대상·문턱 지도, 회색조 유화면 인쇄 경로. 화소를 읽지 않고 화면·D 통계를 건드리지 않음). 안 하면 첫 촬영 때 만들어 셔터 순간 화면이 한 번 멈춘다([로그 07](logs/2026-10-19-07-saved-defaults.md)). 결과·미리보기 크기, 출력 모드·용지 폭·점 방식·흑백 스타일, 붓 크기·boil이 바뀌거나 렌더러를 새로 만들면 다시 준비하고, 손실·실패·`stop` 때 기다리던 준비를 취소한다. 준비 전 셔터는 그 자리에서 만들고(그 뒤 준비는 건너뜀), 준비 실패는 경고(`effect-prepare`)만 하고 되풀이하지 않는다. 처리 해상도 1이면 준비하지 않는다. 준비하면 GPU 메모리가 결과 묶음 하나만큼 는다.
 - **효과를 그리지 못하면 원본 사진으로 대신한다**(결과 크기로 줄이고 모드의 출력 단계를 CPU로, 아래 각 모드). 촬영 실패로 처리하지 않는다 — 관람객은 이미 찍혔고 다시 찍을 방법이 없다. 경고(`effect-capture`)와 D `photo-fx` `RAW PHOTO … (원인)`. 원인 예: `not-running`(미리보기 장애·손실 중), 화소 읽기 실패, 읽은 뒤 `render-failed: GL error …`·`context-lost: …`(읽은 화소를 쓰지 않음), 2D 캔버스 실패.
 - **D `photo-fx`:** `applied [모드] 크기 [점 방식] seed … tick … (same drawing as preview[, gpu=cpu]), render ms, total ms` 또는 `RAW PHOTO …`, 누적 수. **`print`:** 마지막 인쇄 데이터, 없으면 `none (원인)`.
 
 **운영자 조절 화면 `E`** (`ui/effect-tuning.js`)
 
-- 효과 7개(강도, 붓 크기, 획 다시 그리기, 초당 그림, 색 보정, 세부 보존 문턱, 처리 해상도), 출력 단계(출력 모드·점 방식·용지 폭 선택, 밝기·대비·감마 슬라이더), 흑백 스타일(스타일·질감 세기·선 간격), 카메라(좌우 반전 켬·끔 선택, 기본 켬, 3절). 범위는 원본 갤러리 슬라이더와 같다. 좌우 반전은 효과 값이 아니지만 운영자가 한 화면에서 고르고 같은 파일·같은 저장 규칙을 쓰도록 여기에 둔다(새 파일·API를 만들지 않음).
+- 효과 7개(강도, 붓 크기, 획 다시 그리기, 초당 그림, 색 보정, 세부 보존 문턱, 처리 해상도), 출력 단계(출력 모드·점 방식·용지 폭 선택, 밝기·대비·감마 슬라이더), 흑백 스타일(스타일·질감 세기·선 간격). 범위는 원본 갤러리 슬라이더와 같다. 좌우 반전(2026-10-26 ~ 9-1에는 여기 "카메라")은 카메라 설정으로 옮겼다(3절).
 - 출력 모드 첫 선택지는 회색조 유화. 감열지가 아니면 흑백 스타일을, 회색조·끔이면 점 방식·용지 폭도, 끔이면 레벨도 막는다(회색조 유화에서 점 방식·용지 폭은 인쇄 데이터용으로 열림). 질감 세기는 톤 점에서, 선 간격은 선 스타일이 아니면 막힌다.
 - 즉시 반영. 저장·취소·기본값·저장 없이 닫으면 되돌리기·저장 중 닫기는 `R`과 같은 규칙이고, 열려 있는 동안 자동 촬영을 막는다.
-- **파일** `config/effect.local.json`: `{ "version": 1, "settings": { strength, size, boil, fps, grade, refineThreshold, previewScale, outputMode, dither, brightness, contrast, gamma, paperDots, bwStyle, bwTexture, lineSpacing, mirror } }`(조절하는 17개 값만, `mirror`는 `true`·`false`). 파일 값이 있으면 그 값이다(예: 예전에 `thermal`로 저장한 파일은 감열지로 시작하므로 회색조 유화로 바꾸려면 `E`에서 고르고 저장). 일부 키만 있으면 나머지를 기본값으로 채우고 알린다(`adjusted`). 단 `mirror`가 없는 예전 파일은 반전이 늘 켜져 있던 때 저장한 것이라 켬으로 채우고 알리지 않는다(`saved` 그대로). `mirror`가 참·거짓이 아니면 켬으로 바꾸고 알린다.
+- **파일** `config/effect.local.json`: `{ "version": 1, "settings": { strength, size, boil, fps, grade, refineThreshold, previewScale, outputMode, dither, brightness, contrast, gamma, paperDots, bwStyle, bwTexture, lineSpacing } }`(조절하는 16개 값만). 파일 값이 있으면 그 값이다(예: 예전에 `thermal`로 저장한 파일은 감열지로 시작하므로 회색조 유화로 바꾸려면 `E`에서 고르고 저장). 일부 키만 있으면 나머지를 기본값으로 채우고 알린다(`adjusted`). 예전 파일(2026-10-26 ~ 9-1)에 남은 `mirror`는 읽지 않고 알리지도 않는다(카메라 파일이 없을 때 카메라 설정으로 한 번 옮기고 이 파일에서 그 키를 뺀다, 3절).
 - **불러오기: 파일 → 기본값**(`localStorage` 없음). 404·읽기 실패·`effectSettingsFile.timeoutMs`(3초, 가안) 초과·형식 오류면 기본값이고 파일은 그대로. 불러오는 동안은 기본값으로 그리고 **자동 촬영을 막지 않는다**(판정과 무관, 그사이 촬영돼도 미리보기와 결과는 같은 값). D `values`에 값과 출처(`file`·`saved`·`defaults (no file)`·`+ unsaved changes`).
 
 ### 회색조 유화
@@ -633,7 +694,7 @@ const detector = await FaceDetector.createFromOptions(fileset, {
 결과만: 같은 합성 그림 → 회색조·레벨 → 인쇄 해상도 면적 평균 → 점 방식(톤 점 경로) → 인쇄용 1비트 576×1024 (화면에 보이지 않음)
 ```
 
-- **입력 회색조 Rec.709 luma**(0.2126, 0.7152, 0.0722, `core/thermal.js` `INPUT_LUMA`): 카메라·OBS의 sRGB/BT.709 원색에 맞는 감마 영역 luma다. 색 보정은 이 회색 그림을 크롭·반전 없이 읽는다(원본에 "회색 이미지"를 넣는 것과 같다). 유화 패스·매개변수는 바꾸지 않는다.
+- **입력 회색조 Rec.709 luma**(0.2126, 0.7152, 0.0722, `core/thermal.js` `INPUT_LUMA`): 카메라·OBS의 sRGB/BT.709 원색에 맞는 감마 영역 luma다. 카메라 처리 경로(카메라 색 보정 포함)를 거친 값에서 잰다. 효과의 색 보정(`grade`)은 이 회색 그림을 변환 없이 읽는다(원본에 "회색 이미지"를 넣는 것과 같다). 유화 패스·매개변수는 바꾸지 않는다.
 - **마지막에 다시 회색조:** `oil2f`는 회색 입력에도 색 보정·획 색 흔들림으로 색을 더하므로(`grade` 0으로도 무채색이 안 되고 톤이 바뀐다) 출력 단계에서 R=G=B로 만든다.
 - 결과는 "GPU 입력 회색 그림을 컬러 유화 경로에 넣은 것"의 회색조와 같다(합성 이미지로 최대 차이 1). 원본 페이지 직접 비교는 **미검증**. CPU `inputGrayOf`는 반올림 차이로 획 배치가 바뀔 수 있어 대체 경로에만 쓴다.
 - **결과:** 화면용 1080×1920 **JPEG**(`config.capture`). 인쇄용 1비트(`print`, 아래 (a) 형식)는 결과 렌더(`output: 'pixels'`)에서 같은 합성 그림을 톤 점 경로로 만든다(흑백 스타일 선은 안 씀, 레벨은 화면과 같음, `dither`·`paperDots`를 따름). 블루 노이즈·Bayer는 결과마다 CPU로 다시 계산해 비트 단위로 같은지 본다(`gpu=cpu`). 인쇄 데이터 미리보기는 없다(D `print` 숫자만).
@@ -664,7 +725,7 @@ composed → 회색조(Rec.601) → 대비(0.5 중심) → 밝기 → 0~1 → �
 - 오차 확산은 그림마다 점이 크게 바뀌어 미리보기가 지글거리고, 동기 화소 읽기·CPU 디더로 메인 스레드를 더 써 감지가 15fps 아래로 떨어질 수 있다. 미리보기에서는 CPU 마스크를 GPU 결과와 같은 형식으로 올려 같은 셰이더로 그린다.
 - **문턱값 규칙:** 순위 r(0..N−1) → `t = 1 + floor(r·255/N)`, `g ≥ t`면 흰 점(0은 모두 검정, 255는 모두 흰색). 8비트 정수 비교라 **GPU = CPU 비트 단위**이고 결과마다 확인한다(`gpu=cpu`, 다르면 경고 후 GPU 쪽). 문턱 지도가 고정이라 같은 프레임·seed면 같은 점 그림이다.
 - **화면 확대(화면 전용):** 점 그림을 "정수배 최근접 + 경계 1화소만 섞음"(sharp bilinear 계열, `sharpAxis`)으로 결과 크기에 그린다. 576점이 1080 폭에서 모두 같은 폭이 된다(최근접이면 1·2화소로 들쭉날쭉). GPU(`FS_THERMAL_SHOW`)와 CPU(`upscaleSharp`)가 같은 정수식이라 화소가 같다. 미리 확대하므로 CSS `image-rendering`을 쓰지 않는다. 인쇄 데이터는 그대로다.
-- 종이색·잉크색 `config.thermalDisplay`(가안: `[246, 242, 233]`, `[26, 26, 30]`)는 화면 전용. 감지는 원본 컬러 `<video>`로 한다.
+- 종이색·잉크색 `config.thermalDisplay`(가안: `[246, 242, 233]`, `[26, 26, 30]`)는 화면 전용. 감지는 효과 전 컬러 영상(카메라 처리 경로까지 거친 것)으로 한다.
 
 **결과와 인쇄용 데이터** (`renderStill` → 렌더러 `output: 'print'`)
 
