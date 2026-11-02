@@ -33,8 +33,6 @@ const EFFECT_SETTINGS_FILE = join(repo, 'config', 'effect.local.json');
 const EFFECT_SETTINGS_API = '/local-api/effect-settings';
 const CAMERA_SETTINGS_FILE = join(repo, 'config', 'camera.local.json');
 const CAMERA_SETTINGS_API = '/local-api/camera-settings';
-// 카메라 설정 기본값 (9-1, config.camera). 시나리오는 이 위에 바꿀 값만 얹어 파일에 쓴다
-const CAMERA_DEFAULTS = Object.freeze({ ...config.camera });
 const MODEL_PATTERN = '*blaze_face_short_range.tflite*';
 // MediaPipe 사용 통계 전송은 CSP로 막는 것이 의도된 동작이다(docs/SYSTEM.md 1절). 이 주소의 CSP 메시지는 실패로 세지 않는다.
 const EXPECTED_CSP_HOST = 'odml.pa.googleapis.com';
@@ -42,7 +40,7 @@ const EXPECTED_CSP_HOST = 'odml.pa.googleapis.com';
 // ---------- 옵션 ----------
 
 function parseArgs(argv) {
-  const options = { camera: 'fake', soak: 0, interval: 20, csv: '', chrome: '', keepProfile: false };
+  const options = { camera: 'fake', soak: 0, interval: 20, csv: '', chrome: '', keepProfile: false, only: [], cameraLabel: '' };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     const value = () => {
@@ -60,6 +58,10 @@ function parseArgs(argv) {
     else if (arg === '--csv') options.csv = value();
     else if (arg === '--chrome') options.chrome = value();
     else if (arg === '--keep-profile') options.keepProfile = true;
+    // 이름에 이 글자가 들어간 시나리오만 (| 로 여럿). 첫 시나리오(페이지 로드)는 늘 돈다. 개발 중 다시 확인용
+    else if (arg === '--only') options.only = value().split('|').map((t) => t.trim()).filter(Boolean);
+    // 카메라 설정 시나리오(9-1)가 쓸 장치 라벨 (예: 옆으로 세운 실제 웹캠). 비우면 기본 규칙(OBS → 기본 카메라)
+    else if (arg === '--camera-label') options.cameraLabel = value();
     else throw new Error(`unknown option: ${arg}`);
   }
   if (!['fake', 'real'].includes(options.camera)) throw new Error('--camera must be fake or real');
@@ -69,6 +71,8 @@ function parseArgs(argv) {
 
 const DEFAULT_SOAK_MINUTES = 10;
 const options = parseArgs(process.argv.slice(2));
+// 카메라 설정 기본값 (9-1, config.camera). 카메라 시나리오는 이 위에 바꿀 값만 얹어 파일에 쓴다
+const CAMERA_DEFAULTS = Object.freeze({ ...config.camera, deviceLabel: options.cameraLabel });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const t0 = Date.now();
 const elapsed = () => `${((Date.now() - t0) / 1000).toFixed(1).padStart(6)}s`;
@@ -322,7 +326,12 @@ function createApp(cdp, origin) {
         }
         await sleep(250);
       }
-      throw new Error(`timeout waiting for ${label} (${timeoutMs}ms)`);
+      let state = '';
+      try {
+        const d = await app.dev();
+        state = ` [D status ${d.get('status')}; reason ${d.get('reason')}; video ${d.get('video')}; effect ${(d.get('effect') ?? '-').slice(0, 80)}; raw-view ${d.get('raw-view')}]`;
+      } catch { /* D를 읽지 못함 */ }
+      throw new Error(`timeout waiting for ${label} (${timeoutMs}ms)${state}`);
     },
     async blockModel(block) {
       modelBlocked = block;
@@ -589,7 +598,6 @@ const MIRROR_READER = `(() => {
     tx.save(); tx.fillStyle = '#000'; tx.fillRect(0, 0, t.width, t.height); tx.setTransform(...r.canvasTransform(r.view, t.width, t.height));
     tx.drawImage(v, 0, 0); tx.restore();
     return grid(t.width, t.height, tx.getImageData(0, 0, t.width, t.height).data, (x, y) => (y * t.width + x) * 4); };
-  const probe = new Uint8Array(8 * 8 * 4);
   const r = window.__mirrorReader = { GW, GH, samples: [], shutter: null, grid, view: null, canvasTransform: null };
   new MutationObserver(() => { const cd = document.getElementById('countdown');
     if (cd.hidden && r.wasCounting) r.shutter = r.samples.at(-1) ?? null;
@@ -598,9 +606,15 @@ const MIRROR_READER = `(() => {
     requestAnimationFrame(loop);
     const W = c.width, H = c.height;
     if (c.hidden || W < 16 || !(v.videoWidth > 0)) return;
-    // EFFECT_READER와 같은 확인: 가운데 8x8이 모두 0이면 이 화면 갱신에서는 새로 그리지 않았다 (preserveDrawingBuffer false, 알파는 늘 255라 쓰지 않는다)
-    gl.readPixels((W >> 1) - 4, (H >> 1) - 4, 8, 8, gl.RGBA, gl.UNSIGNED_BYTE, probe);
-    let any = 0; for (let i = 0; i < probe.length; i += 4) any += probe[i] + probe[i + 1] + probe[i + 2];
+    // 이 화면 갱신에 새로 그렸는지: 가로줄 4개(높이 1/5·2/5·3/5·4/5)의 RGB가 모두 0이면 그리지 않았다 (preserveDrawingBuffer false,
+    // 알파는 늘 255라 쓰지 않는다). EFFECT_READER처럼 가운데 8x8만 보면 레벨 뒤 가운데가 순수 검정인 실제 OBS 장면에서 새 그림을 못 셌다 (9-1)
+    const row = new Uint8Array(W * 4);
+    let any = 0;
+    for (const f of [0.2, 0.4, 0.6, 0.8]) {
+      gl.readPixels(0, Math.floor(H * f), W, 1, gl.RGBA, gl.UNSIGNED_BYTE, row);
+      for (let i = 0; i < row.length && any === 0; i += 4) any += row[i] + row[i + 1] + row[i + 2];
+      if (any) break;
+    }
     if (any === 0) return;
     const buf = new Uint8Array(W * H * 4);
     gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, buf);
@@ -721,6 +735,7 @@ const facesXY = (text) => text.split('\n').filter((l) => /^ {2}face \d+/.test(l)
 
 const results = [];
 async function scenario(name, run) {
+  if (options.only.length > 0 && results.length > 0 && !options.only.some((text) => name.includes(text))) return;
   const started = Date.now();
   try {
     const detail = await run();
@@ -1281,27 +1296,46 @@ async function runScenarios(app, origin) {
       // 해상도 프리셋: ideal로만 요청하므로 장치가 고른 값을 그대로 보고, 그 크기로 캡처·결과가 돈다
       await openWithCamera({ resolution: '1280x720' });
       let dev = await app.dev();
-      expect(/\(ideal 1280x720, resolution 1280x720\)$/.test(dev.get('track') ?? ''), `D track ${dev.get('track')}`);
+      // 장치가 고른 크기를 그대로 보고한다 (OBS 가상카메라는 자기 출력 1080x1920을 1280x720 비율로 잘라 1080x720을 준다, 9-1 실측)
+      const track = dev.get('track') ?? '';
+      expect(/\(ideal 1280x720, resolution 1280x720\)$/.test(track), `D track ${track}`);
       const video = /^(\d+)x(\d+)$/.exec(dev.get('video') ?? '');
       expect(video && Number(video[1]) > 0, `video ${dev.get('video')}`);
       const { completedDelta, resources, dev: shot } = await withAutoPaused(app, () => manualCycle(app));
       expect(completedDelta === 1 && photoFree(resources), `S +${completedDelta}, ${shot.get('resources')}`);
-      details.push(`preset 1280x720 -> video ${dev.get('video')}, track ${(dev.get('track') ?? '').split(' (')[0]}; S ok (${(shot.get('capture') ?? '').split(' (')[0]})`);
+      details.push(`preset 1280x720 -> video ${dev.get('video')}, track ${track.split(' (')[0]}; S ok (${(shot.get('capture') ?? '').split(' (')[0]})`);
       // 다른 카메라: 지금 장치와 라벨이 다른 장치가 있으면 그 라벨로 연다 (deviceId가 아니라 라벨로 저장)
       const labels = await app.evaluate(`(async () => (await navigator.mediaDevices.enumerateDevices())
         .filter((d) => d.kind === 'videoinput').map((d) => d.label))()`);
+      // 다른 프로그램이 쓰는 장치(예: OBS가 소스로 잡은 웹캠)는 열리지 않는다(NotReadableError → unavailable, 간격 재시도). 기록하고 다음 장치로
       const current = dev.get('camera');
-      const other = labels.find((label) => label && label !== current);
-      if (other) {
-        await openWithCamera({ deviceLabel: other });
+      const busy = [];
+      let switched = null;
+      for (const label of labels.filter((l) => l && l !== current)) {
+        await putCamera({ deviceLabel: label });
+        await app.open();
+        const seen = await app.waitFor(`camera "${label}"`, async () => {
+          const d = await app.dev();
+          if (/^ready/.test(d.get('status') ?? '')) return { ready: true, d };
+          const attempts = Number(/^(\d+) total/.exec(d.get('attempts') ?? '')?.[1] ?? 0);
+          return /^(unavailable|not-found|no-frames)/.test(d.get('status') ?? '') && attempts >= 2 ? { ready: false, d } : null;
+        }, 15000);
+        if (!seen.ready) {
+          busy.push(`"${label}" ${seen.d.get('status')} / ${seen.d.get('reason')}`);
+          continue;
+        }
+        await waitReady(app);
         dev = await app.dev();
-        expect(dev.get('camera') === other && /^device /.test(dev.get('selected') ?? ''), `camera ${dev.get('camera')}, selected ${dev.get('selected')}`);
-        details.push(`device "${other}" -> ${dev.get('video')} (selected device)`);
-      } else {
-        details.push(`only one camera (${labels.join(', ')}): device switch not checked`);
+        expect(dev.get('camera') === label && /^device /.test(dev.get('selected') ?? ''), `camera ${dev.get('camera')}, selected ${dev.get('selected')}`);
+        switched = `device "${label}" -> ${dev.get('video')} (selected device)`;
+        break;
       }
+      if (busy.length) details.push(`not opened (kept retrying, as designed): ${busy.join(', ')}`);
+      details.push(switched ?? `no other camera could be opened (${labels.join(', ')}): device switch not checked`);
       // 없는 라벨: OBS 규칙(있으면 preferred) 또는 기본 카메라
-      await openWithCamera({ deviceLabel: 'No Such Camera 9-1' });
+      await putCamera({ deviceLabel: 'No Such Camera 9-1' });
+      await app.open();
+      await waitReady(app);
       dev = await app.dev();
       expect(/^(preferred|default) \(device "No Such Camera 9-1"/.test(dev.get('selected') ?? ''), `selected ${dev.get('selected')}`);
       details.push(`missing label -> ${(dev.get('selected') ?? '').split(' (')[0]} "${dev.get('camera')}"`);
