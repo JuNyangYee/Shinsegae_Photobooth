@@ -133,7 +133,7 @@ describe('판정 시간 기본값·범위 (사용자 결정 2026-10-27)', () => 
     assert.deepEqual(issues, ['presentHoldMs: 249.6 -> 250']);
   });
 
-  it('이전 기본값(500/1000)으로 저장된 파일은 그 값을 그대로 쓴다 (새 기본값을 쓰려면 R에서 기본값으로 → 저장)', () => {
+  it('이전 기본값(500/1000)으로 저장된 파일은 그 값을 그대로 쓴다 (새 기본값을 쓰려면 E 인식 섹션에서 기본값으로 → 저장)', () => {
     const text = serializePresenceSettings({ ...config.presence, presentHoldMs: 500, absentGraceMs: 1000 });
     const result = parseStoredPresenceSettings(text, config.presence);
     assert.equal(result.source, 'stored');

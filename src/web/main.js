@@ -228,7 +228,7 @@ let autoPaused = false;
 // 조절 화면이 열려 있거나, 일시정지 중이거나, 조절값을 아직 불러오지 않았으면 자동 시작을 막는다.
 const autoStart = createAutoStart({
   session, presence,
-  // 인식 범위(R)·효과(E) 조절 화면이 열려 있으면 막는다. 효과를 조절하는 운영자가 화면 앞에 서서 보므로,
+  // 운영자 조절 화면(E, 어느 섹션이든)이 열려 있으면 막는다. 조절하는 운영자가 화면 앞에 서서 보므로,
   // 자동 회차가 끼어들면 결과 사진이 미리보기를 가린다.
   isTuningOpen: () => operatorPanel.isOpen(),
   isPaused: () => autoPaused,
