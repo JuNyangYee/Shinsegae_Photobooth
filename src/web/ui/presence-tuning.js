@@ -268,6 +268,10 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, i
     },
     isActive: () => open && active,
     isDirty: () => !samePresenceSettings(current, saved),
+    /** 저장하지 않은 변경을 저장된 값으로 되돌린다 (패널이 닫히는 순간, operator-panel.js) */
+    discardUnsaved() {
+      if (!samePresenceSettings(current, saved)) apply(saved);
+    },
     /**
      * D 화면용: 지금 판정에 쓰는 값의 출처. 예: 'file', 'saved', 'defaults (no file)', 'file + unsaved changes'.
      * 저장하기 전까지는 출처 설명(실패 이유 등)과 시작할 때 저장값을 고친 내용도 붙인다.

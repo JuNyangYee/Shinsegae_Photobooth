@@ -260,6 +260,10 @@ export function createEffectTuning({ panel, preview, defaults, initial, saveSett
       syncLive();
     },
     isDirty: () => !sameEffectSettings(current, saved),
+    /** 저장하지 않은 변경을 저장된 값으로 되돌린다 (패널이 닫히는 순간, operator-panel.js) */
+    discardUnsaved() {
+      if (!sameEffectSettings(current, saved)) apply(saved);
+    },
     /** D 화면용: 지금 효과에 쓰는 값의 출처. 예: 'file', 'saved', 'defaults (no file)', 'file + unsaved changes' */
     describeSettingsSource() {
       const dirty = !sameEffectSettings(current, saved);

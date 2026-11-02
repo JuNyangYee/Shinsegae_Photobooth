@@ -596,6 +596,17 @@ body:has(#operator-panel:not([hidden]) #tuning-panel:not([hidden])) .dev-info {
 }
 
 /* 섹션 버튼 (9-2): 가는 밑줄 세그먼트. 섹션마다 저장 상태 점(data-save, save-state.js 색)을 붙인다 */
+/* 저장 중인 섹션이 끝나 닫히기를 기다리는 동안 (operator-panel.js data-closing, inert): 입력을 받지 않는다는 것을 흐리게 보인다 */
+.op-panel[data-closing] .op-tabs,
+.op-panel[data-closing] .op-body {
+  opacity: 0.45;
+}
+
+.op-panel[data-closing] .op-keys::after {
+  content: ' · 저장 중이라 닫는 중';
+  color: var(--op-warn);
+}
+
 .op-tabs {
   display: flex;
   gap: 0.2em;

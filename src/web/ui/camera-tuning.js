@@ -78,6 +78,13 @@ export function createCameraTuning({
     render();
   }
 
+  function revert() {
+    saveFailed = false;
+    current = saved;
+    applySettings(current);
+    render();
+  }
+
   function renderSaveState() {
     const base = loadedSaveState({ source: savedSource, note: savedNote, issues: loaded.issues });
     showSaveState(panel, stateText, saveStateOf({ saving, failed: saveFailed, dirty: !sameCameraSettings(current, saved), base }));
@@ -175,10 +182,7 @@ export function createCameraTuning({
       showMessage(openingMessage());
     } else if (!sameCameraSettings(current, saved)) {
       console.info('[camera-tuning] closed without saving; reverted to saved settings');
-      saveFailed = false;
-      current = saved;
-      applySettings(current);
-      render();
+      revert();
     }
     syncLive();
     onOpenChange?.(open);
@@ -268,6 +272,10 @@ export function createCameraTuning({
       syncLive();
     },
     isDirty: () => !sameCameraSettings(current, saved),
+    /** 저장하지 않은 변경을 저장된 값으로 되돌린다 (패널이 닫히는 순간, operator-panel.js) */
+    discardUnsaved() {
+      if (!sameCameraSettings(current, saved)) revert();
+    },
     getSettings: () => current,
     /** D 화면용: 지금 카메라에 쓰는 값의 출처 */
     describeSettingsSource() {

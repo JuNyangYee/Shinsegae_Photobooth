@@ -1,5 +1,5 @@
 // 실행: npm test
-// 효과 조절 화면(effect-tuning.js, E)의 즉시 반영·저장·되돌리기·저장 중 닫기. R 화면과 같은 규칙. DOM은 필요한 만큼만 흉내 낸다.
+// 효과 조절 화면(effect-tuning.js, E)의 즉시 반영·저장·되돌리기·저장 중 닫기. 인식 섹션과 같은 규칙. DOM은 필요한 만큼만 흉내 낸다.
 import assert from 'node:assert/strict';
 import { afterEach, describe, it } from 'node:test';
 
@@ -264,4 +264,15 @@ describe('effect-tuning: 불러온 결과에 따른 저장 상태 (6단계 검�
       assert.equal(t.panel.dataset.save, 'saved');
     });
   }
+});
+
+describe('effect-tuning: 패널이 닫히는 순간 되돌리기 (9단계 검수 1)', () => {
+  it('discardUnsaved: 저장하지 않은 변경을 저장된 값으로', () => {
+    const t = current = setup();
+    t.tuning.open();
+    t.slide('boil', 0.5);
+    assert.equal(t.tuning.isDirty(), true);
+    t.tuning.discardUnsaved();
+    assert.deepEqual([t.tuning.isDirty(), t.running().boil], [false, 0.05]);
+  });
 });

@@ -73,7 +73,7 @@ describe('presence-tuning: 저장 중 닫기 (4단계 검수 4)', () => {
     t.clickSave();
     assert.equal(t.saves.length, 1);
     assert.equal(t.saveButton.disabled, true);
-    t.tuning.close(); // R·Esc·닫기
+    t.tuning.close(); // E·Esc·닫기
     assert.equal(t.tuning.isOpen(), true);
     assert.match(t.message(), /저장이 끝나면 닫습니다/);
     t.saves[0].resolve();
@@ -216,5 +216,16 @@ describe('presence-tuning: 운영자 패널의 인식 섹션 (9-2)', () => {
     t.tuning.open();
     t.panel.fire('click', { target: { closest: () => ({ dataset: { action: 'defaults' } }) } });
     assert.deepEqual(t.running(), { ...defaults, region: { ...defaults.region }, cameraRecovery: { ...defaults.cameraRecovery } });
+  });
+});
+
+describe('presence-tuning: 패널이 닫히는 순간 되돌리기 (9단계 검수 1)', () => {
+  it('discardUnsaved: 저장하지 않은 변경을 저장된 값으로', () => {
+    const t = current = setup();
+    t.tuning.open();
+    t.slide('minScore', 0.9);
+    assert.equal(t.tuning.isDirty(), true);
+    t.tuning.discardUnsaved();
+    assert.deepEqual([t.tuning.isDirty(), t.running().minScore], [false, 0.7]);
   });
 });

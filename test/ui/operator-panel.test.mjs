@@ -31,6 +31,9 @@ function fakeSection(name, panel) {
       s.on = false; s.closed += 1; panel().sectionClosed();
     },
     setActive(on) { s.active = on; },
+    dirty: false, discarded: 0,
+    isDirty: () => s.dirty,
+    discardUnsaved() { if (s.dirty) { s.dirty = false; s.discarded += 1; } },
     finishSave() { s.saving = false; if (s.pendingClose) { s.pendingClose = false; s.close(); } },
   };
   return s;
@@ -135,6 +138,36 @@ describe('operator-panel: 닫기 (섹션마다 되돌리기)', () => {
     assert.equal(t.panel.isOpen(), false);
     assert.equal(t.root.hidden, true);
     assert.deepEqual(t.events.filter(([k]) => k === 'open'), [['open', true], ['open', false]]);
+  });
+});
+
+describe('operator-panel: 저장 중 닫기를 기다리는 동안 (9단계 검수 1)', () => {
+  it('검수 재현: 필터 저장 대기 중 닫기 → 카메라 섹션 선택·다시 열기는 무시, 패널은 비활성 → 그사이 생긴 카메라 변경도 닫히는 순간 되돌린다', () => {
+    const t = setup();
+    t.panel.open();
+    t.click(t.tabs.get('effect'));
+    const effect = t.controllers.get('effect');
+    const camera = t.controllers.get('camera');
+    effect.saving = true;
+    t.panel.close();
+    assert.deepEqual([t.panel.isOpen(), t.panel.isClosing(), t.root.inert, t.root.dataset.closing], [true, true, true, 'true'], '닫는 중: 비활성');
+    t.click(t.tabs.get('camera'));
+    assert.equal(t.panel.getSection(), 'effect', '섹션 이동 무시');
+    t.panel.open();
+    assert.equal(t.panel.isClosing(), true, '다시 열기 무시');
+    camera.dirty = true; // 막았어도 어떤 경로로든 남은 변경 (예: 확대 2)
+    effect.finishSave();
+    assert.deepEqual([t.panel.isOpen(), t.root.hidden, t.root.inert, 'closing' in t.root.dataset], [false, true, false, false]);
+    assert.deepEqual([camera.dirty, camera.discarded], [false, 1], '닫히는 순간 저장하지 않은 섹션을 되돌림');
+  });
+
+  it('저장 중인 섹션이 다른 섹션에 있으면 그 섹션으로 옮겨 보인다 (알림 포함)', () => {
+    const t = setup();
+    t.panel.open();
+    t.controllers.get('presence').saving = true;
+    t.panel.close();
+    assert.equal(t.panel.getSection(), 'presence');
+    assert.deepEqual(t.events.at(-1), ['section', 'presence']);
   });
 });
 

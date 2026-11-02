@@ -3,7 +3,8 @@
 // presence-tuning.js, effect-tuning.js). 이 모듈은 열기·닫기, 보이는 섹션 고르기, 위·아래, 섹션 버튼의 저장 상태 점만 맡는다.
 // - 열면 모든 섹션이 "열림"(저장하지 않은 변경을 셀 수 있게)이고 고른 섹션 하나만 보인다(실시간 줄·영역 편집은 보이는 섹션만 돈다).
 // - 닫으면 섹션마다 저장하지 않은 변경을 되돌린다(실행 중인 값 = 다시 시작했을 때의 값). 저장 중인 섹션이 있으면 그 섹션을 보이고
-//   저장이 끝난 뒤 닫는다(섹션 모듈이 닫힘을 알릴 때 다시 확인한다).
+//   저장이 끝난 뒤 닫는다(섹션 모듈이 닫힘을 알릴 때 다시 확인한다). 그동안 패널은 비활성(inert, data-closing: 입력·섹션 이동 없음)이고,
+//   실제로 닫히는 순간 모든 섹션의 저장하지 않은 변경을 다시 확인해 되돌린다 (9단계 검수 1: 기다리는 동안 다른 섹션을 바꾸면 남았다).
 // - 마지막으로 본 섹션은 기억하지만 저장하지 않는다(새로고침하면 카메라 섹션부터). Node 테스트: test/ui/operator-panel.test.mjs
 
 export const PanelSection = Object.freeze({ CAMERA: 'camera', PRESENCE: 'presence', EFFECT: 'effect' });
@@ -57,14 +58,27 @@ export function createOperatorPanel({ root, onOpenChange = () => {}, onSectionCh
   }
 
   function select(name) {
+    if (closing) return; // 저장이 끝나 닫히기를 기다리는 동안은 섹션을 바꾸지 않는다
     if (!ORDER.includes(name) || !controllers.has(name)) return;
     const changed = name !== section;
     showSection(name);
     if (changed) onSectionChange(name);
   }
 
+  // 닫기를 기다리는 동안: 입력·섹션 이동을 막고 "닫는 중"을 보인다 (style.css [data-closing])
+  function setClosingUi(on) {
+    root.inert = on;
+    if (on) root.dataset.closing = 'true';
+    else delete root.dataset.closing;
+  }
+
   function finishClose() {
     closing = false;
+    setClosingUi(false);
+    // 닫히는 순간 저장하지 않은 변경이 남은 섹션이 있으면(기다리는 동안 생긴 것 포함) 되돌린다
+    for (const controller of controllers.values()) {
+      if (controller.isDirty?.()) controller.discardUnsaved();
+    }
     open = false;
     root.hidden = true;
     timers.clearInterval(tabTimer);
@@ -78,7 +92,11 @@ export function createOperatorPanel({ root, onOpenChange = () => {}, onSectionCh
     if (!closing || closingAll) return;
     const saving = ORDER.find((name) => controllers.get(name)?.isOpen());
     if (saving) {
-      select(saving);
+      if (saving !== section) {
+        showSection(saving);
+        onSectionChange(saving);
+      }
+      setClosingUi(true);
       return;
     }
     finishClose();
@@ -88,7 +106,7 @@ export function createOperatorPanel({ root, onOpenChange = () => {}, onSectionCh
     if (next === open && !closing) return;
     if (next) {
       if (!isReady()) return; // 조절값을 다 불러오기 전에는 열지 않는다 (최대 약 3초)
-      closing = false;
+      if (closing) return; // 저장이 끝나 닫히기를 기다리는 중
       open = true;
       root.hidden = false;
       for (const controller of controllers.values()) controller.open();
@@ -126,7 +144,7 @@ export function createOperatorPanel({ root, onOpenChange = () => {}, onSectionCh
 
   return {
     /**
-     * 섹션 모듈을 붙인다 (불러오기가 끝나면). 모듈은 open()·close()·isOpen()·setActive(active)를 가진다.
+     * 섹션 모듈을 붙인다 (불러오기가 끝나면). 모듈은 open()·close()·isOpen()·setActive(active)·isDirty()·discardUnsaved()를 가진다.
      * 모듈의 onOpenChange(false)에서 sectionClosed()를 불러야 저장 중 닫기가 끝난다.
      */
     attach(name, controller) {
@@ -136,6 +154,8 @@ export function createOperatorPanel({ root, onOpenChange = () => {}, onSectionCh
     sectionClosed: checkClosed,
     isReady,
     isOpen: () => open,
+    /** 저장 중인 섹션이 끝나 닫히기를 기다리는 중 */
+    isClosing: () => closing,
     getSection: () => section,
     select,
     toggle: () => setOpen(!open),
