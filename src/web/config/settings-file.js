@@ -1,8 +1,11 @@
 // 운영자 조절값 파일 (서버 config/presence.local.json, API /local-api/presence-settings).
 // 시작할 때 불러오는 순서: 파일 → (파일이 없으면) localStorage에서 옮김 → 기본값.
 // 값의 검증·정규화는 presence-settings.js가 맡는다.
-// 효과 조절값 (5-2, config/effect.local.json, API /local-api/effect-settings)은 파일 → 기본값. localStorage는 쓰지 않는다. Node 테스트: test/config/settings-file.test.mjs
+// 효과 조절값 (5-2, config/effect.local.json, API /local-api/effect-settings)은 파일 → 기본값. localStorage는 쓰지 않는다.
+// 카메라 설정 (9-1, config/camera.local.json, API /local-api/camera-settings)은 파일 → (없으면) 효과 파일의 좌우 반전을 옮김 → 기본값.
+// Node 테스트: test/config/settings-file.test.mjs
 
+import { migrateMirrorFromEffect, normalizeCameraSettings, parseStoredCameraSettings, serializeCameraSettings } from './camera-settings.js';
 import { parseStoredEffectSettings } from './effect-settings.js';
 import {
   loadPresenceSettings,
@@ -14,8 +17,9 @@ import {
 // 조절값 출처 (D 화면·조절 화면)
 export const SettingsSource = Object.freeze({
   FILE: 'file', // 시작할 때 파일에서 읽음
-  MIGRATED: 'migrated', // 파일이 없어 localStorage 값을 파일로 옮김
+  MIGRATED: 'migrated', // 파일이 없어 localStorage 값(인식)·효과 파일의 좌우 반전(카메라)을 파일로 옮김
   LOCAL_ONLY: 'localStorage', // localStorage 값을 쓰지만 파일로 옮기지 못함 (다음 시작에 다시 옮긴다)
+  EFFECT_FILE_ONLY: 'effect file', // 카메라: 효과 파일의 좌우 반전을 쓰지만 카메라 파일로 옮기지 못함 (다음 시작에 다시 옮긴다)
   DEFAULTS: 'defaults', // 파일·localStorage 모두 없음, 또는 불러오기 실패·시간 초과
   SAVED: 'saved', // 이번 실행 중 파일에 저장함
 });
@@ -142,4 +146,61 @@ export async function loadInitialEffectSettings({ file, defaults }) {
   const parsed = parseStoredEffectSettings(stored.text, defaults);
   if (parsed.source !== 'stored') return defaultsWith('file is invalid', parsed.issues);
   return { settings: parsed.settings, issues: parsed.issues, source: SettingsSource.FILE, note: '' };
+}
+
+/**
+ * 시작할 때 카메라 설정을 정한다 (9-1). 예외를 던지지 않는다. 카메라를 열기 전에 부른다.
+ * - 카메라 파일이 있으면 그 값 (형식이 잘못됐으면 기본값, 파일은 그대로).
+ * - 없고(404) 효과 파일(effect.local.json)에 좌우 반전(mirror, 2026-10-26 ~ 9-1의 위치)이 있으면 그 값을 기본값에 얹어 카메라 파일로 옮기고
+ *   (PUT → 다시 GET해 확인), 효과 파일에서는 그 키만 뺀다(다른 값은 바이트 그대로가 아니라 같은 내용으로 다시 쓴다).
+ *   키를 빼는 이유: 남겨 두면 운영자가 카메라를 초기화하려고 카메라 파일을 지웠을 때 옛 반전 값이 말없이 다시 옮겨진다.
+ *   카메라 파일 쓰기가 실패하면 이번엔 옮긴 값을 쓰고 효과 파일은 그대로 둔다(다음 시작에 다시 옮긴다).
+ *   효과 파일에서 키를 빼지 못해도 카메라 파일은 이미 있으므로 다시 옮기지 않는다(그 키는 효과 쪽에서 쓰지 않는다).
+ * - 둘 다 없거나 카메라 파일 읽기가 실패·시간 초과되면 기본값(옮기지 않는다: 파일이 있는데 못 읽었을 수 있다).
+ * @param {{ file: { read: Function, write: Function }, effectFile: { read: Function, write: Function }, defaults: object }} options
+ *   defaults: config.camera
+ * @returns {Promise<{ settings: object, issues: string[], source: string, note: string }>}
+ */
+export async function loadInitialCameraSettings({ file, effectFile, defaults }) {
+  const defaultsWith = (note, issues = []) => ({
+    ...parseStoredCameraSettings(null, defaults), issues, source: SettingsSource.DEFAULTS, note,
+  });
+  let stored;
+  try {
+    stored = await file.read();
+  } catch (error) {
+    return defaultsWith(`file read failed: ${error?.message ?? error}`);
+  }
+  if (stored.found) {
+    const parsed = parseStoredCameraSettings(stored.text, defaults);
+    if (parsed.source !== 'stored') return defaultsWith('file is invalid', parsed.issues);
+    return { settings: parsed.settings, issues: parsed.issues, source: SettingsSource.FILE, note: '' };
+  }
+
+  // 카메라 파일이 없다: 효과 파일의 좌우 반전을 옮긴다
+  let effect;
+  try {
+    effect = await effectFile.read();
+  } catch (error) {
+    return defaultsWith(`no file; effect file read failed: ${error?.message ?? error}`);
+  }
+  const old = effect.found ? migrateMirrorFromEffect(effect.text) : { mirror: null };
+  if (old.mirror === null) return defaultsWith('no file');
+  const { settings } = normalizeCameraSettings({ ...defaults, mirror: old.mirror }, defaults);
+  const text = serializeCameraSettings(settings);
+  try {
+    await file.write(text);
+    const check = await file.read();
+    if (!check.found || check.text !== text) throw new Error('read-back mismatch');
+  } catch (error) {
+    return { settings, issues: [], source: SettingsSource.EFFECT_FILE_ONLY,
+      note: `mirror ${old.mirror ? 'on' : 'off'} from effect file; migration to camera file failed: ${error?.message ?? error}` };
+  }
+  let removed = 'removed from effect file';
+  try {
+    await effectFile.write(old.strippedText);
+  } catch (error) {
+    removed = `not removed from effect file: ${error?.message ?? error}`;
+  }
+  return { settings, issues: [], source: SettingsSource.MIGRATED, note: `mirror ${old.mirror ? 'on' : 'off'} from effect file (${removed})` };
 }

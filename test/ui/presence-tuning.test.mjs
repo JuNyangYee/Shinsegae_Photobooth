@@ -10,6 +10,8 @@ import { flush } from '../helpers.mjs';
 const defaults = Object.freeze({
   region: Object.freeze({ x: 0.1, y: 0.1, width: 0.8, height: 0.8 }),
   minFaceHeight: 0.05, maxFaceHeight: 0.6, minScore: 0.7, presentHoldMs: 500, absentGraceMs: 1000,
+  // 카메라 회복 시간 (9-1부터 인식 조절값 파일에 함께 둔다)
+  cameraRecovery: Object.freeze({ retryIntervalMs: 3000, firstFrameTimeoutMs: 5000, stallTimeoutMs: 3000, staffNoticeMs: 30000 }),
 });
 
 function fakeElement() {

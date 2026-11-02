@@ -17,7 +17,10 @@
 <body>
   <main id="stage" class="stage">
     <video id="preview" class="preview" autoplay muted playsinline></video>
-    <!-- 사진 효과 미리보기 (유화 · 획). 영상 위를 덮는다. 효과를 쓸 수 없으면 숨겨 원본 미리보기가 보인다. -->
+    <!-- 원본 미리보기 (9-1, camera/raw-preview.js). 효과를 끄거나 쓸 수 없을 때 카메라 처리 경로(색 보정·반전·회전·확대·이동)를 거친 그림.
+         <video>는 그 아래에서 계속 재생되고(감지·캡처·프레임 감시) 화면에는 보이지 않는다 -->
+    <canvas id="camera-raw" class="effect" hidden></canvas>
+    <!-- 사진 효과 미리보기 (유화 · 획). 영상 위를 덮는다. 효과를 쓸 수 없으면 숨기고 원본 미리보기를 보인다. -->
     <canvas id="effect" class="effect" hidden></canvas>
 
     <!-- ---- 관람객 화면 (7-2 미니멀, ui/guest-screen.js). 문구는 config/guest-text.js.
@@ -262,17 +265,6 @@
           <span class="op-label">처리 해상도<small>결과 크기 대비. 낮추면 미리보기가 결과보다 부드럽다</small></span>
           <input type="range" data-key="previewScale">
           <span class="op-value"><output data-key="previewScale"></output><span class="op-unit">배</span></span>
-        </label>
-      </fieldset>
-      <fieldset class="op-group">
-        <legend>카메라 <small>OBS에서는 반전하지 않는다</small></legend>
-        <label class="op-row">
-          <span class="op-label">좌우 반전<small>거울처럼 보이게. 미리보기·결과 사진·인식 영역 모두 이 값을 따른다</small></span>
-          <select data-key="mirror">
-            <option value="true">켬 (거울처럼)</option>
-            <option value="false">끔 (카메라 그대로)</option>
-          </select>
-          <span class="op-value"><output data-key="mirror"></output></span>
         </label>
       </fieldset>
     </div>

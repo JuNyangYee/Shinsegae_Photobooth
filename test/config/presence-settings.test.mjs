@@ -24,6 +24,8 @@ const defaults = Object.freeze({
   minScore: 0.7,
   presentHoldMs: 500,
   absentGraceMs: 1000,
+  // 카메라 회복 시간 (9-1부터 인식 조절값 파일에 함께 둔다)
+  cameraRecovery: Object.freeze({ retryIntervalMs: 3000, firstFrameTimeoutMs: 5000, stallTimeoutMs: 3000, staffNoticeMs: 30000 }),
 });
 
 const valid = {
@@ -33,6 +35,7 @@ const valid = {
   minScore: 0.75,
   presentHoldMs: 700,
   absentGraceMs: 1500,
+  cameraRecovery: { retryIntervalMs: 5000, firstFrameTimeoutMs: 8000, stallTimeoutMs: 2500, staffNoticeMs: 60000 },
 };
 
 function memoryStorage(initial = {}) {
@@ -48,6 +51,49 @@ function memoryStorage(initial = {}) {
 function insideStage(region) {
   return region.x >= 0 && region.y >= 0 && region.x + region.width <= 1 + 1e-12 && region.y + region.height <= 1 + 1e-12;
 }
+
+describe('카메라 회복 시간 cameraRecovery (9-1, 인식 조절값 파일에 함께)', () => {
+  it('기본값은 config.presence.cameraRecovery(사용자 확정 2026-10-15 값)이고 정규화해도 그대로다', () => {
+    assert.deepEqual({ ...config.presence.cameraRecovery }, { retryIntervalMs: 3000, firstFrameTimeoutMs: 5000, stallTimeoutMs: 3000, staffNoticeMs: 30000 });
+    const { settings, issues } = normalizePresenceSettings(config.presence, config.presence);
+    assert.deepEqual(settings.cameraRecovery, config.presence.cameraRecovery);
+    assert.deepEqual(issues, []);
+  });
+
+  it('키가 없는 예전 파일은 기본값으로 채우고 알리지 않는다', () => {
+    const { cameraRecovery, ...old } = valid;
+    const { settings, issues } = normalizePresenceSettings(old, defaults);
+    assert.deepEqual(settings.cameraRecovery, defaults.cameraRecovery);
+    assert.deepEqual(issues, []);
+    assert.ok(cameraRecovery);
+  });
+
+  it('형식이 틀리면 기본값, 항목이 틀리거나 없으면 그 항목만 기본값, 범위 밖은 범위로·정수로 (알린다)', () => {
+    assert.deepEqual(normalizePresenceSettings({ ...valid, cameraRecovery: 'x' }, defaults).issues, ['cameraRecovery: invalid -> default']);
+    const { settings, issues } = normalizePresenceSettings({
+      ...valid, cameraRecovery: { retryIntervalMs: 100, firstFrameTimeoutMs: 'slow', stallTimeoutMs: 99999, staffNoticeMs: 45000.4 },
+    }, defaults);
+    assert.deepEqual(settings.cameraRecovery, { retryIntervalMs: 1000, firstFrameTimeoutMs: 5000, stallTimeoutMs: 10000, staffNoticeMs: 45000 });
+    assert.deepEqual(issues, [
+      'cameraRecovery.retryIntervalMs: 100 -> 1000', 'cameraRecovery.firstFrameTimeoutMs: not a number -> default',
+      'cameraRecovery.stallTimeoutMs: 99999 -> 10000', 'cameraRecovery.staffNoticeMs: 45000.4 -> 45000',
+    ]);
+  });
+
+  it('범위: 재시도 1~30초, 첫 프레임 2~30초, 정지 판정 1~10초(촬영 직전 정지 화면 검사 0.5초보다 길다), 직원 문의 5~300초. 기본값은 범위 안', () => {
+    const r = presenceLimits.cameraRecovery;
+    assert.deepEqual([r.retryIntervalMs.min, r.retryIntervalMs.max, r.firstFrameTimeoutMs.min, r.firstFrameTimeoutMs.max,
+      r.stallTimeoutMs.min, r.stallTimeoutMs.max, r.staffNoticeMs.min, r.staffNoticeMs.max], [1000, 30000, 2000, 30000, 1000, 10000, 5000, 300000]);
+    assert.ok(r.stallTimeoutMs.min > config.capture.maxFrameAgeMs);
+    for (const [key, value] of Object.entries(config.presence.cameraRecovery)) assert.ok(value >= r[key].min && value <= r[key].max, key);
+  });
+
+  it('저장 형식에 들어가고 그대로 다시 읽는다', () => {
+    const text = serializePresenceSettings(normalizePresenceSettings(valid, defaults).settings);
+    assert.deepEqual(JSON.parse(text).settings.cameraRecovery, valid.cameraRecovery);
+    assert.deepEqual(parseStoredPresenceSettings(text, defaults).settings.cameraRecovery, valid.cameraRecovery);
+  });
+});
 
 describe('판정 시간 기본값·범위 (사용자 결정 2026-10-27)', () => {
   it('기본값은 인식·이탈 모두 250ms이고, 정규화해도 그대로다', () => {

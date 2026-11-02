@@ -1,27 +1,16 @@
-// 한 장 캡처: 미리보기에 보이는 9:16 영역을 원본 해상도로 잘라 (반전이 켜져 있으면) 좌우 반전하고, 결과 이미지(Object URL)로 만든다.
-// 반전 여부는 셔터 순간(프레임을 잡는 순간) getMirror()로 읽는다 (E 화면 "카메라"에서 바뀔 수 있다).
+// 한 장 캡처: 미리보기에 보이는 9:16 영역을 카메라 처리 경로(camera-frame.js: 색 보정·반전·회전·확대·이동, 9-1)로 원본 해상도에 그려
+// 결과 이미지(Object URL)로 만든다. 카메라 설정은 셔터 순간(프레임을 잡는 순간)의 값이다(운영자 화면에서 바뀔 수 있다).
 // 이미지는 메모리에만 둔다. 파일·영구 저장소·서버에 저장하지 않는다. 다 쓴 사진은 release()로 정리한다.
 // 감열지·회색조 유화 출력이면 사진에 인쇄 데이터(print: 1비트 래스터·PNG)가 함께 붙는다 (6-1·8단계, effect/photo-effect.js).
 // 인쇄 연동 때 넘길 데이터다. dots는 화면용 사진이 1비트 점 그림(감열지)이라는 표시로, 결과 화면이 화소 1:1로 놓는 데 쓴다.
 // Node 테스트: test/camera/capture.test.mjs
 
-import { computeCoverMapping } from '../core/presence.js';
-
 /**
- * 미리보기(object-fit: cover, 가운데 기준)에 보이는 영상 영역을 영상 픽셀 좌표로 돌려준다.
- * 판정 좌표 변환(computeCoverMapping)과 같은 계산을 쓴다. 영상이 없으면 null.
+ * 캡처 크기: 화면 영역이 덮는 원본 화소 수 (core/camera-view.js view.visibleWidthPx·visibleHeightPx를 반올림).
+ * 변환이 없으면 지금까지의 cover 크롭과 같다 (OBS 1080x1920 → 1080x1920, 가로 1920x1080 → 608x1080). 확대하면 그만큼 작아진다.
  */
-export function computeCaptureCrop({ videoWidth, videoHeight, stageAspect }) {
-  const mapping = computeCoverMapping({ videoWidth, videoHeight, stageAspect, mirror: false });
-  if (mapping === null) return null;
-  const width = Math.max(1, Math.round(mapping.visibleWidth * videoWidth));
-  const height = Math.max(1, Math.round(mapping.visibleHeight * videoHeight));
-  return Object.freeze({
-    x: Math.round((videoWidth - width) / 2),
-    y: Math.round((videoHeight - height) / 2),
-    width,
-    height,
-  });
+export function captureSizeFor(view) {
+  return Object.freeze({ width: Math.max(1, Math.round(view.visibleWidthPx)), height: Math.max(1, Math.round(view.visibleHeightPx)) });
 }
 
 /**
@@ -42,15 +31,15 @@ function abortError(signal) {
 }
 
 /**
- * @param {{ video: HTMLVideoElement, stageAspect: number, getMirror: () => boolean, type: string, quality: number,
+ * @param {{ video: HTMLVideoElement, frame: { getSettings: Function, getView: Function, draw: Function }, type: string, quality: number,
  *   maxFrameAgeMs: number, getFrameInfo: () => { at: number | null, count: number },
  *   effect?: typeof applyPhotoEffect,
  *   createCanvas?: () => HTMLCanvasElement, urls?: { createObjectURL: Function, revokeObjectURL: Function },
  *   now?: () => number }} options
- *   getMirror: 지금 좌우 반전 값 (셔터 순간 읽는다). getFrameInfo: 카메라 감시가 받은 마지막 새 프레임 시각(now() 기준)과 누적 수
+ *   frame: 카메라 처리 경로 (camera-frame.js, 셔터 순간의 설정으로 그린다). getFrameInfo: 카메라 감시가 받은 마지막 새 프레임 시각(now() 기준)과 누적 수
  */
 export function createCapture({
-  video, stageAspect, getMirror, type, quality, maxFrameAgeMs, getFrameInfo,
+  video, frame, type, quality, maxFrameAgeMs, getFrameInfo,
   effect = applyPhotoEffect,
   createCanvas = () => document.createElement('canvas'), urls = URL, now = () => performance.now(),
 }) {
@@ -81,28 +70,29 @@ export function createCapture({
 
   // 호출한 순간의 프레임을 동기로 잡는다.
   function grabFrame() {
-    const crop = computeCaptureCrop({ videoWidth: video.videoWidth, videoHeight: video.videoHeight, stageAspect });
-    if (crop === null) throw new Error('video has no frame');
-    const mirror = Boolean(getMirror());
+    const settings = frame.getSettings(); // 셔터 순간의 카메라 설정 (draw도 같은 값으로 그린다)
+    const view = frame.getView(video.videoWidth, video.videoHeight);
+    if (view === null) throw new Error('video has no frame');
+    const size = captureSizeFor(view);
     const canvas = createCanvas();
     liveCanvases.add(canvas);
     // 만든 직후부터 어느 단계에서 실패해도 캔버스를 비운다.
     try {
-      canvas.width = crop.width;
-      canvas.height = crop.height;
+      canvas.width = size.width;
+      canvas.height = size.height;
       const context = canvas.getContext('2d', { alpha: false });
       if (!context) throw new Error('2d context unavailable');
-      if (mirror) {
-        // 미리보기의 scaleX(-1)과 같은 반전
-        context.translate(crop.width, 0);
-        context.scale(-1, 1);
-      }
-      context.drawImage(video, crop.x, crop.y, crop.width, crop.height, 0, 0, crop.width, crop.height);
+      // 원본 미리보기·감지 입력과 같은 함수: 색 보정 + 반전·회전·확대·이동
+      frame.draw(context, video, size.width, size.height);
     } catch (error) {
       freeCanvas(canvas);
       throw error;
     }
-    return { canvas, crop, mirror, source: `${video.videoWidth}x${video.videoHeight}` };
+    const used = Object.freeze({
+      mirror: settings.mirror, rotation: view.rotation, zoom: view.zoom, autoZoom: view.autoZoom,
+      color: frame.getFilter?.() !== undefined && frame.getFilter() !== 'none',
+    });
+    return { canvas, view: used, mirror: settings.mirror, source: `${video.videoWidth}x${video.videoHeight}` };
   }
 
   /**
@@ -151,7 +141,7 @@ export function createCapture({
   // 효과 단계 결과: 캔버스 하나, 또는 { canvas, type, quality, print }
   const outputCanvas = (result) => (result && typeof result === 'object' && 'canvas' in result ? result.canvas : result);
 
-  async function finish({ canvas, crop, mirror, source }, grabMs, signal) {
+  async function finish({ canvas, view, mirror, source }, grabMs, signal) {
     let output = canvas;
     try {
       // 캡처 이미지 → (사진 효과) → 결과 표시
@@ -173,7 +163,7 @@ export function createCapture({
         width: output.width,
         height: output.height,
         source,
-        crop,
+        view,
         mirror,
         bytes: blob.size,
         type: blob.type,

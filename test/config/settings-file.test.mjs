@@ -1,7 +1,8 @@
 // 실행: npm test
 import assert from 'node:assert/strict';
 import { config } from '../../src/web/config/config.js';
-import { loadInitialEffectSettings } from '../../src/web/config/settings-file.js';
+import { normalizeCameraSettings, serializeCameraSettings } from '../../src/web/config/camera-settings.js';
+import { loadInitialCameraSettings, loadInitialEffectSettings } from '../../src/web/config/settings-file.js';
 import { describe, it } from 'node:test';
 
 import { PRESENCE_STORAGE_KEY, serializePresenceSettings } from '../../src/web/config/presence-settings.js';
@@ -11,9 +12,11 @@ import { fakeClock, flush } from '../helpers.mjs';
 const defaults = Object.freeze({
   region: Object.freeze({ x: 0.1, y: 0.1, width: 0.8, height: 0.8 }),
   minFaceHeight: 0.05, maxFaceHeight: 0.6, minScore: 0.7, presentHoldMs: 500, absentGraceMs: 1000,
+  // 카메라 회복 시간 (9-1부터 인식 조절값 파일에 함께 둔다)
+  cameraRecovery: Object.freeze({ retryIntervalMs: 3000, firstFrameTimeoutMs: 5000, stallTimeoutMs: 3000, staffNoticeMs: 30000 }),
 });
 const fileValue = { region: { x: 0.2, y: 0.2, width: 0.6, height: 0.6 }, minFaceHeight: 0.1, maxFaceHeight: 0.5,
-  minScore: 0.8, presentHoldMs: 700, absentGraceMs: 1200 };
+  minScore: 0.8, presentHoldMs: 700, absentGraceMs: 1200, cameraRecovery: { ...defaults.cameraRecovery } };
 const localValue = { ...fileValue, minScore: 0.9 };
 
 function memoryStorage(initial = {}) {
@@ -241,5 +244,83 @@ describe('loadInitialEffectSettings (효과 조절값, 5-2): 파일 → 기본�
     const invalid = await loadInitialEffectSettings({ file: file(async () => ({ found: true, text: '{' })), defaults: config.effect });
     assert.equal(invalid.note, 'file is invalid');
     assert.match(invalid.issues[0], /not valid JSON/);
+  });
+});
+
+describe('loadInitialCameraSettings (카메라 설정, 9-1): 카메라 파일 → 효과 파일의 좌우 반전 옮기기 → 기본값', () => {
+  const effectWith = (mirror) => JSON.stringify({ version: 1, settings: { strength: 0.2, fps: 10, ...(mirror === undefined ? {} : { mirror }) } }, null, 2);
+
+  it('카메라 파일이 있으면 그 값 (효과 파일은 읽지도 고치지도 않는다)', async () => {
+    const settings = normalizeCameraSettings({ ...config.camera, rotation: 90, mirror: false }, config.camera).settings;
+    const file = fakeFile({ text: serializeCameraSettings(settings) });
+    const effectFile = fakeFile({ text: effectWith(true) });
+    const r = await loadInitialCameraSettings({ file, effectFile, defaults: config.camera });
+    assert.equal(r.source, SettingsSource.FILE);
+    assert.deepEqual([r.settings.rotation, r.settings.mirror], [90, false]);
+    assert.deepEqual([effectFile.reads, effectFile.writes.length, file.writes.length], [0, 0, 0]);
+  });
+
+  it('카메라 파일이 없고 효과 파일에 반전이 있으면: 카메라 파일로 옮기고(다시 읽어 확인) 효과 파일에서는 그 키만 뺀다', async () => {
+    const file = fakeFile();
+    const effectFile = fakeFile({ text: effectWith(false) });
+    const r = await loadInitialCameraSettings({ file, effectFile, defaults: config.camera });
+    assert.equal(r.source, SettingsSource.MIGRATED);
+    assert.equal(r.note, 'mirror off from effect file (removed from effect file)');
+    assert.equal(r.settings.mirror, false);
+    assert.deepEqual(file.writes, [serializeCameraSettings(r.settings)]);
+    assert.equal(file.reads, 2);
+    assert.deepEqual(JSON.parse(effectFile.text), { version: 1, settings: { strength: 0.2, fps: 10 } });
+    // 다음 시작은 카메라 파일에서, 효과 파일을 다시 보지 않는다
+    const next = await loadInitialCameraSettings({ file, effectFile, defaults: config.camera });
+    assert.deepEqual([next.source, next.settings.mirror, effectFile.writes.length], [SettingsSource.FILE, false, 1]);
+  });
+
+  it('카메라 파일을 지워도(초기화) 옛 반전이 다시 옮겨지지 않는다 (효과 파일에서 뺐으므로)', async () => {
+    const file = fakeFile();
+    const effectFile = fakeFile({ text: effectWith(false) });
+    await loadInitialCameraSettings({ file, effectFile, defaults: config.camera });
+    file.text = null; // 운영자가 camera.local.json을 지움
+    const r = await loadInitialCameraSettings({ file, effectFile, defaults: config.camera });
+    assert.deepEqual([r.source, r.note, r.settings.mirror], [SettingsSource.DEFAULTS, 'no file', true]);
+  });
+
+  it('카메라 파일 쓰기가 실패하면 이번엔 옮긴 값을 쓰고 효과 파일은 그대로 (다음 시작에 다시 옮긴다)', async () => {
+    const effectFile = fakeFile({ text: effectWith(false) });
+    const r = await loadInitialCameraSettings({ file: fakeFile({ failWrite: 'HTTP 500' }), effectFile, defaults: config.camera });
+    assert.equal(r.source, SettingsSource.EFFECT_FILE_ONLY);
+    assert.match(r.note, /migration to camera file failed: HTTP 500/);
+    assert.equal(r.settings.mirror, false);
+    assert.equal(effectFile.writes.length, 0);
+  });
+
+  it('효과 파일에서 키를 빼지 못해도 옮긴 것으로 본다 (카메라 파일이 있으니 다시 옮기지 않는다)', async () => {
+    const r = await loadInitialCameraSettings({ file: fakeFile(), effectFile: fakeFile({ text: effectWith(true), failWrite: 'HTTP 413' }), defaults: config.camera });
+    assert.equal(r.source, SettingsSource.MIGRATED);
+    assert.equal(r.note, 'mirror on from effect file (not removed from effect file: HTTP 413)');
+  });
+
+  it('둘 다 없거나 효과 파일에 반전이 없으면 기본값 (no file), 아무것도 쓰지 않는다', async () => {
+    for (const effectFile of [fakeFile(), fakeFile({ text: effectWith(undefined) }), fakeFile({ text: '{broken' })]) {
+      const file = fakeFile();
+      const r = await loadInitialCameraSettings({ file, effectFile, defaults: config.camera });
+      assert.deepEqual([r.source, r.note, r.settings.mirror], [SettingsSource.DEFAULTS, 'no file', true]);
+      assert.deepEqual([file.writes.length, effectFile.writes.length], [0, 0]);
+    }
+  });
+
+  it('카메라 파일 읽기 실패면 기본값이고 옮기지 않는다 (파일이 있는데 못 읽었을 수 있다). 효과 파일 읽기 실패도 기본값', async () => {
+    const effectFile = fakeFile({ text: effectWith(false) });
+    const r = await loadInitialCameraSettings({ file: fakeFile({ failRead: 'timeout 3000ms' }), effectFile, defaults: config.camera });
+    assert.deepEqual([r.source, r.note, effectFile.reads], [SettingsSource.DEFAULTS, 'file read failed: timeout 3000ms', 0]);
+    const e = await loadInitialCameraSettings({ file: fakeFile(), effectFile: fakeFile({ failRead: 'HTTP 500' }), defaults: config.camera });
+    assert.deepEqual([e.source, e.note], [SettingsSource.DEFAULTS, 'no file; effect file read failed: HTTP 500']);
+  });
+
+  it('카메라 파일 형식이 틀리면 기본값 (file is invalid), 값 일부가 틀리면 고쳐 쓰고 알린다', async () => {
+    const invalid = await loadInitialCameraSettings({ file: fakeFile({ text: '{' }), effectFile: fakeFile(), defaults: config.camera });
+    assert.deepEqual([invalid.source, invalid.note], [SettingsSource.DEFAULTS, 'file is invalid']);
+    const text = JSON.stringify({ version: 1, settings: { ...config.camera, zoom: 9 } });
+    const adjusted = await loadInitialCameraSettings({ file: fakeFile({ text }), effectFile: fakeFile(), defaults: config.camera });
+    assert.deepEqual([adjusted.source, adjusted.settings.zoom, adjusted.issues], [SettingsSource.FILE, 4, ['zoom: 9 -> 4']]);
   });
 });

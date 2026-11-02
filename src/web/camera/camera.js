@@ -44,6 +44,44 @@ export function findByLabel(devices, label) {
   return devices.find((device) => device.label.toLowerCase().includes(wanted)) ?? null;
 }
 
+/** 라벨이 정확히 같은 장치 (앞뒤 공백·대소문자 무시). 같은 라벨이 둘이면 앞의 것 */
+export function findExactLabel(devices, label) {
+  const wanted = (label ?? '').trim().toLowerCase();
+  if (!wanted) return null;
+  return devices.find((device) => device.label.trim().toLowerCase() === wanted) ?? null;
+}
+
+/** 장치를 고른 방법. 앞의 것이 우선 (대신 연결된 뒤 더 우선인 장치가 나타나면 바꾼다) */
+export const CameraSelection = Object.freeze({ DEVICE: 'device', PREFERRED: 'preferred', DEFAULT: 'default' });
+const selectionRank = { device: 2, preferred: 1, default: 0 };
+export const selectionPriority = (selection) => selectionRank[selection] ?? 0;
+
+/**
+ * 쓸 장치를 고른다: 카메라 설정의 장치 라벨(정확히 같음) → 우선 라벨(포함, OBS) → 기본 카메라(null).
+ * deviceId는 다시 연결·재부팅 때 바뀔 수 있어 라벨로 고른다.
+ * @returns {{ device: MediaDeviceInfo | null, selection: string }}
+ */
+export function pickCamera(devices, { deviceLabel = '', preferredLabel = '' } = {}) {
+  const exact = findExactLabel(devices, deviceLabel);
+  if (exact) return { device: exact, selection: CameraSelection.DEVICE };
+  const preferred = findByLabel(devices, preferredLabel);
+  if (preferred) return { device: preferred, selection: CameraSelection.PREFERRED };
+  return { device: null, selection: CameraSelection.DEFAULT };
+}
+
+/** 트랙이 지원하는 가로·세로·fps 범위 (getCapabilities가 없으면 null). 운영자 화면에 보이는 정보 */
+export function trackCapabilities(track) {
+  let caps;
+  try {
+    caps = track?.getCapabilities?.();
+  } catch {
+    return null;
+  }
+  if (!caps) return null;
+  const range = (r) => (r && Number.isFinite(r.max) ? { min: r.min ?? 0, max: r.max } : null);
+  return { width: range(caps.width), height: range(caps.height), frameRate: range(caps.frameRate) };
+}
+
 function openStream(deviceId, idealResolution) {
   // 해상도는 ideal로만 요청한다. exact·min은 장치가 지원하지 않으면 실패하므로 쓰지 않는다.
   const video = {};
@@ -60,12 +98,11 @@ export function stopStream(stream) {
 }
 
 /**
- * 우선 라벨과 일치하는 카메라를 열고, 없으면 기본 카메라를 연다.
- * 실패하면 CameraError(kind)를 던진다.
- * @returns {Promise<{stream: MediaStream, label: string, deviceId: string,
- *   preferredFound: boolean, settings: MediaTrackSettings}>}
+ * 고른 카메라(pickCamera: 장치 라벨 → 우선 라벨 → 기본)를 연다. 실패하면 CameraError(kind)를 던진다.
+ * @returns {Promise<{stream: MediaStream, label: string, deviceId: string, selection: string,
+ *   preferredFound: boolean, settings: MediaTrackSettings, capabilities: object | null}>}
  */
-export async function startCamera({ preferredLabel = '', idealResolution = null } = {}) {
+export async function startCamera({ deviceLabel = '', preferredLabel = '', idealResolution = null } = {}) {
   if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
     throw new CameraError(CameraErrorKind.UNSUPPORTED);
   }
@@ -81,13 +118,13 @@ export async function startCamera({ preferredLabel = '', idealResolution = null 
       devices = await listVideoInputs();
     }
 
-    const preferred = findByLabel(devices, preferredLabel);
+    const { device, selection } = pickCamera(devices, { deviceLabel, preferredLabel });
     const currentId = stream?.getVideoTracks()[0]?.getSettings().deviceId;
 
     // 권한 확인용으로 연 스트림이 원하는 장치면 그대로 쓴다.
-    if (!stream || (preferred && preferred.deviceId !== currentId)) {
+    if (!stream || (device && device.deviceId !== currentId)) {
       stopStream(stream);
-      stream = await openStream(preferred?.deviceId ?? null, idealResolution);
+      stream = await openStream(device?.deviceId ?? null, idealResolution);
     }
 
     const track = stream.getVideoTracks()[0];
@@ -96,8 +133,10 @@ export async function startCamera({ preferredLabel = '', idealResolution = null 
       stream,
       label: track.label,
       deviceId: settings.deviceId ?? '',
-      preferredFound: Boolean(preferred),
+      selection,
+      preferredFound: selection !== CameraSelection.DEFAULT,
       settings,
+      capabilities: trackCapabilities(track),
     };
   } catch (error) {
     stopStream(stream);

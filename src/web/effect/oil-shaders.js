@@ -8,7 +8,8 @@
 //   구조 텐서(Sobel → 가우스 흐림 → 고유벡터)로 획 방향장. hash12는 Dave Hoskins "Hash without Sine"(MIT)과 같은 식이다.
 //
 // 원본과 다른 점 (기준 해상도 s = 1, 반전·크롭 없음이면 계산이 같다):
-// - FS_GRADE: 소스를 uSrcOffset + vUV * uSrcScale로 읽는다 (9:16 cover 크롭과 좌우 반전. 원본은 vUV 그대로)
+// - FS_GRADE: 소스를 카메라 처리 경로(CAMERA_INPUT: 9:16 cover 크롭·반전·회전·확대·이동 아핀 + 카메라 색 보정, 9-1)로 읽는다
+//   (원본은 vUV 그대로. 변환·색 보정이 없으면 계산이 같다)
 // - FS_UNDER: 밑칠 밉 단계 4.5를 uUnderLod로 받는다 (해상도 비례로 + log2(s))
 // - FS_STROKE: 붓털 무늬 주기를 uBrisLen·uBrisWid(기준 해상도 값)로 받는다 (원본은 uLen·uWid)
 // - FS_COMPOSE: 법선 세기를 uRelief(= 강도 × s)로, 캔버스 결 주기를 px / uPxScale로 계산한다
@@ -31,22 +32,38 @@ uniform vec2 uRes; uniform vec2 uTexel;
 float lum(vec3 c){ return dot(c, vec3(.299,.587,.114)); }
 `;
 
+// 카메라 처리 경로 (9-1, 원본에 없음): 카메라 원본을 화면 영역으로 읽는다. 감지·캡처·원본 미리보기의 2D 캔버스(camera/camera-frame.js)와
+// 같은 값(core/camera-view.js)을 쓴다: 좌표는 출력 uv(왼쪽 아래 원점) → 소스 uv 아핀 tex = (dot(uSrcX, p), dot(uSrcY, p)), p = (uv, 1)
+// (shaderSourceAffine), 색은 c' = clamp(uCamM·c + uCamB, 0, 1) ^ uCamExp (shaderColorUniforms, SVG feColorMatrix → gamma와 같은 식).
+// 변환·색 보정이 없으면 uSrcX (1,0,0)·uSrcY (0,1,0)·단위 행렬·0·1이라 값이 그대로다(거듭제곱은 지수가 1이 아닐 때만).
+// 회전·이동으로 생길 빈 영역은 확대를 키워 없애므로(core/camera-view.js) 소스 밖을 읽지 않는다.
+const CAMERA_INPUT = `
+uniform vec3 uSrcX, uSrcY; uniform mat3 uCamM; uniform vec3 uCamB; uniform float uCamExp;
+vec3 cameraInput(sampler2D s){
+  vec3 p = vec3(vUV, 1.);
+  vec3 c = texture(s, vec2(dot(uSrcX, p), dot(uSrcY, p))).rgb;
+  c = clamp(uCamM*c + uCamB, 0., 1.);
+  if (uCamExp != 1.) c = pow(c, vec3(uCamExp));
+  return c;
+}
+`;
+
 // 입력 회색조 (8단계 회색조 유화, 원본에 없음): 유화 첫 패스(색 보정) 앞에서 카메라 프레임을 단순 흑백 한 장으로 만든다.
-// 보이는 9:16 영역을 좌우 반전해 읽는 좌표는 FS_GRADE와 같고, 결과는 그리는 해상도의 RGBA8(R=G=B)이다.
-// 그 뒤 FS_GRADE는 이 그림을 크롭·반전 없이(오프셋 0, 배율 1) 텍셀 가운데에서 읽으므로, 회색 이미지를 원본 페이지에 넣은 것과 같다.
+// 카메라 처리 경로(CAMERA_INPUT)로 읽는 것은 FS_GRADE와 같고, 결과는 그리는 해상도의 RGBA8(R=G=B)이다.
+// 그 뒤 FS_GRADE는 이 그림을 변환 없이(단위 아핀·단위 색) 텍셀 가운데에서 읽으므로, 회색 이미지를 원본 페이지에 넣은 것과 같다.
 // 계수 uLuma는 core/thermal.js INPUT_LUMA (Rec.709)
-export const FS_INPUT_GRAY = COMMON + `
-uniform sampler2D uSrc; uniform vec3 uLuma; uniform vec2 uSrcOffset, uSrcScale;
+export const FS_INPUT_GRAY = COMMON + CAMERA_INPUT + `
+uniform sampler2D uSrc; uniform vec3 uLuma;
 void main(){
-  float y = dot(texture(uSrc, uSrcOffset + vUV*uSrcScale).rgb, uLuma);
+  float y = dot(cameraInput(uSrc), uLuma);
   o = vec4(vec3(y), 1.);
 }`;
 
 // 색 보정: 따뜻한 쪽으로 조금, 밝은 곳 압축, 아주 약한 갈색 섞기
-export const FS_GRADE = COMMON + `
-uniform sampler2D uSrc; uniform float uAmt; uniform vec2 uSrcOffset, uSrcScale;
+export const FS_GRADE = COMMON + CAMERA_INPUT + `
+uniform sampler2D uSrc; uniform float uAmt;
 void main(){
-  vec3 c = texture(uSrc, uSrcOffset + vUV*uSrcScale).rgb;
+  vec3 c = cameraInput(uSrc);
   vec3 g = c*vec3(1.035,1.0,0.94);
   float l = lum(g); g = mix(vec3(l), g, 1.0);
   float k = 0.08; g = g*(1.+k)/(1.+k*g);

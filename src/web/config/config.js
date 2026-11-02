@@ -11,12 +11,33 @@ export const config = Object.freeze({
   // 현장 최대(4K 세로)로 두어 OBS 출력(FHD~4K 세로)을 그대로 받고, 낮은 기본값으로 떨어지는 것을 막는다.
   idealResolution: Object.freeze({ width: 2160, height: 3840 }),
 
-  // 카메라 준비·끊김·회복 시간 (단위 ms, 사용자 확정 2026-10-15)
-  cameraRecovery: Object.freeze({
-    retryIntervalMs: 3000, // 실패·끊김 뒤 다시 시도하는 간격
-    firstFrameTimeoutMs: 5000, // 스트림을 얻은 뒤 첫 프레임을 기다리는 시간
-    stallTimeoutMs: 3000, // 새 프레임이 이 시간 동안 없으면 끊김으로 본다
-    staffNoticeMs: 30000, // 준비되지 않은 상태가 이 시간 이상 이어지면 직원 문의 문구로 바꾼다
+  // 카메라 설정 기본값 (9-1). 카메라 원본 자체를 고치는 값이라 감지·미리보기·결과·인쇄에 모두 같게 적용된다.
+  // 운영자가 저장한 값(config/camera.local.json)이 있으면 그 값이다. 범위·정규화는 config/camera-settings.js, 계산은 core/camera-view.js
+  camera: Object.freeze({
+    deviceLabel: '', // 쓸 카메라의 라벨 (deviceId는 바뀔 수 있어 라벨로 저장). 비우거나 그 라벨이 없으면 preferredCameraLabel 규칙
+    resolution: 'auto', // 'auto'(idealResolution) 또는 카메라 기준 '가로x세로' 프리셋. ideal로만 요청한다
+    // 색 보정 (중립값)
+    brightness: 0,
+    contrast: 1,
+    saturation: 1,
+    gamma: 1,
+    temperature: 0,
+    tint: 0,
+    // 좌우 반전 (거울). 미리보기와 결과 사진 모두. 반전은 웹에서만 하고 OBS에서는 하지 않는다.
+    // 2026-10-26부터 효과 조절값의 mirror였고 9-1에서 카메라 설정으로 옮겼다 (예전 effect.local.json 값은 처음 읽을 때 옮긴다)
+    mirror: true,
+    rotation: 0, // 90° 단위 (0·90·180·270), 화면에서 시계 방향
+    rotationFine: 0, // 미세 회전 (도)
+    zoom: 1, // cover 크롭 위에 곱하는 확대 (1 이상). 회전·이동으로 빈 영역이 생기면 자동으로 더 키운다
+    panX: 0, // 화면 폭 대비 가로 이동
+    panY: 0, // 화면 높이 대비 세로 이동
+  }),
+
+  // 카메라 조절값 파일 API (서버 bin/server/serve.ps1 → config/camera.local.json, 9-1).
+  // 카메라를 열기 전에 읽는다. 이 시간 안에 읽지 못하면 기본값으로 연다 (가안)
+  cameraSettingsFile: Object.freeze({
+    url: '/local-api/camera-settings',
+    timeoutMs: 3000,
   }),
 
   // 얼굴 감지기 (MediaPipe Face Detector short-range). 경로는 저장소 lib/ 기준.
@@ -53,6 +74,14 @@ export const config = Object.freeze({
     // 인식·이탈 반응 시간 (사용자 결정 2026-10-27, 로그 2026-10-27-01). 감지 15fps면 약 4프레임
     presentHoldMs: 250, // "있음"이 이만큼 이어져야 인식됨
     absentGraceMs: 250, // "없음"이 이만큼 이어져야 인식 안됨
+    // 카메라 준비·끊김·회복 시간 (단위 ms, 사용자 확정 2026-10-15). 9-1부터 인식 조절값 파일에 함께 저장한다
+    // (운영자 화면 "인식" 묶음에서 조절, 범위는 config/presence-settings.js presenceLimits.cameraRecovery)
+    cameraRecovery: Object.freeze({
+      retryIntervalMs: 3000, // 실패·끊김 뒤 다시 시도하는 간격
+      firstFrameTimeoutMs: 5000, // 스트림을 얻은 뒤 첫 프레임을 기다리는 시간
+      stallTimeoutMs: 3000, // 새 프레임이 이 시간 동안 없으면 끊김으로 본다
+      staffNoticeMs: 30000, // 준비되지 않은 상태가 이 시간 이상 이어지면 직원 문의 문구로 바꾼다
+    }),
   }),
 
   // 인식 표시: 인식되면 관람객 화면 테두리가 따뜻하게 밝아진다 (6-2). 끄면 대기 안내만 보인다
@@ -128,10 +157,6 @@ export const config = Object.freeze({
     bwStyle: 'stroke',
     bwTexture: 1, // 질감 세기: 획 볼록 조명·국소 대비 (0~2, 톤 점에서는 쓰지 않는다)
     lineSpacing: 4, // 선 간격: 흐름 선·붓 결 선의 주기 (인쇄 점, 2~8)
-    // ---- 카메라 ----
-    // 좌우 반전 (거울). 미리보기와 결과 사진 모두. 반전은 웹에서만 하고 OBS에서는 하지 않는다.
-    // 운영자가 E 화면 "카메라"에서 끌 수 있다(효과 조절값 파일에 저장, 2026-10-26). 효과를 끄거나(enabled false) 쓸 수 없어도 이 값을 따른다
-    mirror: true,
   }),
 
   // 감열지 화면 표시 색 (6-1). 화면에서만 쓴다. 인쇄 데이터는 순수 1비트(검은 점·흰 바탕)다. [R, G, B] 0~255

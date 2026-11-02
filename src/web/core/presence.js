@@ -2,9 +2,11 @@
 // 브라우저 API를 쓰지 않는 순수 함수만 둔다. Node 테스트: test/core/presence.test.mjs
 //
 // 좌표 기준 (모두 0~1 정규화, 왼쪽 위 원점)
-// - 영상 좌표: 카메라 프레임 전체 기준, 반전 전. face-detector.js가 돌려주는 값.
+// - 영상 좌표: 감지 입력 기준. face-detector.js가 돌려주는 값.
 // - 화면 좌표: 9:16 영역(#stage) 기준, 관람객이 보는 그대로(cover 크롭·좌우 반전 후).
 //   인식 영역, 최소 얼굴 크기, 개발용 겹쳐 그리기는 모두 화면 좌표를 쓴다.
+// 9-1부터 감지 입력이 카메라 처리 경로(core/camera-view.js)를 거친 화면 영역이라 두 좌표가 같다(STAGE_MAPPING).
+// computeCoverMapping·videoBoxToStage는 변환이 없는 경우의 cover 계산으로 남아 있다(반전·cover 규칙의 기준식).
 
 /**
  * 영상 좌표를 화면 좌표로 바꾸는 값을 만든다.
@@ -25,6 +27,11 @@ export function computeCoverMapping({ videoWidth, videoHeight, stageAspect, mirr
     mirror: Boolean(mirror),
   });
 }
+
+/**
+ * 변환 없음: 감지 입력이 이미 화면 영역(카메라 처리 경로를 거친 9:16, 9-1)일 때. 감지 박스가 곧 화면 좌표다.
+ */
+export const STAGE_MAPPING = Object.freeze({ visibleWidth: 1, visibleHeight: 1, offsetX: 0, offsetY: 0, mirror: false });
 
 /** 영상 좌표의 박스 { x, y, width, height }를 화면 좌표로 바꾼다. */
 export function videoBoxToStage(box, mapping) {

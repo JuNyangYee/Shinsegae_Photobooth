@@ -72,13 +72,9 @@ body {
   object-fit: cover;
 }
 
-/* 좌우 반전은 이 한 곳에서만 한다. */
-.preview.is-mirrored {
-  transform: scaleX(-1);
-}
-
-/* 사진 효과 미리보기. 이미 반전·크롭한 9:16 그림이라 CSS 반전을 걸지 않는다 (effect/effect-preview.js).
-   처리 해상도가 화면보다 작으면 늘려 보인다. */
+/* 사진 효과 미리보기(#effect)와 원본 미리보기(#camera-raw). 둘 다 카메라 처리 경로(색 보정·반전·회전·확대·이동, 9-1)를 거친 9:16 그림이라
+   CSS 반전·크롭을 걸지 않는다 (effect/effect-preview.js, camera/raw-preview.js). 해상도가 화면보다 작으면 늘려 보인다.
+   <video>는 이 둘 아래에 있고 직접 보이지 않는다. */
 .effect {
   position: absolute;
   inset: 0;

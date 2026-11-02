@@ -9,6 +9,7 @@ import { EffectStatus, createEffectPreview } from '../../src/web/effect/effect-p
 import { EffectFault, createOilRenderer } from '../../src/web/effect/oil-renderer.js';
 import { createPhotoEffect } from '../../src/web/effect/photo-effect.js';
 import { INPUT_LUMA } from '../../src/web/core/thermal.js';
+import { cameraColorMatrix, shaderColorUniforms } from '../../src/web/core/camera-view.js';
 import { createFakeWebGL2 } from '../fixtures/fake-webgl2.mjs';
 
 // 5단계 검수 테스트는 컬러 출력(outputMode off) 경로로 본다. 감열지 경로는 아래 6-1 테스트
@@ -499,20 +500,26 @@ describe('oil-renderer: 회색조 유화 (8단계, 가짜 WebGL2)', () => {
     const use = fake.gl.useProgram;
     fake.gl.useProgram = (p) => { passes.push(new Map()); return use(p); };
     for (const name of ['uniform1f', 'uniform2fv', 'uniform3fv']) wrap(name);
+    const matrix = fake.gl.uniformMatrix3fv;
+    fake.gl.uniformMatrix3fv = (loc, transpose, v) => { passes.at(-1)?.set(loc?.name, [transpose, [...v]]); return matrix(loc, transpose, v); };
     return passes;
   }
 
-  it('미리보기: 색 보정 앞에 입력 회색조 패스 하나(Rec.709 계수, 크롭·반전은 이 패스가), 색 보정은 회색 그림을 그대로 읽고, 출력은 회색조', () => {
+  it('미리보기: 색 보정 앞에 입력 회색조 패스 하나(Rec.709 계수, 카메라 처리 경로는 이 패스가), 색 보정은 회색 그림을 그대로 읽고, 출력은 회색조', () => {
     const fake = createFakeWebGL2();
     const passes = recordPasses(fake);
     const renderer = createOilRenderer({ canvas: fake.canvas });
-    const mirror = { sourceOffset: [0.9, 0], sourceScale: [-0.8, 1] };
+    // 카메라 처리 경로 (9-1): 반전 크롭 아핀 + 색 보정 (밝기 0.1·감마 2)
+    const color = shaderColorUniforms(cameraColorMatrix({ ...config.camera, brightness: 0.1, gamma: 2 }));
+    const mirror = { sourceAffine: { x: [-0.8, 0, 0.9], y: [0, 1, 0] }, sourceColor: color };
     renderer.render({}, { ...small, ...mirror, settings: grayOil() });
     const input = passes.find((p) => p.has('uLuma'));
     assert.deepEqual([...input.get('uLuma')], [...INPUT_LUMA]);
-    assert.deepEqual([input.get('uSrcOffset'), input.get('uSrcScale')], [[0.9, 0], [-0.8, 1]]);
+    assert.deepEqual([input.get('uSrcX'), input.get('uSrcY')], [[-0.8, 0, 0.9], [0, 1, 0]]);
+    assert.deepEqual([input.get('uCamM'), input.get('uCamB'), input.get('uCamExp')], [[false, color.uCamM], [0.1, 0.1, 0.1], 0.5]);
     const grade = passes.find((p) => p.has('uAmt'));
-    assert.deepEqual([grade.get('uSrcOffset'), grade.get('uSrcScale'), grade.get('uAmt')], [[0, 0], [1, 1], 1], '원본 색 보정 그대로, 크롭·반전 없이');
+    assert.deepEqual([grade.get('uSrcX'), grade.get('uSrcY'), grade.get('uCamM'), grade.get('uCamB'), grade.get('uCamExp'), grade.get('uAmt')],
+      [[1, 0, 0], [0, 1, 0], [false, [1, 0, 0, 0, 1, 0, 0, 0, 1]], [0, 0, 0], 1, 1], '원본 색 보정 그대로, 변환·카메라 색 보정 없이');
     assert.ok(passes.indexOf(input) < passes.indexOf(grade), '입력 회색조가 색 보정보다 먼저');
     assert.equal(passes.at(-1).get('uGray'), 1, '출력 단계 회색조 (무채색)');
     assert.deepEqual([fake.canvas.width, fake.canvas.height], [20, 36]);
@@ -523,7 +530,8 @@ describe('oil-renderer: 회색조 유화 (8단계, 가짜 WebGL2)', () => {
       passes.length = 0;
       renderer.render({}, { ...small, ...mirror, settings: grayOil({ outputMode, bwStyle: 'tone' }) });
       assert.ok(!passes.some((p) => p.has('uLuma')), outputMode);
-      assert.deepEqual(passes.find((p) => p.has('uAmt')).get('uSrcScale'), [-0.8, 1], outputMode);
+      const grade = passes.find((p) => p.has('uAmt'));
+      assert.deepEqual([grade.get('uSrcX'), grade.get('uCamB')], [[-0.8, 0, 0.9], [0.1, 0.1, 0.1]], outputMode);
     }
     renderer.dispose();
     assert.deepEqual(fake.liveCount(), ZERO, '입력 회색조 텍스처도 지운다');

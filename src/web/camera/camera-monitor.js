@@ -5,8 +5,9 @@
 import {
   CameraError,
   CameraErrorKind,
-  findByLabel,
   listVideoInputs,
+  pickCamera,
+  selectionPriority,
   startCamera,
   stopStream,
 } from './camera.js';
@@ -36,18 +37,24 @@ const STALL_CHECK_INTERVAL_MS = 500;
 
 /**
  * @param {{ video: HTMLVideoElement, preferredLabel: string,
- *   idealResolution: {width: number, height: number},
- *   recovery: {retryIntervalMs: number, firstFrameTimeoutMs: number, stallTimeoutMs: number},
+ *   request?: { deviceLabel: string, idealResolution: {width: number, height: number} },
+ *   recovery: {retryIntervalMs: number, firstFrameTimeoutMs: number, stallTimeoutMs: number} | (() => object),
  *   log?: { warn: Function, clear: Function } }} options  log: 반복 오류 로그 제한 (기본 log-limit.js errorLog)
+ *   request: 카메라 설정의 장치 라벨·해상도 권장값 (9-1). 바뀌면 setRequest()로 다시 연다.
+ *   recovery: 회복 시간. 함수면 쓸 때마다 불러 지금 값을 읽는다 (인식 조절값 파일의 cameraRecovery, 9-1)
  */
-export function createCameraMonitor({ video, preferredLabel, idealResolution, recovery, log = errorLog }) {
+export function createCameraMonitor({ video, preferredLabel, request: initialRequest, recovery, log = errorLog }) {
+  let request = { deviceLabel: initialRequest?.deviceLabel ?? '', idealResolution: initialRequest?.idealResolution ?? null };
+  const timing = () => (typeof recovery === 'function' ? recovery() : recovery);
   const listeners = new Set();
   let state = Object.freeze({
     status: CameraStatus.STARTING,
     reason: '', // 운영자용: 오류 종류 또는 끊김 원인
     errorName: '', // 운영자용: 원본 오류 이름 (NotAllowedError 등)
     label: '',
+    selection: '', // 장치를 고른 방법: device(설정의 라벨)·preferred(OBS 라벨)·default (camera.js CameraSelection)
     preferredFound: false,
+    capabilities: null, // 트랙이 지원하는 가로·세로·fps 범위 (getCapabilities, 없으면 null)
     attempts: 0, // 연결 시도 누적 횟수
     failures: 0, // 마지막 정상 이후 연속 실패 횟수
     lastAttemptAt: null, // Date.now() 값 (사람이 읽는 시각, D 화면 표시용)
@@ -57,7 +64,7 @@ export function createCameraMonitor({ video, preferredLabel, idealResolution, re
   });
 
   let started = false;
-  let current = null; // 현재 연결 { stream, deviceId, preferredFound }
+  let current = null; // 현재 연결 { stream, deviceId, selection }
   let generation = 0; // 연결이 무효화될 때마다 증가. 늦게 끝난 처리·이벤트를 걸러낸다
   let connecting = false;
   let reconnectQueued = false;
@@ -114,11 +121,11 @@ export function createCameraMonitor({ video, preferredLabel, idealResolution, re
 
   function scheduleRetry() {
     clearTimeout(retryTimer);
-    retryTimer = setTimeout(connect, recovery.retryIntervalMs);
+    retryTimer = setTimeout(connect, timing().retryIntervalMs);
   }
 
   // 시도는 한 번에 하나만 진행한다. 진행 중에 요청이 오면 끝난 뒤 한 번 더 시도한다.
-  async function connect() {
+  async function connect(reason = 'reconnect') {
     clearTimeout(retryTimer);
     retryTimer = null;
     if (connecting) {
@@ -131,12 +138,12 @@ export function createCameraMonitor({ video, preferredLabel, idealResolution, re
     const patch = { connecting: true, attempts: state.attempts + 1, lastAttemptAt: Date.now() };
     // 스트림을 정리했으므로 ready였다면 해제하고 구독자에게 알린다.
     if (state.status === CameraStatus.READY) {
-      Object.assign(patch, { status: CameraStatus.STARTING, reason: 'reconnect', errorName: '' });
+      Object.assign(patch, { status: CameraStatus.STARTING, reason, errorName: '' });
     }
     update(patch);
 
     try {
-      const camera = await startCamera({ preferredLabel, idealResolution });
+      const camera = await startCamera({ deviceLabel: request.deviceLabel, preferredLabel, idealResolution: request.idealResolution });
       if (gen !== generation || reconnectQueued) {
         stopStream(camera.stream);
       } else {
@@ -155,7 +162,7 @@ export function createCameraMonitor({ video, preferredLabel, idealResolution, re
   }
 
   async function attach(camera, gen) {
-    current = { stream: camera.stream, deviceId: camera.deviceId, preferredFound: camera.preferredFound };
+    current = { stream: camera.stream, deviceId: camera.deviceId, selection: camera.selection };
     const track = camera.stream.getVideoTracks()[0];
     track.addEventListener('ended', () => {
       if (gen === generation) lose('track-ended');
@@ -182,7 +189,9 @@ export function createCameraMonitor({ video, preferredLabel, idealResolution, re
       reason: '',
       errorName: '',
       label: camera.label,
+      selection: camera.selection,
       preferredFound: camera.preferredFound,
+      capabilities: camera.capabilities,
       failures: 0,
     });
     watchFrames(gen);
@@ -227,7 +236,7 @@ export function createCameraMonitor({ video, preferredLabel, idealResolution, re
         cancelFirstFrameWait = null;
         resolve(ok);
       };
-      const timer = setTimeout(() => finish(false), recovery.firstFrameTimeoutMs);
+      const timer = setTimeout(() => finish(false), timing().firstFrameTimeoutMs);
       cancelFirstFrameWait = () => finish(false);
       const check = () => {
         if (done) return;
@@ -254,7 +263,7 @@ export function createCameraMonitor({ video, preferredLabel, idealResolution, re
         lastFrameAt = performance.now();
         return;
       }
-      if (performance.now() - lastFrameAt > recovery.stallTimeoutMs) lose('frame-stall');
+      if (performance.now() - lastFrameAt > timing().stallTimeoutMs) lose('frame-stall');
     }, STALL_CHECK_INTERVAL_MS);
   }
 
@@ -276,8 +285,9 @@ export function createCameraMonitor({ video, preferredLabel, idealResolution, re
 
     if (!devices.some((device) => device.deviceId === current.deviceId)) {
       lose('device-removed');
-    } else if (!current.preferredFound && findByLabel(devices, preferredLabel)) {
-      // 기본 카메라로 대신 연결된 상태에서 우선 장치(OBS)가 나타나면 전환한다.
+    } else if (selectionPriority(pickCamera(devices, { deviceLabel: request.deviceLabel, preferredLabel }).selection)
+      > selectionPriority(current.selection)) {
+      // 대신 연결된 상태(설정의 장치·OBS가 없어 다른 카메라)에서 더 우선인 장치가 나타나면 전환한다.
       update({ status: CameraStatus.STARTING, reason: 'switch-to-preferred', errorName: '' });
       connect();
     }
@@ -315,6 +325,29 @@ export function createCameraMonitor({ video, preferredLabel, idealResolution, re
 
   return {
     start,
+    /**
+     * 장치 라벨·해상도 권장값을 바꾼다 (카메라 설정, 9-1). 같으면 아무것도 하지 않고, 다르면 시작된 뒤라면 스트림을 다시 연다.
+     * 다시 여는 동안은 ready가 아니므로 진행 중인 카운트다운은 "카메라 준비 해제"로 취소된다(촬영 상태 기계의 기존 규칙).
+     * @returns {boolean} 다시 열었는지
+     */
+    setRequest(next) {
+      const same = (next.deviceLabel ?? '') === request.deviceLabel
+        && next.idealResolution?.width === request.idealResolution?.width && next.idealResolution?.height === request.idealResolution?.height;
+      if (same) return false;
+      request = { deviceLabel: next.deviceLabel ?? '', idealResolution: next.idealResolution ?? null };
+      if (!started || state.status === CameraStatus.UNSUPPORTED) return false;
+      connect('camera-settings');
+      return true;
+    },
+    getRequest: () => request,
+    /**
+     * 카메라 장치 목록 (9-2 운영자 화면용). 권한 전이면 라벨이 비어 있다.
+     * @returns {Promise<{ label: string, deviceId: string, current: boolean }[]>}
+     */
+    async listDevices() {
+      const devices = await listVideoInputs();
+      return devices.map((device) => ({ label: device.label, deviceId: device.deviceId, current: device.deviceId === current?.deviceId }));
+    },
     getState: () => state,
     isReady: () => state.status === CameraStatus.READY,
     /** 마지막 새 프레임 시각(performance.now() 기준, 없으면 null)과 누적 프레임 수. 영상 내용은 내보내지 않는다. */

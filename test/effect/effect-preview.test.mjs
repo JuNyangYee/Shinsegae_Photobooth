@@ -4,7 +4,9 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { config } from '../../src/web/config/config.js';
-import { computeCaptureCrop } from '../../src/web/camera/capture.js';
+import { createCameraFrame } from '../../src/web/camera/camera-frame.js';
+import { captureSizeFor } from '../../src/web/camera/capture.js';
+import { cameraColorMatrix, computeCameraView } from '../../src/web/core/camera-view.js';
 import { EffectStatus, computeEffectView, createEffectPreview } from '../../src/web/effect/effect-preview.js';
 import { EffectError, EffectFault } from '../../src/web/effect/oil-renderer.js';
 
@@ -45,7 +47,12 @@ function fakeRenderer({ failRender = null, failWarm = null } = {}) {
   };
 }
 
-function setup({ ready = true, renderer = fakeRenderer(), createRenderer, settings = config.effect } = {}) {
+const cameraView = (videoWidth, videoHeight, camera = {}) => computeCameraView({
+  videoWidth, videoHeight, stageAspect: STAGE, camera: { ...config.camera, ...camera },
+});
+const neutralColor = cameraColorMatrix(config.camera);
+
+function setup({ ready = true, renderer = fakeRenderer(), createRenderer, settings = config.effect, camera: cameraSettings = {} } = {}) {
   let time = 10000;
   let queued = null;
   const camera = { ready, isReady: () => camera.ready };
@@ -55,8 +62,10 @@ function setup({ ready = true, renderer = fakeRenderer(), createRenderer, settin
   let changes = 0;
   const idles = []; // requestIdleCallback 흉내: 번호 = 순번 + 1, 취소하면 null
   let lastIdle = 0;
+  // 카메라 처리 경로 (9-1): 실제 camera-frame.js (문서 없음 → 색 보정 SVG 필터는 만들지 않는다)
+  const frame = createCameraFrame({ doc: {}, stageAspect: STAGE, settings: { ...config.camera, ...cameraSettings } });
   const preview = createEffectPreview({
-    canvas, video, camera, stageAspect: STAGE, settings,
+    canvas, video, camera, stageAspect: STAGE, settings, cameraFrame: frame,
     createRenderer: createRenderer ?? (() => renderer),
     raf: (fn) => { queued = fn; return 1; },
     cancelRaf: () => { queued = null; },
@@ -67,7 +76,9 @@ function setup({ ready = true, renderer = fakeRenderer(), createRenderer, settin
     cancelIdle: (id) => { idles[id - 1] = null; },
   });
   return {
-    preview, camera, video, canvas, renderer, warnings,
+    preview, camera, video, canvas, renderer, warnings, frame,
+    /** 카메라 설정 일부를 바꾼다 (운영자 화면 흉내) */
+    setCamera(patch) { frame.setSettings({ ...frame.getSettings(), ...patch }); },
     changes: () => changes,
     /** 아직 돌지 않은 idle 호출 수 */
     pendingIdle: () => idles.slice(lastIdle).filter(Boolean).length,
@@ -91,36 +102,64 @@ function setup({ ready = true, renderer = fakeRenderer(), createRenderer, settin
   };
 }
 
-describe('computeEffectView', () => {
-  it('9:16 영상 + 반전: 전체를 좌우로 뒤집어 읽는다 (uv 왼쪽 아래 원점). 미리보기 = 결과 × 배율', () => {
-    const view = computeEffectView({ videoWidth: 1080, videoHeight: 1920, stageAspect: STAGE, mirror: true, previewScale: 0.5 });
-    assert.deepEqual(view, { width: 540, height: 960, resultWidth: 1080, resultHeight: 1920, sourceOffset: [1, 0], sourceScale: [-1, 1] });
+describe('computeEffectView (카메라 처리 경로 위)', () => {
+  const identity = { uCamM: [1, 0, 0, 0, 1, 0, 0, 0, 1], uCamB: [0, 0, 0], uCamExp: 1 };
+
+  it('9:16 영상 + 반전: 전체를 좌우로 뒤집어 읽는다 (uv 왼쪽 아래 원점, 예전 sourceOffset [1, 0]·sourceScale [-1, 1]). 미리보기 = 결과 × 배율', () => {
+    const view = computeEffectView({ cameraView: cameraView(1080, 1920, { mirror: true }), color: neutralColor, previewScale: 0.5 });
+    assert.deepEqual(view, {
+      width: 540, height: 960, resultWidth: 1080, resultHeight: 1920, sourceAffine: { x: [-1, 0, 1], y: [0, 1, 0] }, sourceColor: identity,
+    });
   });
 
   it('반전 없음, 4K 입력: 결과는 1080x1920으로 줄인다 (짧은 변 1080)', () => {
-    const view = computeEffectView({ videoWidth: 2160, videoHeight: 3840, stageAspect: STAGE, mirror: false, previewScale: 1 });
-    assert.deepEqual(view, { width: 1080, height: 1920, resultWidth: 1080, resultHeight: 1920, sourceOffset: [0, 0], sourceScale: [1, 1] });
+    const view = computeEffectView({ cameraView: cameraView(2160, 3840, { mirror: false }), color: neutralColor, previewScale: 1 });
+    assert.deepEqual(view, {
+      width: 1080, height: 1920, resultWidth: 1080, resultHeight: 1920, sourceAffine: { x: [1, 0, 0], y: [0, 1, 0] }, sourceColor: identity,
+    });
   });
 
   it('가로 영상: 캡처와 같은 가운데 영역을 읽는다 (cover)', () => {
     for (const [videoWidth, videoHeight] of [[1920, 1080], [640, 480], [1080, 1080], [1080, 2400]]) {
-      const crop = computeCaptureCrop({ videoWidth, videoHeight, stageAspect: STAGE });
       for (const mirror of [false, true]) {
-        const view = computeEffectView({ videoWidth, videoHeight, stageAspect: STAGE, mirror, previewScale: 1 });
+        const cv = cameraView(videoWidth, videoHeight, { mirror });
+        const size = captureSizeFor(cv);
+        const crop = { x: (videoWidth - cv.visibleWidthPx) / 2, y: (videoHeight - cv.visibleHeightPx) / 2 };
+        const view = computeEffectView({ cameraView: cv, color: neutralColor, previewScale: 1 });
         // 출력 왼쪽(u=0)·오른쪽(u=1)이 읽는 영상 x, 아래(v=0)·위(v=1)가 읽는 영상 y (위가 0인 영상 좌표로)
-        const xAt = (u) => (view.sourceOffset[0] + u * view.sourceScale[0]) * videoWidth;
-        const yTopAt = (v) => (1 - (view.sourceOffset[1] + v * view.sourceScale[1])) * videoHeight;
+        const { x, y } = view.sourceAffine;
+        const xAt = (u) => (x[0] * u + x[2]) * videoWidth;
+        const yTopAt = (v) => (1 - (y[1] * v + y[2])) * videoHeight;
         const left = mirror ? xAt(1) : xAt(0);
         const right = mirror ? xAt(0) : xAt(1);
-        assert.ok(Math.abs(left - crop.x) <= 0.5 && Math.abs(right - (crop.x + crop.width)) <= 0.5, `${videoWidth}x${videoHeight} x`);
-        assert.ok(Math.abs(yTopAt(1) - crop.y) <= 0.5 && Math.abs(yTopAt(0) - (crop.y + crop.height)) <= 0.5, `${videoWidth}x${videoHeight} y`);
+        assert.ok(Math.abs(left - crop.x) <= 0.5 && Math.abs(right - (crop.x + cv.visibleWidthPx)) <= 0.5, `${videoWidth}x${videoHeight} x`);
+        assert.ok(Math.abs(yTopAt(1) - crop.y) <= 0.5 && Math.abs(yTopAt(0) - (crop.y + cv.visibleHeightPx)) <= 0.5, `${videoWidth}x${videoHeight} y`);
         assert.equal(Math.min(view.resultWidth, view.resultHeight), 1080);
-        assert.ok(Math.abs(view.resultWidth / view.resultHeight - crop.width / crop.height) < 0.01);
+        assert.ok(Math.abs(view.resultWidth / view.resultHeight - size.width / size.height) < 0.01);
         assert.deepEqual([view.width, view.height], [view.resultWidth, view.resultHeight]); // 배율 1
         // 반전이면 화면 왼쪽이 영상 오른쪽이다
         assert.equal(xAt(0) > xAt(1), mirror);
       }
     }
+  });
+
+  it('회전·확대: 결과는 화면이 덮는 원본 영역 기준 (가로 카메라 90° → 1080x1920, 확대 2 → 540x960을 1080x1920으로)', () => {
+    const rotated = computeEffectView({ cameraView: cameraView(1920, 1080, { rotation: 90 }), color: neutralColor, previewScale: 0.5 });
+    assert.deepEqual([rotated.resultWidth, rotated.resultHeight, rotated.width, rotated.height], [1080, 1920, 540, 960]);
+    assert.deepEqual(rotated.sourceAffine.x.map((v) => +v.toFixed(9)), [0, -1, 1], '화면 세로가 영상 가로를 읽는다 (위 = 영상 왼쪽, 시계 방향)');
+    const zoomed = computeEffectView({ cameraView: cameraView(1080, 1920, { zoom: 2, mirror: false }), color: neutralColor, previewScale: 1 });
+    assert.deepEqual([zoomed.resultWidth, zoomed.resultHeight], [1080, 1920]);
+    assert.deepEqual(zoomed.sourceAffine, { x: [0.5, 0, 0.25], y: [0, 0.5, 0.25] });
+  });
+
+  it('색 보정 값은 core/camera-view.js 셰이더 uniform 그대로', () => {
+    const color = cameraColorMatrix({ ...config.camera, brightness: 0.2, gamma: 2 });
+    const view = computeEffectView({ cameraView: cameraView(1080, 1920), color, previewScale: 1 });
+    assert.deepEqual([view.sourceColor.uCamB, view.sourceColor.uCamExp], [[0.2, 0.2, 0.2], 0.5]);
+  });
+
+  it('영상이 없으면 null', () => {
+    assert.equal(computeEffectView({ cameraView: cameraView(0, 0), color: neutralColor, previewScale: 1 }), null);
   });
 });
 
@@ -139,7 +178,7 @@ describe('createEffectPreview', () => {
     assert.equal(call.width, 540);
     assert.equal(call.height, 960);
     assert.deepEqual([call.displayWidth, call.displayHeight], [1080, 1920]);
-    assert.deepEqual(call.sourceScale, [-1, 1]);
+    assert.deepEqual(call.sourceAffine.x, [-1, 0, 1], '카메라 기본값 반전 켬');
     assert.ok(call.seed >= 0 && call.seed < 997);
   });
 
@@ -244,7 +283,8 @@ describe('createEffectPreview', () => {
     assert.equal(call.seed, shown.seed);
     assert.equal(call.settings, shown.settings);
     assert.deepEqual([call.width, call.height], [1080, 1920]);
-    assert.deepEqual(call.sourceScale, shown.sourceScale);
+    assert.deepEqual(call.sourceAffine, shown.sourceAffine);
+    assert.deepEqual(call.sourceColor, shown.sourceColor);
     assert.equal(still.sameAsPreview, true);
     assert.equal(still.seed, shown.seed);
     assert.deepEqual([still.width, still.height], [1080, 1920]);
@@ -287,38 +327,47 @@ describe('createEffectPreview', () => {
     assert.deepEqual([still.width, still.height], [1080, 1920]);
   });
 
-  it('좌우 반전은 설정(mirror)을 따른다: 기본값 켬, 끄면 다음 갱신에 반전 없이 다시 읽는다 (CSS 반전 없음)', () => {
+  it('카메라 설정(반전·회전·확대·이동·색 보정)을 따른다: 기본값 반전 켬, 바꾸면 그림 번호가 같아도 다음 갱신에 다시 읽는다 (CSS 반전 없음)', () => {
     const t = setup();
     t.preview.start();
     t.run(100);
-    assert.deepEqual(t.renderer.calls.at(-1).sourceScale, [-1, 1], '기본값 켬: x를 뒤집어 읽는다');
-    assert.deepEqual(t.renderer.calls.at(-1).sourceOffset, [1, 0]);
-    const drawn = t.renderer.calls.length;
-    t.preview.setSettings({ mirror: false });
-    assert.equal(t.preview.getSettings().mirror, false);
+    assert.deepEqual(t.renderer.calls.at(-1).sourceAffine, { x: [-1, 0, 1], y: [0, 1, 0] }, '기본값 켬: x를 뒤집어 읽는다');
+    let drawn = t.renderer.calls.length;
+    t.setCamera({ mirror: false });
     t.run(1000 / 60); // 그림 번호가 같아도 설정이 바뀌면 바로 다시 그린다
     assert.equal(t.renderer.calls.length, drawn + 1);
-    assert.deepEqual(t.renderer.calls.at(-1).sourceScale, [1, 1]);
-    assert.deepEqual(t.renderer.calls.at(-1).sourceOffset, [0, 0]);
+    assert.deepEqual(t.renderer.calls.at(-1).sourceAffine, { x: [1, 0, 0], y: [0, 1, 0] });
+    drawn = t.renderer.calls.length;
+    t.setCamera({ zoom: 2 });
+    t.run(1000 / 60);
+    assert.equal(t.renderer.calls.length, drawn + 1);
+    assert.deepEqual(t.renderer.calls.at(-1).sourceAffine, { x: [0.5, 0, 0.25], y: [0, 0.5, 0.25] });
+    drawn = t.renderer.calls.length;
+    t.setCamera({ brightness: 0.1 }); // 색 보정만 바뀌어도 다시 그린다
+    t.run(1000 / 60);
+    assert.equal(t.renderer.calls.length, drawn + 1);
+    assert.deepEqual(t.renderer.calls.at(-1).sourceColor.uCamB, [0.1, 0.1, 0.1]);
     assert.equal(t.canvas.style.transform, undefined, '캔버스에는 CSS 반전을 걸지 않는다');
   });
 
-  it('renderStill: 마지막 그림 뒤 반전이 바뀌었으면 그 그림을 쓰지 않고 지금 프레임·셔터 순간 반전으로 그린다', () => {
-    const t = setup();
-    t.preview.start();
-    t.run(100);
-    t.preview.setSettings({ mirror: false }); // 다음 화면 갱신 전에 셔터
-    const still = t.preview.renderStill();
-    const call = t.renderer.calls.at(-1);
-    assert.equal(call.source, t.video, '지금 프레임을 다시 올린다');
-    assert.deepEqual(call.sourceScale, [1, 1]);
-    assert.equal(still.sameAsPreview, false);
-    assert.equal(still.settings.mirror, false);
-    // 다음 그림이 반전 없이 그려진 뒤의 셔터는 그 그림을 그대로 쓴다
-    t.run(100);
-    const again = t.preview.renderStill();
-    assert.equal(again.sameAsPreview, true);
-    assert.deepEqual(t.renderer.calls.at(-1).sourceScale, [1, 1]);
+  it('renderStill: 마지막 그림 뒤 카메라 설정이 바뀌었으면 그 그림을 쓰지 않고 지금 프레임·셔터 순간 설정으로 그린다', () => {
+    for (const patch of [{ mirror: false }, { rotationFine: 3 }, { contrast: 1.2 }]) {
+      const t = setup();
+      t.preview.start();
+      t.run(100);
+      t.setCamera(patch); // 다음 화면 갱신 전에 셔터
+      const still = t.preview.renderStill();
+      const call = t.renderer.calls.at(-1);
+      assert.equal(call.source, t.video, `${JSON.stringify(patch)}: 지금 프레임을 다시 올린다`);
+      const expected = computeEffectView({ cameraView: t.frame.getView(1080, 1920), color: t.frame.getColor(), previewScale: 0.5 });
+      assert.deepEqual([call.sourceAffine, call.sourceColor], [expected.sourceAffine, expected.sourceColor]);
+      assert.equal(still.sameAsPreview, false);
+      // 다음 그림이 새 설정으로 그려진 뒤의 셔터는 그 그림을 그대로 쓴다
+      t.run(100);
+      const again = t.preview.renderStill();
+      assert.equal(again.sameAsPreview, true);
+      assert.deepEqual(t.renderer.calls.at(-1).sourceAffine, expected.sourceAffine);
+    }
   });
 
   it('renderStill: 효과가 돌고 있지 않으면 not-running 오류', () => {
@@ -365,7 +414,7 @@ describe('결과 사진 준비 (첫 촬영 멈춤 수정, 로그 2026-10-19-07)'
     assert.deepEqual([warm.width, warm.height], [1080, 1920]);
     assert.equal(warm.seed, shown.seed);
     assert.equal(warm.settings, shown.settings);
-    assert.deepEqual(warm.sourceScale, shown.sourceScale);
+    assert.deepEqual(warm.sourceAffine, shown.sourceAffine);
     const s = t.preview.getState();
     assert.equal(s.resultPrepare, 'ready');
     assert.equal(typeof s.prepareMs, 'number');

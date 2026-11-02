@@ -3,10 +3,11 @@
 // 효과를 쓸 수 없으면(WebGL2 없음·셰이더 실패·컨텍스트 손실) 캔버스를 숨겨 원본 미리보기로 돌아간다.
 // 카메라·감지·촬영은 이 모듈과 관계없이 계속 동작한다. Node 테스트: test/effect/effect-preview.test.mjs
 //
-// 좌우 반전·크롭: 미리보기(<video>, object-fit: cover, CSS scaleX(-1))와 같은 영역을 같은 방향으로 그린다.
+// 카메라 처리 경로 (9-1): 효과 입력은 카메라 설정(색 보정·좌우 반전·회전·확대·이동)을 거친 9:16 화면 영역이다. 감지 입력·원본 미리보기·
+// 캡처(2D 캔버스, camera/camera-frame.js)와 같은 설정·같은 계산(core/camera-view.js)을 셰이더용 값으로 받아 첫 패스에서 읽는다.
 // 반전은 효과 입력을 읽을 때 한 번만 하고 캔버스에는 CSS 반전을 걸지 않는다(이중 반전 방지).
 // 효과는 반전된 그림에 칠한다 (획 방향이 좌우 대칭이 아니므로, 결과 사진과 같은 그림이 되게).
-// 반전 여부는 효과 설정의 mirror다(E 화면 "카메라"). 바뀌면 다음 화면 갱신에 새로 그리고, 결과 사진은 셔터 순간의 값으로 그린다.
+// 카메라 설정이 바뀌면 다음 화면 갱신에 새로 그리고, 결과 사진은 셔터 순간의 값으로 그린다.
 //
 // 출력 단계 (6-1): 감열지 모드면 인쇄 해상도(576x1024 등)의 점 그림을 결과 크기(1080x1920) 캔버스에 확대해 그린다
 // (정수배 최근접 + 경계 1화소만 섞음, 렌더러 FS_THERMAL_SHOW). 결과 사진의 화면용 이미지도 같은 크기·같은 화소다.
@@ -20,7 +21,9 @@ import { config } from '../config/config.js';
 import { normalizeEffectSettings } from '../config/effect-settings.js';
 import { errorLog } from '../core/log-limit.js';
 import { drawingTick, resultSizeFor, seedForTick } from '../core/oil-paint.js';
-import { computeCoverMapping } from '../core/presence.js';
+import {
+  cameraColorKey, cameraColorMatrix, cameraGeometryKey, computeCameraView, shaderColorUniforms, shaderSourceAffine,
+} from '../core/camera-view.js';
 import { EffectError, EffectFault, createOilRenderer } from './oil-renderer.js';
 
 // 결과 사진 준비를 브라우저가 한가할 때까지 기다리는 최대 시간 (가안). 넘으면 바로 한다
@@ -35,32 +38,53 @@ export const EffectStatus = Object.freeze({
 });
 
 /**
- * 보이는 9:16 영역 → 결과 사진 크기(짧은 변 1080), 미리보기 해상도(결과 × previewScale), 소스 uv 변환.
- * 소스는 위아래를 뒤집어 올리므로 uv는 왼쪽 아래 원점이다.
+ * 카메라 처리 경로의 변환(core/camera-view.js computeCameraView) → 결과 사진 크기(짧은 변 1080), 미리보기 해상도(결과 × previewScale),
+ * 셰이더용 소스 좌표·색 보정 값. 소스는 위아래를 뒤집어 올리므로 uv는 왼쪽 아래 원점이다.
+ * @param {{ cameraView: object | null, color: object, previewScale: number }} input color: core/camera-view.js cameraColorMatrix
  * @returns {{ width: number, height: number, resultWidth: number, resultHeight: number,
- *   sourceOffset: [number, number], sourceScale: [number, number] } | null}
+ *   sourceAffine: { x: number[], y: number[] }, sourceColor: object } | null}
  */
-export function computeEffectView({ videoWidth, videoHeight, stageAspect, mirror, previewScale }) {
-  const m = computeCoverMapping({ videoWidth, videoHeight, stageAspect, mirror });
-  if (m === null) return null;
-  const result = resultSizeFor(m.visibleWidth * videoWidth, m.visibleHeight * videoHeight);
+export function computeEffectView({ cameraView, color, previewScale }) {
+  if (cameraView === null) return null;
+  const result = resultSizeFor(cameraView.visibleWidthPx, cameraView.visibleHeightPx);
   const width = Math.max(2, Math.round(result.width * previewScale));
   const height = Math.max(2, Math.round(result.height * previewScale));
-  const v0 = 1 - m.offsetY - m.visibleHeight;
-  const sourceOffset = mirror ? [m.offsetX + m.visibleWidth, v0] : [m.offsetX, v0];
-  const sourceScale = [mirror ? -m.visibleWidth : m.visibleWidth, m.visibleHeight];
-  return { width, height, resultWidth: result.width, resultHeight: result.height, sourceOffset, sourceScale };
+  return {
+    width, height, resultWidth: result.width, resultHeight: result.height,
+    sourceAffine: shaderSourceAffine(cameraView), sourceColor: shaderColorUniforms(color),
+  };
 }
+
+/** 카메라 처리 경로 기본값 (cameraFrame을 주지 않을 때, 테스트용): 정해진 설정 하나 */
+function fixedCameraFrame(settings, stageAspect) {
+  const color = cameraColorMatrix(settings);
+  return {
+    getSettings: () => settings,
+    getColor: () => color,
+    getView: (videoWidth, videoHeight) => computeCameraView({ videoWidth, videoHeight, stageAspect, camera: settings }),
+  };
+}
+
+const cameraKeyOf = (settings) => `${cameraGeometryKey(settings)} | ${cameraColorKey(settings)}`;
+const sameList = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+const sameView = (a, b) => a.width === b.width && a.height === b.height
+  && sameList(a.sourceAffine.x, b.sourceAffine.x) && sameList(a.sourceAffine.y, b.sourceAffine.y)
+  && sameList(a.sourceColor.uCamM, b.sourceColor.uCamM) && sameList(a.sourceColor.uCamB, b.sourceColor.uCamB)
+  && a.sourceColor.uCamExp === b.sourceColor.uCamExp;
 
 /**
  * @param {{ canvas: HTMLCanvasElement, video: HTMLVideoElement, camera: { isReady: () => boolean },
  *   stageAspect: number, settings?: object, display?: { paper: number[], ink: number[] },
+ *   cameraFrame?: { getSettings: () => object, getColor: () => object, getView: (w: number, h: number) => object | null },
  *   createRenderer?: typeof createOilRenderer, raf?: Function, cancelRaf?: Function, now?: () => number,
  *   log?: { warn: Function, clear: Function }, onChange?: () => void }} options
- *   settings: config.effect 형식 (enabled·mirror 포함). onChange: 상태나 설정이 바뀔 때 (D 화면 갱신, 반전 맞추기)
+ *   settings: config.effect 형식 (enabled 포함). onChange: 상태나 설정이 바뀔 때 (D 화면 갱신, 원본 미리보기 전환)
+ *   cameraFrame: 카메라 처리 경로 (camera/camera-frame.js, main.js가 넘긴다). 그릴 때마다 지금 설정을 읽는다.
+ *   주지 않으면 config.camera 기본값 고정 (테스트용)
  */
 export function createEffectPreview({
   canvas, video, camera, stageAspect, settings: initialSettings = config.effect, display = config.thermalDisplay,
+  cameraFrame = fixedCameraFrame(config.camera, stageAspect),
   createRenderer = createOilRenderer,
   raf = (fn) => requestAnimationFrame(fn), cancelRaf = (id) => cancelAnimationFrame(id),
   now = () => performance.now(), log = errorLog, onChange = () => {},
@@ -142,7 +166,7 @@ export function createEffectPreview({
     const t0 = now();
     try {
       renderer.render(null, {
-        settings: s, width: v.resultWidth, height: v.resultHeight, seed, sourceOffset: v.sourceOffset, sourceScale: v.sourceScale,
+        settings: s, width: v.resultWidth, height: v.resultHeight, seed, sourceAffine: v.sourceAffine, sourceColor: v.sourceColor,
         output: 'warm',
       });
       prepareMs = now() - t0;
@@ -199,11 +223,11 @@ export function createEffectPreview({
       dirty = true;
       return;
     }
+    const cameraKey = cameraKeyOf(cameraFrame.getSettings());
     const next = computeEffectView({
-      videoWidth: video.videoWidth, videoHeight: video.videoHeight, stageAspect, mirror: settings.mirror, previewScale: settings.previewScale,
+      cameraView: cameraFrame.getView(video.videoWidth, video.videoHeight), color: cameraFrame.getColor(), previewScale: settings.previewScale,
     });
-    const sizeChanged = !view || next.width !== view.width || next.height !== view.height
-      || next.sourceOffset.some((v, i) => v !== view.sourceOffset[i]) || next.sourceScale.some((v, i) => v !== view.sourceScale[i]);
+    const sizeChanged = !view || !sameView(next, view);
     const t = now();
     const tick = drawingTick(t, settings.fps);
     if (!dirty && !sizeChanged && tick === lastTick && status === EffectStatus.RUNNING) return;
@@ -211,12 +235,12 @@ export function createEffectPreview({
     const seed = seedForTick(tick);
     try {
       const { cpuMs } = renderer.render(video, {
-        settings, width: view.width, height: view.height, seed, sourceOffset: view.sourceOffset, sourceScale: view.sourceScale,
+        settings, width: view.width, height: view.height, seed, sourceAffine: view.sourceAffine, sourceColor: view.sourceColor,
         displayWidth: view.resultWidth, displayHeight: view.resultHeight, // 감열지 화면은 결과 크기 (결과 사진 화면용과 같게)
       });
       lastTick = tick;
       lastSeed = seed;
-      lastDrawing = { tick, seed, settings, view, videoWidth: video.videoWidth, videoHeight: video.videoHeight, at: t };
+      lastDrawing = { tick, seed, settings, view, cameraKey, videoWidth: video.videoWidth, videoHeight: video.videoHeight, at: t };
       dirty = false;
       renderFailures = 0;
       cpuAvg = cpuAvg === null ? cpuMs : cpuAvg * 0.9 + cpuMs * 0.1;
@@ -246,8 +270,8 @@ export function createEffectPreview({
    * 결과 사진: 지금 화면에 보이는 그림과 같은 카메라 프레임·그림 번호·seed·설정으로, 결과 크기(짧은 변 1080)에 화면 밖으로 그린다.
    * 동기로 끝난다. 미리보기가 다음 그림을 그리기 전(같은 작업 안)에 불러야 같은 프레임이다 (capture.js가 그렇게 부른다).
    * 보이는 그림이 없으면(카메라 준비 직후) 지금 프레임으로 그린다. 효과를 쓸 수 없으면 EffectError.
-   * 반전은 셔터 순간의 값을 따른다: 보이는 그림을 그린 뒤 반전이 바뀌었으면(다음 화면 갱신 전) 그 그림을 쓰지 않고 지금 프레임·설정으로
-   * 그린다. 캡처(capture.js)도 같은 순간의 값으로 원본 사진을 잡으므로 원본 대체 사진과 방향이 같다.
+   * 카메라 설정(반전·회전·확대·이동·색 보정)은 셔터 순간의 값을 따른다: 보이는 그림을 그린 뒤 바뀌었으면(다음 화면 갱신 전) 그 그림을
+   * 쓰지 않고 지금 프레임·설정으로 그린다. 캡처(capture.js)도 같은 순간의 값으로 원본 사진을 잡으므로 원본 대체 사진과 같은 그림이다.
    * 출력 모드는 그 그림의 설정을 따른다: off·gray면 pixels(결과 크기 RGBA), thermal이면 인쇄 해상도의 gray·mask (6-1).
    * @returns {{ mode: string, settings: object, width: number, height: number, seed: number, tick: number,
    *   sameAsPreview: boolean, ms: number, pixels?: Uint8ClampedArray,
@@ -260,12 +284,13 @@ export function createEffectPreview({
       throw new EffectError(EffectFault.NOT_RUNNING, `preview effect is ${status}${fault ? ` (${fault})` : ''}`);
     }
     const t0 = now();
+    const cameraKey = cameraKeyOf(cameraFrame.getSettings());
     const reuse = lastDrawing !== null && lastDrawing.videoWidth === video.videoWidth && lastDrawing.videoHeight === video.videoHeight
-      && lastDrawing.settings.mirror === settings.mirror;
+      && lastDrawing.cameraKey === cameraKey;
     let drawing = lastDrawing;
     if (!reuse) {
       const v = computeEffectView({
-        videoWidth: video.videoWidth, videoHeight: video.videoHeight, stageAspect, mirror: settings.mirror, previewScale: settings.previewScale,
+        cameraView: cameraFrame.getView(video.videoWidth, video.videoHeight), color: cameraFrame.getColor(), previewScale: settings.previewScale,
       });
       if (v === null) throw new EffectError(EffectFault.RENDER_FAILED, 'video has no frame');
       const tick = drawingTick(t0, settings.fps);
@@ -275,7 +300,7 @@ export function createEffectPreview({
     const mode = drawing.settings.outputMode ?? 'off';
     const out = renderer.render(reuse ? null : video, {
       settings: drawing.settings, width: v.resultWidth, height: v.resultHeight, seed: drawing.seed,
-      sourceOffset: v.sourceOffset, sourceScale: v.sourceScale, output: mode === 'thermal' ? 'print' : 'pixels',
+      sourceAffine: v.sourceAffine, sourceColor: v.sourceColor, output: mode === 'thermal' ? 'print' : 'pixels',
     });
     // 결과를 그렸으면 결과 크기 대상이 생겼다 (준비 전에 셔터가 눌린 경우. 같은 조건으로 다시 준비하지 않는다)
     const key = prepareKeyOf(drawing);

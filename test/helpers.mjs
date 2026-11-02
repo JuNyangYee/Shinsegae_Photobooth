@@ -107,7 +107,14 @@ export function fakeCanvasEnvironment({ context = 'ok', blob = 'ok' } = {}) {
         getContext: () => (env.context === 'null' ? null : {
           translate: (...args) => calls.push(['translate', ...args]),
           scale: (...args) => calls.push(['scale', ...args]),
-          drawImage: (...args) => {
+          // 카메라 처리 경로 (camera/camera-frame.js draw): 변환과 색 보정 필터를 기록한다
+          save() {},
+          restore() {},
+          fillRect() {},
+          filter: 'none',
+          setTransform: (...args) => calls.push(['setTransform', ...args]),
+          drawImage(...args) {
+            if (this.filter !== 'none') calls.push(['filter', this.filter]);
             if (env.context === 'draw-throws') throw new Error('drawImage failed');
             calls.push(['drawImage', ...args.slice(1)]);
           },

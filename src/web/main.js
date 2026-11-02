@@ -1,14 +1,20 @@
 import { config } from './config/config.js';
 import { createAutoStart } from './core/auto-start.js';
 import { CameraStatus, createCameraMonitor } from './camera/camera-monitor.js';
+import { createCameraFrame } from './camera/camera-frame.js';
 import { createCapture } from './camera/capture.js';
+import { createRawPreview } from './camera/raw-preview.js';
+import { normalizeCameraSettings, resolutionRequest } from './config/camera-settings.js';
+import { cameraGeometryKey } from './core/camera-view.js';
 import { DetectorHealth } from './vision/detector-keeper.js';
 import { Guidance, decideGuidance } from './core/guidance.js';
 import { createPresenceMonitor } from './vision/presence-monitor.js';
 import { serializePresenceSettings } from './config/presence-settings.js';
 import { createPresenceTuning } from './ui/presence-tuning.js';
 import { SessionState, createSession } from './core/session.js';
-import { createSettingsFileClient, loadInitialEffectSettings, loadInitialPresenceSettings } from './config/settings-file.js';
+import {
+  createSettingsFileClient, loadInitialCameraSettings, loadInitialEffectSettings, loadInitialPresenceSettings,
+} from './config/settings-file.js';
 import { effectTunables, serializeEffectSettings } from './config/effect-settings.js';
 import { EffectStatus, createEffectPreview } from './effect/effect-preview.js';
 import { createPhotoEffect } from './effect/photo-effect.js';
@@ -20,6 +26,7 @@ import { createGuestScreen } from './ui/guest-screen.js';
 const stage = document.getElementById('stage');
 const video = document.getElementById('preview');
 const effectCanvas = document.getElementById('effect');
+const rawCanvas = document.getElementById('camera-raw');
 const devInfo = document.getElementById('dev-info');
 const devOverlay = document.getElementById('dev-overlay');
 const pauseBadge = document.getElementById('pause-badge');
@@ -45,24 +52,36 @@ const detectorCauseLabels = Object.freeze({
   'detect-failing': '감지가 계속 실패',
 });
 
+const stageAspect = config.aspectRatio.width / config.aspectRatio.height;
+
+// 카메라 처리 경로 (9-1): 카메라 원본 → 색 보정 → 좌우 반전·회전·확대·이동 → 9:16 화면 영역. 설정은 이 한 곳(cameraFrame)에 있고
+// 감지 입력·원본 미리보기·캡처(2D 캔버스)와 효과 미리보기·결과 사진(셰이더)이 모두 같은 설정·같은 계산(core/camera-view.js)으로 그린다.
+// 시작할 때 카메라 조절값 파일(config/camera.local.json)을 읽은 뒤 카메라를 연다 (loadCameraSettings).
+const cameraFrame = createCameraFrame({ doc: document, stageAspect, settings: normalizeCameraSettings(config.camera, config.camera).settings });
+// 카메라 조절값의 출처 (D 화면, 9-2 운영자 화면): loadInitialCameraSettings 결과
+let cameraSettingsInfo = { source: 'loading', note: '', issues: [] };
+
+const cameraRequestFor = (settings) => ({
+  deviceLabel: settings.deviceLabel, idealResolution: resolutionRequest(settings, config.idealResolution),
+});
+
 const camera = createCameraMonitor({
   video,
   preferredLabel: config.preferredCameraLabel,
-  idealResolution: config.idealResolution,
-  recovery: config.cameraRecovery,
+  request: cameraRequestFor(cameraFrame.getSettings()),
+  // 회복 시간은 인식 조절값(presence.local.json)의 cameraRecovery (9-1). 쓸 때마다 지금 인식 설정에서 읽는다
+  recovery: () => presence.getSettings().cameraRecovery ?? config.presence.cameraRecovery,
 });
 
-const stageAspect = config.aspectRatio.width / config.aspectRatio.height;
-
-// 좌우 반전 값은 효과 설정의 mirror 한 곳에 있다 (E 화면 "카메라", 효과 조절값 파일). 효과 미리보기는 그 값으로 입력을 읽고,
-// 원본 미리보기(<video> CSS)·인식 좌표는 값이 바뀔 때 applyMirror()가 맞추고, 캡처는 셔터 순간 읽는다. 반전은 경로마다 한 번뿐이다.
+// 감지 입력은 카메라 처리 경로를 거친 9:16 화면 영역이라 감지 박스가 곧 화면 좌표다. 기하 설정이 바뀌면 인식을 처음부터 다시 잰다
 const presence = createPresenceMonitor({
   video,
   camera,
   detection: config.faceDetection,
   presence: config.presence,
   stageAspect,
-  mirror: config.effect.mirror,
+  cameraKey: cameraGeometryKey(cameraFrame.getSettings()),
+  drawFrame: (ctx, width, height) => cameraFrame.draw(ctx, video, width, height),
 });
 
 // 사진 효과 미리보기: 영상 → 유화 효과 캔버스. 효과를 쓸 수 없으면 원본 미리보기 (카메라·감지·촬영은 그대로)
@@ -72,19 +91,52 @@ const effect = createEffectPreview({
   camera,
   stageAspect,
   settings: config.effect,
+  cameraFrame,
   onChange: () => {
-    applyMirror();
+    updateRawPreview();
     if (!devInfo.hidden) renderDevInfo();
   },
 });
-const isMirrored = () => effect.getSettings().mirror;
+const isMirrored = () => cameraFrame.getSettings().mirror;
+
+// 원본 미리보기 (9-1): 효과를 끄거나 쓸 수 없을 때 카메라 처리 경로를 거친 그림을 캔버스에 그린다(원본 대체 사진과 같은 함수).
+// 크기는 화면에 보이는 장치 화소와 원본 화소 수 중 작은 쪽 (4K 원본을 매 프레임 그대로 그리지 않는다)
+const rawPreview = createRawPreview({
+  canvas: rawCanvas,
+  video,
+  camera,
+  frame: cameraFrame,
+  getSize(view) {
+    const rect = stage.getBoundingClientRect();
+    const width = Math.max(2, Math.round(Math.min(rect.width * window.devicePixelRatio, view.visibleWidthPx)));
+    return { width, height: Math.max(2, Math.round(width / stageAspect)) };
+  },
+});
+
+// 효과 미리보기가 그리고 있으면 원본 미리보기를 멈추고, 아니면(끔·장애·손실·카메라 대기) 켠다. 효과 상태가 바뀔 때마다 부른다
+function updateRawPreview() {
+  rawPreview.setActive(effect.getState().status !== EffectStatus.RUNNING);
+}
+
+/**
+ * 카메라 설정을 바꾼다 (시작할 때 불러온 값, 9-2 운영자 화면). 다음 그림부터 감지·미리보기·결과가 모두 이 값이다.
+ * 기하(반전·회전·확대·이동)가 바뀌면 인식을 처음부터 다시 재고, 장치·해상도 요청이 바뀌면 카메라 스트림을 다시 연다
+ * (진행 중인 카운트다운은 카메라 준비 해제로 취소된다). 셔터 순간의 값으로 찍고, 이미 보이는 결과 사진은 다시 만들지 않는다.
+ */
+function applyCameraSettings(settings) {
+  const changed = cameraFrame.setSettings(settings);
+  if (changed.geometry) presence.setCameraGeometry(cameraGeometryKey(settings));
+  camera.setRequest(cameraRequestFor(settings));
+  if (!devInfo.hidden) renderDevInfo();
+  return changed;
+}
 
 // 촬영 결과에도 같은 효과: 셔터 순간 화면의 그림과 같은 프레임·seed로 결과 크기(짧은 변 1080)에 다시 그린다.
 // 효과를 그리지 못하면 원본 사진으로 대신한다 (photo-effect.js)
 const photoEffect = createPhotoEffect({ preview: effect });
 
 const capture = createCapture({
-  video, stageAspect, getMirror: isMirrored, ...config.capture, getFrameInfo: camera.getFrameInfo,
+  video, frame: cameraFrame, ...config.capture, getFrameInfo: camera.getFrameInfo,
   effect: photoEffect.apply,
 });
 
@@ -104,6 +156,8 @@ let tuning = null; // 불러오기가 끝나면 만든다
 let settingsReady = false;
 // 효과 조절값 파일 (서버 config/effect.local.json). 불러오기 전에는 config.effect 기본값으로 그린다 (판정과 무관하므로 막지 않는다)
 const effectSettingsFile = createSettingsFileClient(config.effectSettingsFile);
+// 카메라 조절값 파일 (서버 config/camera.local.json, 9-1). 카메라를 열기 전에 읽는다
+const cameraSettingsFile = createSettingsFileClient(config.cameraSettingsFile);
 let effectTuning = null; // 불러오기가 끝나면 만든다
 // 자동 촬영 일시정지 (P). 저장하지 않는다: 새로고침·재시작하면 다시 켜진다(운영자가 해제를 잊어도 회복되게).
 let autoPaused = false;
@@ -168,7 +222,7 @@ function renderStatus() {
     },
     since: guidanceSince,
     now: performance.now(),
-    staffAfterMs: config.cameraRecovery.staffNoticeMs,
+    staffAfterMs: (presence.getSettings().cameraRecovery ?? config.presence.cameraRecovery).staffNoticeMs,
   });
   guidanceSince = decision.since;
   guidanceNow = decision.guidance;
@@ -211,17 +265,7 @@ function applyLayout() {
   const { width, height } = config.aspectRatio;
   document.documentElement.style.setProperty('--stage-ratio-w', String(width));
   document.documentElement.style.setProperty('--stage-ratio-h', String(height));
-  applyMirror();
   updateOperatorRoom();
-}
-
-// 좌우 반전을 원본 미리보기(효과를 끄거나 쓸 수 없을 때 보이는 <video>)와 인식 좌표에 맞춘다. 효과 설정이 바뀔 때마다 부른다
-// (같은 값이면 아무것도 하지 않는다). 반전이 바뀌면 인식 상태는 처음부터 다시 잰다 (presence-monitor.js setMirror).
-// 진행 중인 회차는 그대로 둔다: 카운트다운은 셔터 순간의 값으로 찍고, 이미 보이는 결과 사진은 다시 만들지 않는다.
-function applyMirror() {
-  const mirror = isMirrored();
-  video.classList.toggle('is-mirrored', mirror);
-  presence.setMirror(mirror);
 }
 
 // 운영자 패널(R·E)을 9:16 영역 옆 빈 곳에 세울 공간이 실제로 있는지 (6단계 검수 2). 화면 비율만 보면 좁은 가로 창
@@ -237,6 +281,12 @@ function updateOperatorRoom() {
 
 // ---- 개발용 정보 (D 키 토글, 기본 숨김) ----
 
+function describeCameraSource() {
+  const { source, note, issues } = cameraSettingsInfo;
+  return `${source}${note && note !== 'no file' ? ` (${note})` : source === 'defaults' ? ' (no file)' : ''}`
+    + `${issues.length ? `, adjusted: ${issues.join('; ')}` : ''}`;
+}
+
 function formatTime(timestamp) {
   return timestamp ? new Date(timestamp).toLocaleTimeString('ko-KR', { hour12: false }) : '-';
 }
@@ -248,6 +298,12 @@ function renderDevInfo() {
   const settings = video.srcObject?.getVideoTracks()[0]?.getSettings() ?? {};
   const ready = state.status === CameraStatus.READY;
   const notReadyFor = state.notReadySince !== null ? `${((performance.now() - state.notReadySince) / 1000).toFixed(0)}s` : '-';
+  const cam = cameraFrame.getSettings();
+  const view = cameraFrame.getView(video.videoWidth, video.videoHeight);
+  const request = camera.getRequest();
+  const caps = state.capabilities;
+  const range = (r) => (r ? `${r.min}-${r.max}` : '-');
+  const raw = rawPreview.getStats();
   const cameraLines = [
     `status     : ${state.status}${state.connecting ? ' (connecting)' : ''}`,
     `reason     : ${state.reason || '-'}${state.errorName ? ` / ${state.errorName}` : ''}`,
@@ -255,14 +311,23 @@ function renderDevInfo() {
     `not ready  : ${notReadyFor}`,
     `permission : ${state.permission}`,
     `camera     : ${ready ? state.label || '(no label)' : '-'}`,
-    `preferred  : "${config.preferredCameraLabel}" ${ready ? (state.preferredFound ? 'found' : 'not found -> default camera') : '-'}`,
+    `selected   : ${ready ? state.selection : '-'} (device "${request.deviceLabel || '(auto)'}", preferred "${config.preferredCameraLabel}"`
+      + `${ready && state.selection === 'default' ? ' not found -> default camera' : ''})`,
     `video      : ${video.videoWidth}x${video.videoHeight}`,
     `track      : ${settings.width ?? '-'}x${settings.height ?? '-'} @ ${settings.frameRate ? settings.frameRate.toFixed(1) : '-'}fps`
-      + ` (ideal ${config.idealResolution.width}x${config.idealResolution.height})`,
+      + ` (ideal ${request.idealResolution?.width ?? '-'}x${request.idealResolution?.height ?? '-'}, resolution ${cam.resolution})`,
+    `caps       : ${caps ? `width ${range(caps.width)}, height ${range(caps.height)}, fps ${range(caps.frameRate)}` : '-'}`,
     `stage 9:16 : ${Math.round(rect.width)}x${Math.round(rect.height)} css px`
       + ` (${Math.round(rect.width * dpr)}x${Math.round(rect.height * dpr)} device px, dpr ${dpr})`,
     `viewport   : ${window.innerWidth}x${window.innerHeight}`,
-    `mirror     : ${isMirrored() ? 'on' : 'off'} (E camera)`,
+    `mirror     : ${isMirrored() ? 'on' : 'off'} (camera settings)`,
+    `transform  : rotate ${cam.rotation}${cam.rotationFine ? `${cam.rotationFine > 0 ? '+' : ''}${cam.rotationFine}` : ''}deg,`
+      + ` zoom ${cam.zoom}${view ? ` (used ${view.zoom.toFixed(3)}${view.autoZoom ? ' auto' : ''})` : ''},`
+      + ` pan ${cam.panX},${cam.panY}${view ? `, source ${Math.round(view.visibleWidthPx)}x${Math.round(view.visibleHeightPx)}px` : ''}`,
+    `color      : brightness ${cam.brightness} contrast ${cam.contrast} saturation ${cam.saturation} gamma ${cam.gamma}`
+      + ` temperature ${cam.temperature} tint ${cam.tint}${cameraFrame.getColor().identity ? ' (neutral)' : ''}`,
+    `raw-view   : ${raw.active ? (raw.shown ? `shown ${raw.width}x${raw.height}` : 'waiting camera') : 'off (effect running)'}, draws ${raw.draws}`,
+    `camera-cfg : ${describeCameraSource()} (${config.cameraSettingsFile.url})`,
   ];
   // 구역별 표 (ui/dev-panel.js). 글자는 예전과 같다(구역 사이 빈 줄) — 확인 도구가 줄 머리말로 읽는다
   renderDevPanel(devInfo, [
@@ -330,7 +395,7 @@ function effectDevLines() {
   const values = `  values   : strength ${t.strength} size ${t.size} boil ${t.boil} fps ${t.fps} grade ${t.grade}`
     + ` refine ${t.refineThreshold ?? '-'} scale ${t.previewScale} | output ${t.outputMode} ${t.dither} paper ${t.paperDots}`
     + ` style ${t.bwStyle} texture ${t.bwTexture} lines ${t.lineSpacing}`
-    + ` brightness ${t.brightness} contrast ${t.contrast} gamma ${t.gamma} mirror ${t.mirror ? 'on' : 'off'}`
+    + ` brightness ${t.brightness} contrast ${t.contrast} gamma ${t.gamma}`
     + ` (${effectTuning ? effectTuning.describeSettingsSource() : 'loading'}, ${config.effectSettingsFile.url})`;
   // 출력 단계 (6-1): 감열지면 인쇄 해상도, 점을 정하는 것(점 방식 또는 흐름·붓 결 선, 7-1)·흑백 스타일, 화소 읽기·CPU 디더 시간(오차 확산만).
   // 회색조 유화(8단계)는 입력 회색조 계수와, 촬영 결과에서 만드는 인쇄 데이터의 용지 폭·점 방식
@@ -395,7 +460,8 @@ function sessionDevLines() {
     `ignored    : ${s.lastIgnored || '-'}`,
     last
       ? `capture    : ${last.width}x${last.height} from video ${last.source}`
-        + ` (crop x${last.crop.x} y${last.crop.y}${last.mirror ? ', mirrored' : ''}), ${last.type} ${Math.round(last.bytes / 1024)}KB,`
+        + ` (rotate ${last.view.rotation} zoom ${last.view.zoom.toFixed(2)}${last.view.autoZoom ? ' auto' : ''}`
+        + `${last.view.color ? ', color' : ''}${last.mirror ? ', mirrored' : ''}), ${last.type} ${Math.round(last.bytes / 1024)}KB,`
         + ` grab ${last.grabMs.toFixed(1)}ms, encode ${last.encodeMs.toFixed(1)}ms`
       : 'capture    : -',
     `resources  : object URLs ${c.liveUrls}, canvases ${c.liveCanvases}, pending jobs ${c.pending}`
@@ -495,6 +561,22 @@ function renderPauseBadge() {
   pauseBadge.textContent = guestText.paused;
 }
 
+// 카메라 설정 (9-1): 파일 → (없으면) 효과 파일의 좌우 반전을 옮김 → 기본값. 카메라를 열기 전에 읽는다(장치·해상도 요청이 이 값이라
+// 기본 장치로 먼저 열었다가 다시 여는 일이 없게). 실패하거나 시간 초과(3초)면 기본값으로 연다.
+async function loadCameraSettings() {
+  try {
+    const initial = await loadInitialCameraSettings({ file: cameraSettingsFile, effectFile: effectSettingsFile, defaults: config.camera });
+    if (initial.note && initial.note !== 'no file') console.warn('[camera-settings]', `${initial.source}: ${initial.note}`);
+    if (initial.issues.length) console.warn('[camera-settings]', `adjusted: ${initial.issues.join('; ')}`);
+    cameraSettingsInfo = { source: initial.source, note: initial.note, issues: initial.issues };
+    applyCameraSettings(initial.settings);
+  } catch (error) {
+    console.error('[camera-settings] setup failed; continuing with defaults', error);
+    cameraSettingsInfo = { source: 'defaults', note: `setup failed: ${error?.message ?? error}`, issues: [] };
+  }
+  camera.start();
+}
+
 // 시작할 때 조절값: 파일 → (없으면) localStorage에서 옮김 → 기본값. 실패하거나 시간 초과면 기본값 (settings-file.js).
 async function loadSettings() {
   try {
@@ -584,6 +666,7 @@ document.addEventListener('visibilitychange', () => session.setPageVisible(!docu
 autoStart.start();
 loadSettings();
 loadEffectSettings();
-camera.start();
+loadCameraSettings(); // 읽은 뒤 camera.start()
 presence.start();
 effect.start();
+updateRawPreview();

@@ -2,64 +2,76 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { computeCaptureCrop, createCapture } from '../../src/web/camera/capture.js';
+import { createCameraFrame } from '../../src/web/camera/camera-frame.js';
+import { captureSizeFor, createCapture } from '../../src/web/camera/capture.js';
+import { config } from '../../src/web/config/config.js';
+import { canvasTransform, computeCameraView } from '../../src/web/core/camera-view.js';
 import { fakeCanvasEnvironment as fakeEnvironment, flush } from '../helpers.mjs';
 
 const STAGE = 9 / 16;
+const cameraOf = (patch = {}) => ({ ...config.camera, ...patch });
+const sizeOf = (videoWidth, videoHeight, patch = {}) => captureSizeFor(computeCameraView({
+  videoWidth, videoHeight, stageAspect: STAGE, camera: cameraOf(patch),
+}));
 
-describe('computeCaptureCrop', () => {
+describe('captureSizeFor (화면 영역이 덮는 원본 화소 수)', () => {
   it('9:16 영상은 자르지 않고 원본 크기 그대로 (OBS 1080x1920, 2160x3840)', () => {
-    assert.deepEqual(computeCaptureCrop({ videoWidth: 1080, videoHeight: 1920, stageAspect: STAGE }),
-      { x: 0, y: 0, width: 1080, height: 1920 });
-    assert.deepEqual(computeCaptureCrop({ videoWidth: 2160, videoHeight: 3840, stageAspect: STAGE }),
-      { x: 0, y: 0, width: 2160, height: 3840 });
+    assert.deepEqual(sizeOf(1080, 1920), { width: 1080, height: 1920 });
+    assert.deepEqual(sizeOf(2160, 3840), { width: 2160, height: 3840 });
   });
 
-  it('가로 영상은 가운데 9:16만 (높이 유지)', () => {
+  it('가로 영상은 가운데 9:16만 (높이 유지, 예전 cover 크롭과 같은 크기)', () => {
     // 1920x1080: 보이는 폭 1080 * 9/16 = 607.5 → 608
-    assert.deepEqual(computeCaptureCrop({ videoWidth: 1920, videoHeight: 1080, stageAspect: STAGE }),
-      { x: 656, y: 0, width: 608, height: 1080 });
-    assert.deepEqual(computeCaptureCrop({ videoWidth: 2160, videoHeight: 2160, stageAspect: STAGE }),
-      { x: 473, y: 0, width: 1215, height: 2160 });
+    assert.deepEqual(sizeOf(1920, 1080), { width: 608, height: 1080 });
+    assert.deepEqual(sizeOf(2160, 2160), { width: 1215, height: 2160 });
   });
 
   it('9:16보다 더 세로로 긴 영상은 가운데 위아래를 자름 (폭 유지)', () => {
-    assert.deepEqual(computeCaptureCrop({ videoWidth: 1080, videoHeight: 2400, stageAspect: STAGE }),
-      { x: 0, y: 240, width: 1080, height: 1920 });
+    assert.deepEqual(sizeOf(1080, 2400), { width: 1080, height: 1920 });
   });
 
-  it('영상 크기가 0이면 null', () => {
-    assert.equal(computeCaptureCrop({ videoWidth: 0, videoHeight: 0, stageAspect: STAGE }), null);
+  it('90° 회전한 가로 카메라는 세로 원본 그대로, 확대하면 그만큼 작다', () => {
+    assert.deepEqual(sizeOf(1920, 1080, { rotation: 90 }), { width: 1080, height: 1920 });
+    assert.deepEqual(sizeOf(1080, 1920, { zoom: 2 }), { width: 540, height: 960 });
   });
 });
 
 
-function setup({ videoWidth = 1920, videoHeight = 1080, mirror = true, context, blob, effect, frameAge = 10 } = {}) {
+function setup({ videoWidth = 1920, videoHeight = 1080, mirror = true, camera = {}, context, blob, effect, frameAge = 10 } = {}) {
   const env = fakeEnvironment({ context, blob });
   const video = { videoWidth, videoHeight };
   let time = 100000;
-  let mirrorNow = mirror;
+  // 카메라 처리 경로: 실제 camera-frame.js (문서 없음 → 색 보정 SVG 필터는 'none')
+  const cameraFrame = createCameraFrame({ doc: {}, stageAspect: STAGE, settings: cameraOf({ mirror, ...camera }) });
   const frame = { at: time - frameAge, count: 42 };
   const capture = createCapture({
-    video, stageAspect: STAGE, getMirror: () => mirrorNow, type: 'image/jpeg', quality: 0.92,
+    video, frame: cameraFrame, type: 'image/jpeg', quality: 0.92,
     maxFrameAgeMs: 500, getFrameInfo: () => frame,
     effect, createCanvas: env.createCanvas, urls: env.urls, now: () => time,
   });
-  return { env, video, capture, frame, setTime: (t) => { time = t; }, setMirror: (value) => { mirrorNow = value; } };
+  return {
+    env, video, capture, frame, cameraFrame, setTime: (t) => { time = t; },
+    setMirror: (value) => { cameraFrame.setSettings({ ...cameraFrame.getSettings(), mirror: value }); },
+  };
 }
 
+// camera-frame.js draw가 남기는 호출: 단위 변환(검게 칠하기) → 카메라 변환 → drawImage(video, 0, 0)
+const drawCalls = (videoWidth, videoHeight, patch, width, height) => [
+  ['setTransform', 1, 0, 0, 1, 0, 0],
+  ['setTransform', ...canvasTransform(computeCameraView({ videoWidth, videoHeight, stageAspect: STAGE, camera: cameraOf(patch) }), width, height)],
+  ['drawImage', 0, 0],
+];
+
 describe('createCapture', () => {
-  it('보이는 영역을 원본 해상도로 잘라 좌우 반전해 그리고, 캔버스는 인코딩 뒤 비운다', async () => {
+  it('보이는 영역을 카메라 처리 경로(반전 포함)로 원본 해상도에 그리고, 캔버스는 인코딩 뒤 비운다', async () => {
     const { env, capture } = setup();
     const photo = await capture.take();
     assert.deepEqual(photo, { url: 'blob:fake/1', width: 608, height: 1080, print: null, dots: false });
     const [canvas] = env.canvases;
-    assert.deepEqual(canvas.calls, [
-      ['translate', 608, 0],
-      ['scale', -1, 1],
-      ['drawImage', 656, 0, 608, 1080, 0, 0, 608, 1080],
-      ['toBlob', 'image/jpeg', 0.92],
-    ]);
+    assert.deepEqual(canvas.calls, [...drawCalls(1920, 1080, { mirror: true }, 608, 1080), ['toBlob', 'image/jpeg', 0.92]]);
+    // 반전: x가 뒤집히고 가운데 띠(656~1263.5)가 0~608로 간다
+    const [, [, a, , , , e]] = canvas.calls;
+    assert.ok(a < 0 && Math.abs(e - (656 + 607.5) * (608 / 607.5)) < 1e-6 + 0.3, `${a} ${e}`);
     assert.equal(canvas.width, 0); // 비움
     const stats = capture.getStats();
     assert.equal(stats.liveCanvases, 0);
@@ -70,14 +82,28 @@ describe('createCapture', () => {
     assert.equal(stats.last.mirror, true);
   });
 
-  it('mirror false면 반전하지 않는다', async () => {
+  it('mirror false면 반전하지 않는다. 9:16 원본은 변환이 정확히 단위 행렬 (화소 그대로)', async () => {
     const { env, capture } = setup({ mirror: false });
     await capture.take();
-    assert.deepEqual(env.canvases[0].calls[0], ['drawImage', 656, 0, 608, 1080, 0, 0, 608, 1080]);
+    assert.deepEqual(env.canvases[0].calls.slice(0, 3), drawCalls(1920, 1080, { mirror: false }, 608, 1080));
     assert.equal(capture.getStats().last.mirror, false);
+    const obs = setup({ mirror: false, videoWidth: 1080, videoHeight: 1920 });
+    await obs.capture.take();
+    assert.deepEqual(obs.env.canvases[0].calls[1], ['setTransform', 1, 0, 0, 1, 0, 0]);
+    const mirrored = setup({ videoWidth: 1080, videoHeight: 1920 });
+    await mirrored.capture.take();
+    assert.deepEqual(mirrored.env.canvases[0].calls[1], ['setTransform', -1, 0, 0, 1, 1080, 0], '예전 translate(1080) + scale(-1, 1)');
   });
 
-  it('반전 값은 셔터 순간(프레임을 잡는 순간) 읽는다: 바꾸면 다음 사진부터, 효과 단계 중에 바꿔도 잡은 사진은 그대로', async () => {
+  it('회전·확대: 캡처 크기와 변환이 카메라 설정을 따른다 (D capture 줄의 회전·배율)', async () => {
+    const { env, capture } = setup({ camera: { rotation: 90, zoom: 1.5, mirror: false } });
+    const photo = await capture.take();
+    assert.deepEqual([photo.width, photo.height], [720, 1280]);
+    assert.deepEqual(env.canvases[0].calls.slice(0, 3), drawCalls(1920, 1080, { rotation: 90, zoom: 1.5, mirror: false }, 720, 1280));
+    assert.deepEqual(capture.getStats().last.view, { mirror: false, rotation: 90, zoom: 1.5, autoZoom: false, color: false });
+  });
+
+  it('카메라 설정은 셔터 순간(프레임을 잡는 순간) 읽는다: 바꾸면 다음 사진부터, 효과 단계 중에 바꿔도 잡은 사진은 그대로', async () => {
     let during = null;
     const t = setup({ effect: async (canvas) => { during?.(); return canvas; } });
     await t.capture.take();
@@ -85,12 +111,12 @@ describe('createCapture', () => {
     during = () => t.setMirror(true); // 효과·인코딩을 기다리는 동안 다시 켬
     await t.capture.take();
     const [first, second] = t.env.canvases;
-    assert.deepEqual(first.calls.slice(0, 2), [['translate', 608, 0], ['scale', -1, 1]]);
-    assert.deepEqual(second.calls[0], ['drawImage', 656, 0, 608, 1080, 0, 0, 608, 1080], '잡을 때 끔이었다');
+    assert.deepEqual(first.calls.slice(0, 3), drawCalls(1920, 1080, { mirror: true }, 608, 1080));
+    assert.deepEqual(second.calls.slice(0, 3), drawCalls(1920, 1080, { mirror: false }, 608, 1080), '잡을 때 끔이었다');
     assert.equal(t.capture.getStats().last.mirror, false);
     during = null;
     await t.capture.take();
-    assert.deepEqual(t.env.canvases[2].calls[1], ['scale', -1, 1], '그다음 사진은 켬');
+    assert.deepEqual(t.env.canvases[2].calls.slice(0, 3), drawCalls(1920, 1080, { mirror: true }, 608, 1080), '그다음 사진은 켬');
   });
 
   it('release는 Object URL을 한 번만 revoke한다', async () => {

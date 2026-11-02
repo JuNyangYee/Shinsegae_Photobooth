@@ -13,10 +13,10 @@ const defaults = Object.freeze({
   region: Object.freeze({ x: 0.1, y: 0.1, width: 0.8, height: 0.8 }),
   minFaceHeight: 0.05, maxFaceHeight: 0.6, minScore: 0.7, presentHoldMs: 500, absentGraceMs: 1000,
 });
-// 영상 기준 얼굴 하나: 화면 기준 중심 (0.5, 0.36), 높이 0.12, 점수 0.95 → 기본 기준으로 인정
+// 감지 입력(= 화면 영역, 9-1) 기준 얼굴 하나: 화면 기준 중심 (0.5, 0.36), 높이 0.12, 점수 0.95 → 기본 기준으로 인정
 const FACE = Object.freeze({ x: 0.4, y: 0.3, width: 0.2, height: 0.12, score: 0.95 });
 
-async function setupMonitor({ settings = defaults, mirror = true } = {}) {
+async function setupMonitor({ settings = defaults, cameraKey = '', video = { videoWidth: 1080, videoHeight: 1920 } } = {}) {
   const clock = fakeClock(1000);
   const doc = {
     hidden: false,
@@ -36,13 +36,15 @@ async function setupMonitor({ settings = defaults, mirror = true } = {}) {
     detect() { detectCalls += 1; return detected; },
     close() {},
   };
+  const draws = []; // drawFrame(ctx, width, height) 호출 (카메라 처리 경로로 감지 입력을 그린다)
   const monitor = createPresenceMonitor({
-    video: { videoWidth: 1080, videoHeight: 1920 },
+    video,
     camera,
     detection: { maxFps: 15, inputMaxSize: 640, detectorRetryMs: 15000 },
     presence: settings,
     stageAspect: 9 / 16,
-    mirror,
+    cameraKey,
+    drawFrame: (ctx, width, height) => draws.push([width, height]),
     createDetector: async () => detector,
     timers: clock.timers,
     now: clock.now,
@@ -62,7 +64,7 @@ async function setupMonitor({ settings = defaults, mirror = true } = {}) {
     }
   }
   return {
-    clock, monitor, frames, run,
+    clock, monitor, frames, run, draws,
     setDetected: (faces) => { detected = faces; },
     detectCalls: () => detectCalls,
   };
@@ -147,56 +149,50 @@ describe('createPresenceMonitor: 기준이 바뀌면 인식 상태를 다시 잰
   });
 });
 
-describe('createPresenceMonitor: 좌우 반전을 바꾸면 (E 화면 "카메라", 2026-10-26)', () => {
-  // 영상 오른쪽(중심 x 0.75)의 얼굴. 반전 켬이면 화면 왼쪽(0.25), 끔이면 화면 오른쪽(0.75)에 보인다
-  const RIGHT_IN_VIDEO = Object.freeze({ x: 0.7, y: 0.3, width: 0.1, height: 0.12, score: 0.95 });
-  const leftHalf = Object.freeze({ ...defaults, region: Object.freeze({ x: 0, y: 0, width: 0.5, height: 1 }) });
-
-  it('판정 좌표가 화면 기준으로 바뀐다: 왼쪽 절반 영역에서 켬이면 안, 끔이면 밖', async () => {
-    for (const [mirror, centerX, present] of [[true, 0.25, true], [false, 0.75, false]]) {
-      const t = await setupMonitor({ settings: leftHalf, mirror });
-      t.setDetected([RIGHT_IN_VIDEO]);
+describe('createPresenceMonitor: 감지 입력 = 카메라 처리 경로를 거친 화면 영역 (9-1)', () => {
+  it('9:16 화면 영역을 긴 변 640(360x640)으로 drawFrame에 그리게 하고, 감지 박스를 그대로 화면 좌표로 쓴다 (영상 크기·비율과 관계없이)', async () => {
+    for (const [videoWidth, videoHeight] of [[1080, 1920], [1920, 1080], [2160, 3840]]) {
+      const t = await setupMonitor({ video: { videoWidth, videoHeight } });
       await t.run(700);
+      assert.deepEqual(t.draws.at(-1), [360, 640], `${videoWidth}x${videoHeight}`);
+      assert.equal(t.monitor.getDebugSnapshot().input, '360x640');
       const [face] = t.monitor.getDebugSnapshot().faces;
-      assert.ok(Math.abs(face.center.x - centerX) < 1e-9, `mirror ${mirror}: center ${face.center.x}`);
-      assert.equal(face.inRegion, present);
-      assert.equal(t.monitor.isPresent(), present);
-      assert.equal(t.monitor.getDebugSnapshot().mirror, mirror);
+      assert.deepEqual(face.box, { x: FACE.x, y: FACE.y, width: FACE.width, height: FACE.height });
+      assert.equal(t.monitor.isPresent(), true);
     }
   });
+});
 
-  it('바꾸는 순간 인식 안됨을 알리고 얼굴 박스를 지우고, 새 반전으로 유지 시간이 지나야 다시 판정한다', async () => {
-    const t = await setupMonitor({ settings: leftHalf });
-    t.setDetected([RIGHT_IN_VIDEO]);
+describe('createPresenceMonitor: 카메라 기하 설정(반전·회전·확대·이동)이 바뀌면 (9-1, 반전은 2026-10-26부터)', () => {
+  it('바꾸는 순간 인식 안됨을 알리고 얼굴 박스를 지우고, 새 설정으로 유지 시간이 지나야 다시 판정한다', async () => {
+    const t = await setupMonitor({ cameraKey: 'm 0 0 1 0 0' });
     await t.run(700);
     assert.equal(t.monitor.isPresent(), true);
     const seen = [];
     t.monitor.subscribe(({ present }) => seen.push(present));
-    t.monitor.setMirror(false);
+    t.monitor.setCameraGeometry('n 0 0 1 0 0');
     assert.deepEqual(seen, [true, false]);
     const snapshot = t.monitor.getDebugSnapshot();
-    assert.deepEqual([snapshot.faces.length, snapshot.criteriaResets, snapshot.mirror], [0, 1, false]);
-    await t.run(3000);
-    assert.equal(t.monitor.isPresent(), false, '끔: 같은 얼굴이 화면 오른쪽이라 영역 밖');
-    assert.ok(Math.abs(t.monitor.getDebugSnapshot().faces[0].center.x - 0.75) < 1e-9);
-    t.monitor.setMirror(true);
+    assert.deepEqual([snapshot.faces.length, snapshot.criteriaResets, snapshot.cameraKey], [0, 1, 'n 0 0 1 0 0']);
     await t.run(450);
-    assert.equal(t.monitor.isPresent(), false);
+    assert.equal(t.monitor.isPresent(), false, '유지 시간(500ms) 전');
     await t.run(200);
     assert.equal(t.monitor.isPresent(), true);
+    t.monitor.setCameraGeometry('n 90 0 1.5 0 0');
+    assert.equal(t.monitor.isPresent(), false);
     assert.equal(t.monitor.getDebugSnapshot().criteriaResets, 2);
   });
 
-  it('같은 값을 다시 넣으면 다시 재지 않는다', async () => {
-    const t = await setupMonitor();
+  it('같은 키를 다시 넣으면 다시 재지 않는다', async () => {
+    const t = await setupMonitor({ cameraKey: 'm 0 0 1 0 0' });
     await t.run(700);
-    t.monitor.setMirror(true);
+    t.monitor.setCameraGeometry('m 0 0 1 0 0');
     assert.equal(t.monitor.isPresent(), true);
     assert.equal(t.monitor.getDebugSnapshot().criteriaResets, 0);
   });
 
-  it('인식으로 시작한 카운트다운 중에 바꾸면 "떠남"으로 취소되고, E 화면이 열려 있는 동안 다시 시작하지 않는다', async () => {
-    const t = await setupMonitor();
+  it('인식으로 시작한 카운트다운 중에 바꾸면 "떠남"으로 취소되고, 조절 화면이 열려 있는 동안 다시 시작하지 않는다', async () => {
+    const t = await setupMonitor({ cameraKey: 'm 0 0 1 0 0' });
     const session = createSession({
       timing, takePhoto: async () => ({ id: 'p' }), releasePhoto: () => {}, cameraReady: true,
       timers: t.clock.timers, now: t.clock.now,
@@ -206,8 +202,8 @@ describe('createPresenceMonitor: 좌우 반전을 바꾸면 (E 화면 "카메라
     auto.start();
     await t.run(700);
     assert.equal(session.getState().state, SessionState.COUNTDOWN);
-    tuning.open = true; // E 화면을 열고 반전을 끈다 (얼굴은 가운데라 끔에서도 영역 안)
-    t.monitor.setMirror(false);
+    tuning.open = true; // 운영자 화면을 열고 반전을 끈다 (얼굴은 가운데라 끔에서도 영역 안)
+    t.monitor.setCameraGeometry('n 0 0 1 0 0');
     assert.equal(session.getState().state, SessionState.IDLE);
     assert.equal(auto.getDebug().lastCancel.reason, 'left during countdown');
     await t.run(2000);
@@ -287,7 +283,6 @@ describe('createPresenceMonitor: 감지기 상태 알림 (4-1)', () => {
       detection: { maxFps: 15, inputMaxSize: 640, detectorRetryMs: 15000, detectorRetryMaxMs: 300000, detectorFaultAfterFailures: 3 },
       presence: defaults,
       stageAspect: 9 / 16,
-      mirror: true,
       createDetector: (h) => { hooks.push(h); return create(); },
       timers: clock.timers,
       now: clock.now,
@@ -384,7 +379,6 @@ describe('createPresenceMonitor: 소프트웨어 WebGL 경고 (4-1 결정)', () 
       detection: { maxFps: 15, inputMaxSize: 640, detectorRetryMs: 15000 },
       presence: defaults,
       stageAspect: 9 / 16,
-      mirror: true,
       createDetector: async () => ({
         delegate: 'GPU', failures: [], webgl: { version: 2, renderer: 'Microsoft Basic Render Driver', software: true },
         detect: () => [], close() {},

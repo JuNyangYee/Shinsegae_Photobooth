@@ -1,5 +1,7 @@
 // 감지 루프와 인식 상태.
 // 카메라가 준비되고 페이지가 보일 때만 축소 캔버스로 감지하고, presence.js로 판정한다.
+// 감지 입력은 카메라 처리 경로(9-1: 색 보정·반전·회전·확대·이동)를 거친 9:16 화면 영역 그대로다(main.js가 camera/camera-frame.js의
+// draw를 drawFrame으로 넘긴다). 그래서 감지 박스가 곧 화면 좌표이고, 회전한 카메라에서도 감지기는 똑바로 선 얼굴을 본다.
 // 촬영 진행 코드는 isPresent()와 subscribe()로 "인식됨 / 인식 안됨"만 본다.
 // 좌표·점수는 밖으로 알리지 않는다. getDebugSnapshot()은 D 개발용 화면 전용이다.
 
@@ -7,9 +9,9 @@ import { DetectorHealth, createDetectorKeeper } from './detector-keeper.js';
 import { DetectorFault, createFaceDetector } from './face-detector.js';
 import { errorLog } from '../core/log-limit.js';
 import {
+  STAGE_MAPPING,
   classifyFaces,
   sameCriteria,
-  computeCoverMapping,
   initialPresenceState,
   presenceProgress,
   stepPresence,
@@ -40,7 +42,10 @@ const AVERAGE_WEIGHT = 0.1; // 감지 시간 이동 평균 가중치
  *     detectorRetryMs: number, detectorRetryMaxMs?: number, detectorFaultAfterFailures?: number },
  *   presence: { region: object, minFaceHeight: number, maxFaceHeight: number, minScore: number,
  *     presentHoldMs: number, absentGraceMs: number },
- *   stageAspect: number, mirror: boolean,  처음 좌우 반전 값. 바뀌면 setMirror()
+ *   stageAspect: number, cameraKey?: string, drawFrame?: (ctx: CanvasRenderingContext2D, width: number, height: number) => void,
+ *   stageAspect: 감지 입력 캔버스 비율(9:16). drawFrame: 그 캔버스 전체에 카메라 처리 경로를 거친 화면 영역을 그린다
+ *   (기본값은 영상을 그대로 늘려 그림, 테스트용). cameraKey: 카메라 기하 설정 키(core/camera-view.js cameraGeometryKey).
+ *   바뀌면 setCameraGeometry()
  *   createDetector?: (hooks: { onContextLost: () => void }) => Promise<object>,
  *   timers?: { setTimeout: Function, clearTimeout: Function }, now?: () => number, doc?: Document,
  *   log?: { warn: Function, clear: Function } }} options
@@ -48,7 +53,8 @@ const AVERAGE_WEIGHT = 0.1; // 감지 시간 이동 평균 가중치
  *   log-limit.js errorLog). Node 테스트용
  */
 export function createPresenceMonitor({
-  video, camera, detection, presence: initialSettings, stageAspect, mirror: initialMirror,
+  video, camera, detection, presence: initialSettings, stageAspect, cameraKey: initialCameraKey = '',
+  drawFrame = (ctx, width, height) => ctx.drawImage(video, 0, 0, width, height),
   createDetector = (hooks) => createFaceDetector({
     ...detection, minDetectionConfidence: detection.detectorMinConfidence, ...hooks,
   }),
@@ -60,7 +66,7 @@ export function createPresenceMonitor({
   const context = canvas.getContext('2d', { alpha: false });
 
   let settings = initialSettings; // 판정 설정. setSettings()로 바꾸면 다음 감지부터 반영된다
-  let mirror = Boolean(initialMirror); // 화면 좌표로 바꿀 때 좌우 반전. setMirror()로 바꾸면 다음 감지부터
+  let cameraKey = initialCameraKey; // 카메라 기하 설정 (반전·회전·확대·이동). setCameraGeometry()로 바꾸면 처음부터 다시 잰다
   let started = false;
   let timer = null;
   let ticking = false; // tick() 실행 중. 인식 알림을 받은 쪽(촬영 진행·D 화면)이 이 안에서 상태를 읽어도 running으로 보이게
@@ -83,7 +89,7 @@ export function createPresenceMonitor({
   let lastDetectionError = '';
   let recentTicks = [];
   let skippedSameFrame = 0; // 새 프레임이 없어 건너뛴 감지 수
-  let criteriaResets = 0; // 판정 기준·좌우 반전이 바뀌어 인식 상태를 처음부터 다시 잰 횟수
+  let criteriaResets = 0; // 판정 기준·카메라 기하 설정이 바뀌어 인식 상태를 처음부터 다시 잰 횟수
 
   // 생성에 실패하거나 감지기를 버리면 간격을 늘려 가며 다시 만든다. 결과가 나오면 루프 상태를 다시 맞추고 감지기 상태를 알린다.
   const keeper = createDetectorKeeper({
@@ -233,18 +239,17 @@ export function createPresenceMonitor({
   }
 
   function detectOnce() {
-    const { videoWidth, videoHeight } = video;
-    // 4K 영상을 그대로 넣지 않는다. 긴 변을 inputMaxSize 이하로 줄인 캔버스로 감지한다.
-    const scale = Math.min(1, detection.inputMaxSize / Math.max(videoWidth, videoHeight));
-    const width = Math.max(1, Math.round(videoWidth * scale));
-    const height = Math.max(1, Math.round(videoHeight * scale));
+    // 4K 영상을 그대로 넣지 않는다. 9:16 화면 영역을 긴 변 inputMaxSize로 그린 캔버스로 감지한다 (9:16이면 360x640).
+    const long = detection.inputMaxSize;
+    const width = Math.max(1, Math.round(stageAspect >= 1 ? long : long * stageAspect));
+    const height = Math.max(1, Math.round(stageAspect >= 1 ? long / stageAspect : long));
     if (canvas.width !== width || canvas.height !== height) {
       canvas.width = width;
       canvas.height = height;
     }
 
     const drawStart = nowMs();
-    context.drawImage(video, 0, 0, width, height);
+    drawFrame(context, width, height);
     const detectStart = nowMs();
     // detectForVideo 타임스탬프는 항상 증가해야 한다.
     const timestamp = Math.max(detectStart, lastTimestamp + 1);
@@ -258,8 +263,8 @@ export function createPresenceMonitor({
     recentTicks.push(now);
     while (recentTicks.length > 0 && now - recentTicks[0] > FPS_WINDOW_MS) recentTicks.shift();
 
-    const mapping = computeCoverMapping({ videoWidth, videoHeight, stageAspect, mirror });
-    faces = classifyFaces(detected, mapping, settings);
+    // 감지 입력이 화면 영역 그대로이므로 감지 박스가 곧 화면 좌표다
+    faces = classifyFaces(detected, STAGE_MAPPING, settings);
     presence = stepPresence(presence, faces.some((face) => face.accepted), now, settings);
     notify();
   }
@@ -299,12 +304,13 @@ export function createPresenceMonitor({
     },
     getSettings: () => settings,
     /**
-     * 좌우 반전을 바꾼다 (E 화면 "카메라"). 인식 영역은 관람객이 보는 화면 기준이라, 반전이 바뀌면 같은 얼굴이 영역의 반대쪽에 온다.
-     * 그래서 기준이 바뀐 것과 같이 인식 상태를 처음부터 다시 재고(바뀌는 순간 "인식 안됨"), 이전 좌표의 얼굴 박스도 지운다.
+     * 카메라 기하 설정(반전·회전·확대·이동, 9-1)이 바뀌었음을 알린다 (키: core/camera-view.js cameraGeometryKey).
+     * 인식 영역은 관람객이 보는 화면 기준이라, 바뀌면 같은 얼굴이 영역의 다른 곳에 온다. 그래서 기준이 바뀐 것과 같이 인식 상태를
+     * 처음부터 다시 재고(바뀌는 순간 "인식 안됨"), 이전 좌표의 얼굴 박스도 지운다. 같은 키면 그대로. 색 보정만 바뀐 것은 알리지 않는다.
      */
-    setMirror(next) {
-      if (Boolean(next) === mirror) return;
-      mirror = Boolean(next);
+    setCameraGeometry(nextKey) {
+      if (nextKey === cameraKey) return;
+      cameraKey = nextKey;
       restartPresence();
     },
     /** 감지기 상태 { health, cause, since }. health는 DetectorHealth, since는 감지기가 없게 된 시각(now 기준, 있으면 null) */
@@ -354,7 +360,7 @@ export function createPresenceMonitor({
         criteriaResets,
         faces,
         settings,
-        mirror,
+        cameraKey,
         present: presence.present,
         raw: presence.raw,
         progress: presenceProgress(presence, now, settings),

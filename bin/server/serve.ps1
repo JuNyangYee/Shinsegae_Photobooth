@@ -10,6 +10,7 @@ param(
 #   /lib/*   -> lib/ (404 when the folder does not exist)
 #   /local-api/presence-settings  GET/PUT operator presence settings (config/presence.local.json)
 #   /local-api/effect-settings    GET/PUT operator photo effect settings (config/effect.local.json)
+#   /local-api/camera-settings    GET/PUT operator camera settings (config/camera.local.json)
 #   /*       -> src/web/
 
 Set-StrictMode -Version Latest
@@ -19,12 +20,13 @@ $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $webRoot = Join-Path $projectRoot 'src\web'
 $libRoot = Join-Path $projectRoot 'lib'
 
-# Operator settings files (task 4-3 presence, 5-2 effect). Fixed table: exact URL -> one file name.
+# Operator settings files (task 4-3 presence, 5-2 effect, 9-1 camera). Fixed table: exact URL -> one file name.
 # Clients never choose a file name or path. Every route shares the same write checks, size limit and atomic write.
 $settingsDir = Join-Path $projectRoot 'config'
 $settingsRoutes = New-Object 'Collections.Generic.Dictionary[string,string]' ([StringComparer]::Ordinal)
 $settingsRoutes['/local-api/presence-settings'] = 'presence.local.json'
 $settingsRoutes['/local-api/effect-settings'] = 'effect.local.json'
+$settingsRoutes['/local-api/camera-settings'] = 'camera.local.json'
 $maxSettingsBytes = 16384
 $expectedHost = "localhost:$Port"
 $expectedOrigin = "http://localhost:$Port"

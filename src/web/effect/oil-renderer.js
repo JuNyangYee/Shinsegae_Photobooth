@@ -24,6 +24,13 @@ import {
   FS_THERMAL_SCREEN, FS_THERMAL_SHOW, FS_UNDER, VS, VS_STROKE,
 } from './oil-shaders.js';
 
+// 카메라 처리 경로 (9-1, oil-shaders.js CAMERA_INPUT): 변환·색 보정 없음
+const IDENTITY_AFFINE = Object.freeze({ x: Object.freeze([1, 0, 0]), y: Object.freeze([0, 1, 0]) });
+const IDENTITY_COLOR = Object.freeze({ uCamM: Object.freeze([1, 0, 0, 0, 1, 0, 0, 0, 1]), uCamB: Object.freeze([0, 0, 0]), uCamExp: 1 });
+const cameraUniforms = (affine, color) => ({
+  uSrcX: [...affine.x], uSrcY: [...affine.y], uCamM: [...color.uCamM], uCamB: [...color.uCamB], uCamExp: color.uCamExp,
+});
+
 /** 만들기·그리기 실패 원인 (D 화면에 그대로 보인다) */
 export const EffectFault = Object.freeze({
   WEBGL_UNAVAILABLE: 'webgl2-unavailable', // getContext('webgl2') 실패 (하드웨어 가속 꺼짐 등)
@@ -487,7 +494,8 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
     for (const [name, v] of Object.entries(uni || {})) {
       const loc = U(prog, name);
       if (Array.isArray(v)) {
-        if (v.length === 3) gl.uniform3fv(loc, v);
+        if (v.length === 9) gl.uniformMatrix3fv(loc, false, v); // 열 우선 (core/camera-view.js shaderColorUniforms)
+        else if (v.length === 3) gl.uniform3fv(loc, v);
         else gl.uniform2fv(loc, v);
       } else gl.uniform1f(loc, v);
     }
@@ -590,9 +598,11 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
    * @param {TexImageSource | null} source 영상·이미지·캔버스. null이면 앞 그림의 소스를 다시 쓴다
    *   (정지 이미지를 여러 번 그릴 때. 이미지 요소를 매번 올리면 1080x1920에서 수십 ms가 든다)
    * @param {{ settings: object, width: number, height: number, seed: number,
-   *   sourceOffset?: [number, number], sourceScale?: [number, number], referenceShortSide?: number }} options
-   *   width·height: 그리는 해상도. sourceOffset·sourceScale: 출력 uv(왼쪽 아래 원점, 0~1) → 소스 텍스처 uv
-   *   (위아래를 뒤집어 올리므로 텍스처 uv도 왼쪽 아래 원점). 기본값은 소스 전체 그대로.
+   *   sourceAffine?: { x: number[], y: number[] }, sourceColor?: { uCamM: number[], uCamB: number[], uCamExp: number },
+   *   referenceShortSide?: number }} options
+   *   width·height: 그리는 해상도. sourceAffine: 카메라 처리 경로의 좌표 — 출력 uv(왼쪽 아래 원점, 0~1) → 소스 텍스처 uv
+   *   (위아래를 뒤집어 올리므로 텍스처 uv도 왼쪽 아래 원점, core/camera-view.js shaderSourceAffine). 기본값은 소스 전체 그대로.
+   *   sourceColor: 카메라 색 보정 uniform (core/camera-view.js shaderColorUniforms). 기본값은 그대로.
    *   output: 'canvas'(화면 캔버스, 크기를 맞춘다), 'pixels'(화면 밖에 그려 RGBA 화소를 위 줄부터 돌려준다.
    *   화면 캔버스는 건드리지 않는다. 결과 사진용, 출력 모드 off·gray·gray-oil. gray-oil이면 인쇄용 gray·mask도. 인쇄 단계만 실패하면
    *   gray·mask 대신 printError), 'print'(감열지 결과 사진용: 인쇄 해상도의
@@ -604,7 +614,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
    *   gray?: Uint8Array, mask?: Uint8Array, printWidth?: number, printHeight?: number }}
    */
   function render(source, {
-    settings, width, height, seed, sourceOffset = [0, 0], sourceScale = [1, 1], referenceShortSide, output = 'canvas',
+    settings, width, height, seed, sourceAffine = IDENTITY_AFFINE, sourceColor = IDENTITY_COLOR, referenceShortSide, output = 'canvas',
     displayWidth = width, displayHeight = height,
   }) {
     if (disposed) throw new Error('renderer disposed');
@@ -635,10 +645,10 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
       if (mode === 'gray-oil') {
         // 회색조 유화 (8단계): 입력을 먼저 회색 한 장으로. 색 보정 이후는 원본 그대로이고, 회색 그림을 크롭·반전 없이 읽는다
         if (!T.inputGray) T.inputGray = tex(width, height);
-        pass(PR.inputGray, T.inputGray, { uSrc: srcTex }, { uLuma: INPUT_LUMA, uSrcOffset: sourceOffset, uSrcScale: sourceScale });
-        pass(PR.grade, T.grade, { uSrc: T.inputGray }, { uAmt: D.grade, uSrcOffset: [0, 0], uSrcScale: [1, 1] });
+        pass(PR.inputGray, T.inputGray, { uSrc: srcTex }, { uLuma: INPUT_LUMA, ...cameraUniforms(sourceAffine, sourceColor) });
+        pass(PR.grade, T.grade, { uSrc: T.inputGray }, { uAmt: D.grade, ...cameraUniforms(IDENTITY_AFFINE, IDENTITY_COLOR) });
       } else {
-        pass(PR.grade, T.grade, { uSrc: srcTex }, { uAmt: D.grade, uSrcOffset: sourceOffset, uSrcScale: sourceScale });
+        pass(PR.grade, T.grade, { uSrc: srcTex }, { uAmt: D.grade, ...cameraUniforms(sourceAffine, sourceColor) });
       }
       pass(PR.sst, T.sst, { uTex: T.grade });
       pass(PR.blur, T.sst2, { uTex: T.sst }, { uDir: [1 / T.sst.w, 0], uSigma: D.flowSigma });
