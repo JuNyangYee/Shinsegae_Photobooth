@@ -33,6 +33,8 @@ const EFFECT_SETTINGS_FILE = join(repo, 'config', 'effect.local.json');
 const EFFECT_SETTINGS_API = '/local-api/effect-settings';
 const CAMERA_SETTINGS_FILE = join(repo, 'config', 'camera.local.json');
 const CAMERA_SETTINGS_API = '/local-api/camera-settings';
+// 운영자 화면(E, 9-2)의 섹션 요소 id
+const SECTION_IDS = Object.freeze({ camera: 'camera-panel', presence: 'tuning-panel', effect: 'effect-panel' });
 const MODEL_PATTERN = '*blaze_face_short_range.tflite*';
 // MediaPipe 사용 통계 전송은 CSP로 막는 것이 의도된 동작이다(docs/SYSTEM.md 1절). 이 주소의 CSP 메시지는 실패로 세지 않는다.
 const EXPECTED_CSP_HOST = 'odml.pa.googleapis.com';
@@ -40,7 +42,7 @@ const EXPECTED_CSP_HOST = 'odml.pa.googleapis.com';
 // ---------- 옵션 ----------
 
 function parseArgs(argv) {
-  const options = { camera: 'fake', soak: 0, interval: 20, csv: '', chrome: '', keepProfile: false, only: [], cameraLabel: '' };
+  const options = { camera: 'fake', soak: 0, interval: 20, csv: '', chrome: '', keepProfile: false, only: [], cameraLabel: '', screens: '' };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     const value = () => {
@@ -62,9 +64,12 @@ function parseArgs(argv) {
     else if (arg === '--only') options.only = value().split('|').map((t) => t.trim()).filter(Boolean);
     // 카메라 설정 시나리오(9-1)가 쓸 장치 라벨 (예: 옆으로 세운 실제 웹캠). 비우면 기본 규칙(OBS → 기본 카메라)
     else if (arg === '--camera-label') options.cameraLabel = value();
+    // 운영자 화면 캡처(PNG)를 남길 폴더 (9-2 검수용). 실제 카메라 영상이 찍히지 않게 가짜 카메라에서만 쓴다
+    else if (arg === '--screens') options.screens = value();
     else throw new Error(`unknown option: ${arg}`);
   }
   if (!['fake', 'real'].includes(options.camera)) throw new Error('--camera must be fake or real');
+  if (options.screens && options.camera !== 'fake') throw new Error('--screens is for the fake camera only (no real camera images are saved)');
   if (!(options.soak >= 0) || !(options.interval >= 5)) throw new Error('--soak must be a number of minutes, --interval >= 5');
   return options;
 }
@@ -305,12 +310,29 @@ function createApp(cdp, origin) {
     },
     /** D 화면 글자 전체 (들여쓴 하위 줄 `  output   :` 등도 읽을 때) */
     devText: () => evaluate("document.getElementById('dev-info').textContent"),
-    /** E 화면 선택 상자를 고른다 (change 이벤트) */
-    choose: (key, value) => evaluate(`(() => { const s = document.querySelector('#effect-panel select[data-key="${key}"]');
+    /** 운영자 화면(E) 섹션의 선택 상자를 고른다 (change 이벤트). scope 기본은 필터 섹션 */
+    choose: (key, value, scope = '#effect-panel') => evaluate(`(() => { const s = document.querySelector('${scope} select[data-key="${key}"]');
       s.value = '${value}'; s.dispatchEvent(new Event('change')); return s.value; })()`),
-    /** E 화면 슬라이더를 움직인다 (input 이벤트) */
-    slide: (key, value) => evaluate(`(() => { const i = document.querySelector('#effect-panel input[data-key="${key}"]');
+    /** 운영자 화면(E) 섹션의 슬라이더를 움직인다 (input 이벤트) */
+    slide: (key, value, scope = '#effect-panel') => evaluate(`(() => { const i = document.querySelector('${scope} input[data-key="${key}"]');
       i.value = '${value}'; i.dispatchEvent(new Event('input')); return i.value; })()`),
+    /** 운영자 화면(E) 섹션의 버튼을 누른다 */
+    press: (action, scope) => evaluate(`(() => { document.querySelector('${scope} button[data-action="${action}"]').click(); return true; })()`),
+    /** 운영자 화면(E, 9-2)을 열고 그 섹션을 보인다: camera·presence·effect */
+    async openSection(name) {
+      if (await evaluate("document.getElementById('operator-panel').hidden")) {
+        await app.key('KeyE');
+        await app.waitFor('operator panel open', () => evaluate("!document.getElementById('operator-panel').hidden"), 5000);
+      }
+      await evaluate(`document.querySelector('#operator-panel button[data-section="${name}"]').click(); true`);
+      await app.waitFor(`${name} section shown`, () => evaluate(`!document.getElementById('${SECTION_IDS[name]}').hidden`), 3000);
+    },
+    /** 운영자 화면을 닫는다 (저장하지 않은 섹션은 되돌린다) */
+    async closePanel() {
+      if (await evaluate("document.getElementById('operator-panel').hidden")) return;
+      await app.key('KeyE');
+      await app.waitFor('operator panel closed', () => evaluate("document.getElementById('operator-panel').hidden"), 5000);
+    },
     /** 관람객 안내 문구 (없으면 '') */
     status: () => evaluate("(() => { const s = document.getElementById('status'); return s.hidden ? '' : s.textContent; })()"),
     async waitFor(label, predicate, timeoutMs) {
@@ -599,6 +621,8 @@ const MIRROR_READER = `(() => {
     tx.drawImage(v, 0, 0); tx.restore();
     return grid(t.width, t.height, tx.getImageData(0, 0, t.width, t.height).data, (x, y) => (y * t.width + x) * 4); };
   const r = window.__mirrorReader = { GW, GH, samples: [], shutter: null, grid, view: null, canvasTransform: null };
+  r.stageGrid = stageGrid;
+  r.videoGrid = videoGrid;
   new MutationObserver(() => { const cd = document.getElementById('countdown');
     if (cd.hidden && r.wasCounting) r.shutter = r.samples.at(-1) ?? null;
     r.wasCounting = !cd.hidden; }).observe(document.getElementById('countdown'), { attributes: true, attributeFilter: ['hidden'] });
@@ -649,6 +673,13 @@ const MIRROR_RESULT = `(() => { ${MIRROR_MATH}
   return { size: W + 'x' + H, ranges: [range(res), range(r.shutter?.drawing), range(r.shutter?.video)].join(' '),
     drawing: r.shutter?.drawing ? orient(res, r.shutter.drawing) : null, video: r.shutter ? orient(res, r.shutter.video) : null,
     stage: r.shutter?.stage ? orient(res, r.shutter.stage) : null }; })()`;
+
+// 원본 창(9-2) ↔ 지금 변환한 영상·변환 전 cover 영상: 원본 창 캔버스를 같은 격자로 줄여 상관 (원본 창은 색 보정 포함, 격자 영상은 기하만)
+const RAW_WINDOW_CHECK = `(() => { ${MIRROR_MATH}
+  const r = window.__mirrorReader, c = document.getElementById('raw-window-canvas');
+  const W = c.width, H = c.height, d = c.getContext('2d').getImageData(0, 0, W, H).data;
+  const g = r.grid(W, H, d, (x, y) => (y * W + x) * 4), s = r.stageGrid(), v = r.videoGrid();
+  return { size: W + 'x' + H, hidden: document.getElementById('raw-window').hidden, stage: s ? +corr(g, s).toFixed(3) : null, cover: +corr(g, v).toFixed(3) }; })()`;
 
 // 카메라 처리 경로 (9-1)의 미리보기 ↔ 같은 순간 영상: 변환한 영상(stage)과 변환 전 cover 영상(video) 상관 평균
 const CAMERA_PREVIEW = `(() => { ${MIRROR_MATH}
@@ -790,7 +821,7 @@ async function runScenarios(app, origin) {
     })`);
     expect(timingUi.every((t) => !t.inDetails && t.range === '0~2000/50'), `timing sliders ${JSON.stringify(timingUi)}`);
     return `camera "${dev.get('camera')}", delegate ${dev.get('delegate')}, ${dev.get('video')}, detect @ ${parseFps(dev.get('detect'))}fps, settings ${dev.get('settings')};`
-      + ` hold ${timing?.[1]}ms grace ${timing?.[2]}ms (R shows ${timingUi.map((t) => t.shown).join('/')}s);`
+      + ` hold ${timing?.[1]}ms grace ${timing?.[2]}ms (panel shows ${timingUi.map((t) => t.shown).join('/')}s);`
       + ` fonts loaded, ${assets.files.length} assets 200`;
   });
 
@@ -890,8 +921,7 @@ async function runScenarios(app, origin) {
     try {
       await app.open();
       await waitReady(app);
-      await app.key('KeyE');
-      await app.waitFor('effect panel open', () => app.evaluate("!document.getElementById('effect-panel').hidden"), 5000);
+      await app.openSection('effect');
       await previewScaleOne(app);
       for (const mode of ['off', 'gray']) {
         await app.choose('outputMode', mode);
@@ -921,7 +951,7 @@ async function runScenarios(app, origin) {
       await app.waitFor('paper 384', async () => /^thermal 384x683 atkinson/.test(subLine(await app.devText(), 'output')), 5000);
       await app.evaluate("document.querySelector('#effect-panel button[data-action=\"save\"]').click(); true");
       await app.waitFor('saved message', () => app.evaluate("document.querySelector('#effect-panel [data-message]').textContent === '파일에 저장했습니다.'"), 5000);
-      await app.key('KeyE');
+      await app.closePanel();
       await app.open(); // 새로고침
       await waitReady(app);
       const kept = await app.waitFor('kept after reload', async () => {
@@ -1026,8 +1056,7 @@ async function runScenarios(app, origin) {
     try {
       await app.open();
       await waitReady(app);
-      await app.key('KeyE');
-      await app.waitFor('effect panel open', () => app.evaluate("!document.getElementById('effect-panel').hidden"), 5000);
+      await app.openSection('effect');
       await app.choose('outputMode', 'thermal'); // 흑백 스타일은 감열지에서만 (8단계부터 기본 모드는 회색조 유화)
       await previewScaleOne(app);
       for (const [style, screen] of [['tone', 'blue-noise'], ['texture', 'blue-noise'], ['flow', 'flow-lines'], ['stroke', 'stroke-lines']]) {
@@ -1050,7 +1079,7 @@ async function runScenarios(app, origin) {
       await app.evaluate(`(() => { const i = document.querySelector('#effect-panel input[data-key="lineSpacing"]'); i.value = '6'; i.dispatchEvent(new Event('input')); return true; })()`);
       await app.evaluate("document.querySelector('#effect-panel button[data-action=\"save\"]').click(); true");
       await app.waitFor('saved message', () => app.evaluate("document.querySelector('#effect-panel [data-message]').textContent === '파일에 저장했습니다.'"), 5000);
-      await app.key('KeyE');
+      await app.closePanel();
       await app.open();
       await waitReady(app);
       const kept = await app.waitFor('kept after reload', async () => {
@@ -1071,15 +1100,14 @@ async function runScenarios(app, origin) {
     try {
       await app.open();
       await waitReady(app);
-      await app.key('KeyE');
-      await app.waitFor('effect panel open', () => app.evaluate("!document.getElementById('effect-panel').hidden"), 5000);
+      await app.openSection('effect');
       await app.slide('fps', 18); // 기본값(12)과 다른 값
       await sleep(2000);
       const live = (await app.dev()).get('effect') ?? '';
       expect(/fps 18 -> 1[7-9] drawings\/s/.test(live), `after slider: ${live}`);
       await app.evaluate("document.querySelector('#effect-panel button[data-action=\"save\"]').click(); true");
       await app.waitFor('saved message', () => app.evaluate("document.querySelector('#effect-panel [data-message]').textContent === '파일에 저장했습니다.'"), 5000);
-      await app.key('KeyE');
+      await app.closePanel();
       await app.open(); // 새로고침
       await waitReady(app);
       const kept = await app.waitFor('fps 18 after reload', async () => {
@@ -1348,6 +1376,164 @@ async function runScenarios(app, origin) {
     }
   });
 
+  await scenario('운영자 패널(E 하나, 9-2): R 없음·섹션 셋, 카메라 값 실행 중 즉시 반영(해상도 다시 열기·회전·확대·반전·색 보정 → 미리보기·원본 창·D), 섹션별 저장 → 새로고침 유지·닫을 때 되돌리기·섹션별 기본값, 원본 창 켬/끔 속도 (파일은 원래대로)', async () => {
+    const details = [];
+    const cam = '#camera-panel';
+    const shown = (id) => `!document.getElementById('${id}').hidden`;
+    const setView = (camera) => app.evaluate(`(async () => { const cv = await import('/core/camera-view.js'); const r = window.__mirrorReader, v = document.getElementById('preview');
+      r.canvasTransform = cv.canvasTransform; r.view = cv.computeCameraView({ videoWidth: v.videoWidth, videoHeight: v.videoHeight, stageAspect: 9 / 16, camera: ${JSON.stringify(camera)} });
+      r.samples.length = 0; return true; })()`);
+    const message = (scope) => app.evaluate(`document.querySelector('${scope} [data-message]').textContent`);
+    try {
+      await openWithCamera({});
+      const videoSize = /^(\d+)x(\d+)$/.exec((await app.dev()).get('video') ?? '');
+      const landscape = videoSize && Number(videoSize[1]) >= Number(videoSize[2]);
+      // R은 아무것도 열지 않는다 (9-2: 인식 범위는 E의 인식 섹션)
+      await app.key('KeyR');
+      await sleep(300);
+      expect(await app.evaluate(`document.getElementById('operator-panel').hidden && document.getElementById('tuning-layer').hidden`), 'R opened a panel');
+      // E: 처음 섹션은 카메라, 원본 창이 보이고 영역 편집 층은 숨김, OBS 중복 적용 주의
+      await app.key('KeyE');
+      await app.waitFor('operator panel open', () => app.evaluate(shown('operator-panel')), 5000);
+      const first = await app.evaluate(`(() => ({ camera: ${shown('camera-panel')}, presence: ${shown('tuning-panel')}, effect: ${shown('effect-panel')},
+        layer: ${shown('tuning-layer')}, raw: ${shown('raw-window')}, note: document.querySelector('#camera-panel .op-note').textContent }))()`);
+      expect(first.camera && !first.presence && !first.effect && !first.layer && first.raw && /중복 적용 주의/.test(first.note), `first section ${JSON.stringify(first)}`);
+      await app.waitFor('raw window drawing', async () => /^shown \d+x\d+, draws [1-9]/.test((await app.dev()).get('raw-window') ?? ''), 5000);
+      details.push('R: nothing; E: camera section first, raw window shown');
+
+      // 해상도를 실행 중에 바꾼다 → 카메라를 다시 연다 (그동안 관람객 화면 "준비 중")
+      const resolution = landscape ? '1920x1080' : '1080x1920';
+      await app.evaluate(`(() => { window.__statusSeen = []; const s = document.getElementById('status');
+        new MutationObserver(() => { if (!s.hidden && s.textContent) window.__statusSeen.push(s.textContent); })
+          .observe(s, { attributes: true, childList: true, subtree: true, characterData: true }); return true; })()`);
+      const attempts = async () => Number(/^(\d+) total/.exec((await app.dev()).get('attempts') ?? '')?.[1] ?? NaN);
+      const before = await attempts();
+      await app.choose('resolution', resolution, cam);
+      await app.waitFor('camera reopened', async () => {
+        const d = await app.dev();
+        return (await attempts()) > before && /^ready/.test(d.get('status') ?? '') && new RegExp(`resolution ${resolution}\\)$`).test(d.get('track') ?? '');
+      }, 15000);
+      const seen = await app.evaluate('window.__statusSeen');
+      expect(seen.some((t) => t.startsWith('준비 중입니다.')), `guest status during reopen ${JSON.stringify(seen)}`);
+      details.push(`resolution ${resolution} live -> video ${(await app.dev()).get('video')} (reopened, guest saw "${seen.find((t) => t.startsWith('준비 중')).replace(/\s+/g, ' ')}")`);
+
+      // 회전·확대·반전·색 보정을 실행 중에 바꾼다 (새로고침 없이)
+      if (landscape) await app.press('rotate-right', cam);
+      else await app.slide('rotationFine', 3, cam);
+      await app.slide('zoom', 1.3, cam);
+      await app.choose('mirror', 'false', cam);
+      await app.slide('brightness', 0.08, cam);
+      await app.slide('saturation', 0.5, cam);
+      const T = { ...CAMERA_DEFAULTS, resolution, rotation: landscape ? 90 : 0, rotationFine: landscape ? 0 : 3, zoom: 1.3, mirror: false, brightness: 0.08, saturation: 0.5 };
+      let dev = await app.dev();
+      expect(new RegExp(`^rotate ${T.rotation}${T.rotationFine ? '\\+3' : ''}deg, zoom 1\\.3 `).test(dev.get('transform') ?? '')
+        && dev.get('mirror') === 'off (camera settings)' && /^brightness 0\.08 contrast 1 saturation 0\.5 /.test(dev.get('color') ?? ''),
+      `D after live change: ${dev.get('transform')} / ${dev.get('mirror')} / ${dev.get('color')}`);
+      expect(/\+ unsaved changes/.test(dev.get('camera-cfg') ?? ''), `camera-cfg ${dev.get('camera-cfg')}`);
+      // 미리보기·원본 창 = 같은 순간 변환한 영상
+      await setView(T);
+      await app.waitFor('transformed drawings', async () => (await app.evaluate(CAMERA_PREVIEW)).n >= 6, 6000);
+      const preview = await app.evaluate(CAMERA_PREVIEW);
+      const raw = await app.evaluate(RAW_WINDOW_CHECK);
+      expect(preview.stage >= 0.6 && preview.stage - preview.cover >= 0.1, `preview vs transformed video ${JSON.stringify(preview)}`);
+      expect(!raw.hidden && raw.stage >= 0.8 && raw.stage - raw.cover >= 0.1, `raw window vs transformed video ${JSON.stringify(raw)}`);
+      details.push(`live change: ${dev.get('transform')}; preview~transformed ${preview.stage} (untransformed ${preview.cover}),`
+        + ` raw window ${raw.size} ~transformed ${raw.stage} (untransformed ${raw.cover})`);
+
+      // 섹션별 저장: 카메라 저장 → 인식 바꿔 저장 → 필터는 바꾸고 저장하지 않음
+      await app.press('save', cam);
+      await app.waitFor('camera saved', async () => (await message(cam)) === '파일에 저장했습니다.', 5000);
+      await app.openSection('presence');
+      const inPresence = await app.evaluate(`({ raw: ${shown('raw-window')}, layer: ${shown('tuning-layer')} })`);
+      expect(inPresence.raw && inPresence.layer, `presence section ${JSON.stringify(inPresence)}`);
+      await app.slide('minScore', 0.8, '#tuning-panel');
+      await app.press('save', '#tuning-panel');
+      await app.waitFor('presence saved', async () => (await message('#tuning-panel')) === '파일에 저장했습니다.', 5000);
+      await app.openSection('effect');
+      const inEffect = await app.evaluate(`({ raw: ${shown('raw-window')}, layer: ${shown('tuning-layer')} })`);
+      expect(!inEffect.raw && !inEffect.layer, `effect section ${JSON.stringify(inEffect)}`);
+      await app.slide('fps', 18);
+      const tabs = await app.waitFor('tab dots', async () => {
+        const text = await app.evaluate(`[...document.querySelectorAll('#operator-panel [data-section]')].map((b) => b.dataset.section + ':' + b.dataset.save).join(' ')`);
+        return text === 'camera:saved presence:saved effect:dirty' ? text : null;
+      }, 3000);
+      // 섹션별 기본값: 카메라 섹션 "기본값으로"는 카메라 값만 (인식 값 그대로)
+      await app.openSection('camera');
+      await app.press('defaults', cam);
+      // D 표는 0.5초마다 다시 그린다
+      await app.waitFor('camera defaults only', async () => {
+        const d = await app.dev();
+        return /^rotate 0deg, zoom 1 /.test(d.get('transform') ?? '') && /min score 0\.8,/.test(d.get('criteria') ?? '')
+          && /fps 18 /.test(subLine(await app.devText(), 'values'));
+      }, 3000);
+      // 닫으면 저장하지 않은 섹션(카메라 기본값·필터 fps)만 되돌린다
+      await app.closePanel();
+      dev = await app.dev();
+      const values = subLine(await app.devText(), 'values');
+      expect(new RegExp(`^rotate ${T.rotation}`).test(dev.get('transform') ?? '') && /fps 12 /.test(values) && /min score 0\.8,/.test(dev.get('criteria') ?? '')
+        && dev.get('raw-window')?.startsWith('off') && (await app.evaluate("document.getElementById('raw-window').hidden")),
+      `after close: ${dev.get('transform')} / ${values} / ${dev.get('criteria')} / ${dev.get('raw-window')}`);
+      const cameraFile = await getJson(CAMERA_SETTINGS_API);
+      const presenceFile = await getJson(SETTINGS_API);
+      expect(cameraFile.settings.rotation === T.rotation && cameraFile.settings.zoom === 1.3 && cameraFile.settings.mirror === false
+        && cameraFile.settings.resolution === resolution && presenceFile.settings.minScore === 0.8, `files ${JSON.stringify({ cameraFile, presenceFile })}`);
+      details.push(`sections: ${tabs}; camera defaults -> only camera; close -> camera ${dev.get('transform').split(',')[0]} kept, filter fps 12 reverted`);
+      // 새로고침 뒤 유지
+      await app.open();
+      await waitReady(app);
+      dev = await app.dev();
+      expect(new RegExp(`^rotate ${T.rotation}`).test(dev.get('transform') ?? '') && /^file/.test(dev.get('camera-cfg') ?? '') && /min score 0\.8,/.test(dev.get('criteria') ?? ''),
+        `after reload: ${dev.get('transform')} / ${dev.get('camera-cfg')} / ${dev.get('criteria')}`);
+      details.push('reload: camera & presence kept');
+
+      // 장치를 실행 중에 바꾼다 (카메라 섹션 목록). 다른 프로그램이 쓰는 장치는 열리지 않으므로 기록하고 다음 장치로. 저장하지 않고 닫아 되돌린다
+      await app.openSection('camera');
+      const startLabel = (await app.dev()).get('camera');
+      await app.waitFor('device list', async () => (await app.evaluate(`document.querySelectorAll('#camera-panel select[data-key="deviceLabel"] option').length`)) > 1, 5000);
+      const labels = await app.evaluate(`[...document.querySelectorAll('#camera-panel select[data-key="deviceLabel"] option')].map((o) => o.value).filter(Boolean)`);
+      const busyDevices = [];
+      let switched = null;
+      for (const label of labels.filter((l) => l !== startLabel)) {
+        const tried = await attempts();
+        await app.choose('deviceLabel', label, cam);
+        // 이 장치로 연 시도가 끝난 상태만 본다 (연결 중에는 앞 장치의 상태가 남아 있다)
+        const seen = await app.waitFor(`live device "${label}"`, async () => {
+          const d = await app.dev();
+          if ((await attempts()) <= tried || /connecting/.test(d.get('status') ?? '')) return null;
+          if (/^ready/.test(d.get('status') ?? '') && d.get('camera') === label) return { ready: true, d };
+          return /^(unavailable|not-found|no-frames)/.test(d.get('status') ?? '') ? { ready: false, d } : null;
+        }, 15000);
+        if (!seen.ready) {
+          busyDevices.push(`"${label}" ${seen.d.get('status')}`);
+          continue;
+        }
+        switched = `live device "${label}" -> ${seen.d.get('video')} (${(seen.d.get('selected') ?? '').split(' (')[0]})`;
+        break;
+      }
+      await app.closePanel();
+      await app.waitFor('device reverted', async () => { const d = await app.dev(); return /^ready/.test(d.get('status') ?? '') && d.get('camera') === startLabel; }, 15000);
+      details.push(`${switched ?? `no other device opened (${labels.join(', ')})`}${busyDevices.length ? `; not opened: ${busyDevices.join(', ')}` : ''}; close -> back to "${startLabel}"`);
+
+      // 원본 창 켬(카메라 섹션) / 끔(필터 섹션) 속도
+      await app.openSection('camera');
+      await sleep(1500);
+      const on = await measureSpeed();
+      await app.openSection('effect');
+      await sleep(1500);
+      const off = await measureSpeed();
+      await app.closePanel();
+      expect(on.raf >= off.raf * 0.9 && on.detect >= 12 && on.drawings >= 11, `speed raw window on ${JSON.stringify(on)} / off ${JSON.stringify(off)}`);
+      details.push(`speed raw window on: screen ${on.raf}fps, detect ${on.detect}, effect ${on.drawings}/s; off: ${off.raf}fps, ${off.detect}, ${off.drawings}/s`);
+      return details.join('; ');
+    } finally {
+      await app.closePanel().catch(() => {});
+      const restored = restoreSettings('after operator panel scenario');
+      if (!restored.ok) throw new Error(`could not restore settings files: ${restored.detail}`);
+      await app.open();
+      await waitReady(app);
+    }
+  });
+
   await scenario('결과 효과 렌더 실패 3가지(예외·INVALID_OPERATION·컨텍스트 손실) → 원본 사진으로 대신, 인쇄 읽기만 실패 2가지 → 유화 사진 그대로·인쇄 데이터는 사진에서 CPU로 (관람객 흐름 계속)', async () => {
     // 효과 캔버스 컨텍스트의 결과 화소 읽기만 건드린다(회색조 유화 결과는 1080x1920 화소가 먼저, 인쇄 데이터는 4점씩 묶은 144x1024.
     // 미리보기는 읽지 않는다).
@@ -1500,6 +1686,34 @@ async function runScenarios(app, origin) {
     } finally {
       await app.blockModel(false);
     }
+  });
+
+  await scenario('운영자 화면 캡처 (--screens, 가짜 카메라): 섹션 셋·원본 창, 1080x1920·1920x1080', async () => {
+    if (!options.screens) return 'skipped (no --screens)';
+    mkdirSync(options.screens, { recursive: true });
+    const files = [];
+    try {
+      for (const [w, h] of [[1080, 1920], [1920, 1080]]) {
+        await app.cdp.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: false });
+        await app.open();
+        await waitReady(app);
+        await app.key('KeyD'); // open()이 켠 D를 끈다 (패널·원본 창만)
+        for (const section of ['camera', 'presence', 'effect']) {
+          await app.openSection(section);
+          await sleep(1500);
+          const shot = await app.cdp.send('Page.captureScreenshot', { format: 'png' });
+          const file = join(options.screens, `panel-${w}x${h}-${section}.png`);
+          writeFileSync(file, Buffer.from(shot.data, 'base64'));
+          files.push(file);
+        }
+        await app.closePanel();
+      }
+    } finally {
+      await app.cdp.send('Emulation.setDeviceMetricsOverride', { width: 1080, height: 1920, deviceScaleFactor: 1, mobile: false });
+      await app.open();
+      await waitReady(app);
+    }
+    return `${files.length} files in ${options.screens}`;
   });
 
   await scenario('외부 요청 0, CSP 위반 0, 페이지 예외 0', async () => {
