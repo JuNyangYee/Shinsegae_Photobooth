@@ -8,6 +8,8 @@
 
 **현재 상태:** 카메라 → 회색조 유화 미리보기 → 자동 촬영·결과 표시까지 구현, 인쇄 연동은 예정.
 
+**이 브랜치 (`design-typography-claude`):** 텍스트·타이포 디자인 시안 **IMPRINT** (채택 전). 9:16 화면 안의 4:5 사진 틀, 틀 밖 여백에만 글자, 결과 사진 1080×1350, 인쇄 데이터는 머리(날짜·시각)·사진·꼬리 한 줄의 감열지 한 장. [docs/SYSTEM.md](docs/SYSTEM.md) 3절 "관람객 화면 (IMPRINT 시안)", [로그 2026-11-03-02](docs/logs/2026-11-03-02-design-imprint-typography.md).
+
 ## 실행
 
 **현장 PC** (Windows, Chrome, OBS Studio. Node·인터넷 필요 없음)
@@ -27,6 +29,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File bin\server\serve.ps1   # -Po
 ```
 
 Chrome에서 `http://localhost:8765/`를 연다(`127.0.0.1`은 400). 종료는 서버 창에서 Ctrl+C.
+
+**카메라 없는 시안 데모 (검토용, 관람객 화면 아님):** 같은 서버에서 `http://localhost:8765/demo/index.html`. 도형으로 그린 합성 장면을 실제 효과·촬영·인쇄 데이터 경로에 넣어 대기 → 3·2·1 → 결과 → 쿨타임을 자동으로 되풀이한다. 오른쪽 패널(세로로 긴 창이면 아래)에서 사람 들어옴/나감, 수동 촬영·초기화, 준비 중·직원 문의 흉내, 동작 줄이기, 인쇄 연동 뒤 흐름 흉내(가상), 마지막 인쇄 데이터를 본다. 조절값 파일을 쓰지 않고 프린터 연동은 없다. 9:16 화면을 크게 보려면 창을 가로로 넓게(예: 1920×1080 이상) 연다.
 
 ## 운영자 단축키 (관람객용 아님)
 
@@ -56,6 +60,7 @@ npm test                                            # Node 테스트 (Node 22 �
 npm run check:browser                               # 임시 프로필 headless Chrome으로 실제 앱 확인 (가짜 카메라)
 npm run check:browser -- --camera real              # 실제 카메라 (OBS 가상카메라 우선)
 npm run check:browser -- --soak --camera real       # 장시간 실측, 기본 10분 (--soak 60 처럼 분 지정)
+npm run check:browser -- --only "IMPRINT" --screens artifacts\design-typography-claude\screens   # 시안 관람객 화면·데모 PNG (가짜 카메라·합성 장면, Git 제외)
 ```
 
 `check:browser`는 몇 초 동안 `config/*.local.json`에 시험 값을 썼다가 되돌리므로 **현장 키오스크가 도는 PC에서는 실행하지 않는다.** MediaPipe 라이브러리는 `lib/mediapipe/`에 커밋되어 있고, 버전을 바꿀 때만 `npm install` → `npm run vendor:mediapipe`를 쓴다([docs/SYSTEM.md](docs/SYSTEM.md) 5절 "MediaPipe 로컬 라이브러리").
