@@ -164,7 +164,7 @@ npm run check:browser -- --only "화면 캡처" --screens "%TEMP%\photobooth-rev
 ```
 
 - **구조:** Node 내장 `WebSocket`으로 CDP에 직접 붙는다. `serve.ps1`을 빈 포트로, Chrome을 `%TEMP%\photobooth-check-*` 임시 프로필·`--headless=new`·`--remote-debugging-port=0`으로 띄운다(늘 `--user-data-dir`이라 사용자 Chrome에 붙지 않는다). 카메라는 기본 가짜 장치(`--use-fake-device-for-media-stream`), 권한은 CDP `Browser.setPermission`.
-- **앱 상태:** D 화면 글자를 줄 머리말로, 관람객 안내를 `#status`로 읽는다. **앱에 확인 전용 훅이 없다** — D 줄 형식·확정 문구를 바꾸면 도구도 고친다. 카메라 처리 경로 확인은 페이지 안에서 앱의 순수 모듈(`/core/camera-view.js`)과 셰이더 문자열(`/effect/oil-shaders.js`)을 `import()`해 같은 계산을 따로 그려 비교한다(앱 상태를 바꾸지 않는다). 조작은 CDP 키 입력·`Fetch`(모델 404). 외부 요청·CSP 위반·페이지 예외를 기록한다(MediaPipe 통계 차단은 따로 세고 실패로 보지 않음). 생성 실패 시나리오용으로 `setInterval`·`clearInterval`을 페이지보다 먼저 감싸 센다.
+- **앱 상태:** D 화면 글자를 줄 머리말로, 관람객 안내를 `#status`로 읽는다. **앱에 확인 전용 훅이 없다** — D 줄 형식·확정 문구를 바꾸면 도구도 고친다. 카메라 처리 경로 확인은 페이지 안에서 앱의 순수 모듈(`/core/camera-view.js`)과 셰이더 문자열(`/effect/oil-shaders.js`)을 `import()`해 같은 계산을 따로 그려 비교한다(앱 상태를 바꾸지 않는다). 조작은 CDP 키 입력·`Fetch`(모델 404). 외부 요청·CSP 위반·페이지 예외를 기록한다(MediaPipe 통계 차단은 따로 세고 실패로 보지 않음). 생성 실패 시나리오용으로 `setInterval`·`clearInterval`을 페이지보다 먼저 감싸 센다. 시나리오가 실패하면 그 순간의 페이지 상태·D 화면 글자 전체·최근 기록 80줄(페이지 이동, 조절값 API 요청과 응답 상태, 콘솔·로그 경고/오류, 예외)을 `DIAG` 줄로 남긴다(글자만, 영상·사진 없음). 새로고침(`open()`)은 이전 문서에 표시를 남기고 새 문서가 다 불러와질 때까지 기다린다.
 - **정리:** 어떤 끝이든 자신이 띄운 Chrome·서버·임시 프로필만 정리한다(`--keep-profile`이면 프로필을 남김). 사진을 저장하지 않는다. 결과 표를 출력하고 하나라도 실패하면 종료 코드 1.
 - **조절값 파일:** 시작할 때 `config/*.local.json`(인식·효과·카메라·시간)을 바이트 그대로(또는 "없음") 백업하고, 시나리오 뒤와 마지막에 **파일 시스템으로 직접** 되돌린다(없던 파일·빈 `config/`는 지운다). 그사이 몇 초 시험 값이 들어 있으므로 **현장 키오스크가 같은 저장소에서 도는 PC에서는 실행하지 않는다.**
 - **기다림 시간 초과:** 메시지 끝에 그때의 D `status`·`reason`·`video`·`effect`·`raw-view`를 붙인다(실제 카메라에서 원인을 바로 보이게).
