@@ -8,7 +8,9 @@
 
 import { migrateMirrorFromEffect, normalizeCameraSettings, parseStoredCameraSettings, serializeCameraSettings } from './camera-settings.js';
 import { parseStoredEffectSettings } from './effect-settings.js';
-import { extractLegacyTiming, parseStoredTimingSettings, serializeTimingSettings, timingFromLegacy } from './timing-settings.js';
+import {
+  extractLegacyTiming, parseStoredTimingSettings, serializeTimingSettings, timingFromLegacy, withLegacyTiming,
+} from './timing-settings.js';
 import {
   loadPresenceSettings,
   parseStoredPresenceSettings,
@@ -90,24 +92,26 @@ export function createSettingsFileClient({
  * - 파일이 없고(404) localStorage에 저장값이 있으면 파일로 옮기고, 옮긴 값을 다시 읽어 확인한 뒤 localStorage에서 지운다.
  * - 둘 다 없거나, 파일 읽기가 실패·시간 초과되면 기본값. 실패하면 옮기지 않는다(파일이 있는데 못 읽었을 수 있으므로).
  * @param {{ file: { read: Function, write: Function }, storage: Storage | undefined, defaults: object }} options
- * @returns {Promise<{ settings: object, issues: string[], source: string, note: string, legacyTiming: object | null }>}
+ * @returns {Promise<{ settings: object, issues: string[], source: string, note: string, legacyTiming: object | null | undefined }>}
  *   issues: 불러올 때 고친 내용, note: 출처 설명 (실패 이유 등),
- *   legacyTiming: 파일에 남은 9단계까지의 시간 키(검사 전 값, 10단계부터 시간 설정). 시간 파일에 아직 없으면 인식 섹션을 저장할 때 다시 붙인다
+ *   legacyTiming: 파일에 남은 9단계까지의 시간 키(검사 전 값, 10단계부터 시간 설정). 없으면 null, 파일을 읽지 못해 모르면 undefined.
+ *   인식 섹션을 저장할 때 옛 키를 남기는 판단은 presenceTextForSave가 저장 직전에 다시 읽어 한다(이 값은 다시 읽기가 실패할 때만 쓴다)
  */
 export async function loadInitialPresenceSettings({ file, storage, defaults }) {
-  const defaultsWith = (note, issues = []) => ({
-    ...parseStoredPresenceSettings(null, defaults), issues, source: SettingsSource.DEFAULTS, note, legacyTiming: null,
+  // legacyTiming: 인식 파일을 읽지 못했으면 undefined(모름), 그 밖은 null(없음) 또는 읽은 옛 키
+  const defaultsWith = (note, issues = [], { legacyTiming } = { legacyTiming: null }) => ({
+    ...parseStoredPresenceSettings(null, defaults), issues, source: SettingsSource.DEFAULTS, note, legacyTiming,
   });
 
   let stored;
   try {
     stored = await file.read();
   } catch (error) {
-    return defaultsWith(`file read failed: ${error?.message ?? error}`);
+    return defaultsWith(`file read failed: ${error?.message ?? error}`, [], { legacyTiming: undefined });
   }
   if (stored.found) {
     const parsed = parseStoredPresenceSettings(stored.text, defaults);
-    if (parsed.source !== 'stored') return defaultsWith('file is invalid', parsed.issues);
+    if (parsed.source !== 'stored') return defaultsWith('file is invalid', parsed.issues, { legacyTiming: extractLegacyTiming(stored.text).legacy });
     return { settings: parsed.settings, issues: parsed.issues, source: SettingsSource.FILE, note: '',
       legacyTiming: extractLegacyTiming(stored.text).legacy };
   }
@@ -222,7 +226,8 @@ export async function loadInitialCameraSettings({ file, effectFile, defaults }) 
  * - 둘 다 없거나 시간 파일 읽기가 실패·시간 초과되면 기본값(옮기지 않는다: 파일이 있는데 못 읽었을 수 있다).
  * @param {{ file: { read: Function, write: Function }, presenceFile: { read: Function, write: Function }, defaults: object }} options
  *   defaults: config.timing
- * @returns {Promise<{ settings: object, issues: string[], source: string, note: string }>}
+ * @returns {Promise<{ settings: object, issues: string[], source: string, note: string, legacyTiming?: object | null }>}
+ *   legacyTiming: 시간 파일이 없을 때 인식 파일에서 읽은 옛 시간 키(없으면 null, 인식 파일을 읽지 않았거나 못 읽었으면 없음)
  */
 export async function loadInitialTimingSettings({ file, presenceFile, defaults }) {
   const defaultsWith = (note, issues = []) => ({
@@ -249,7 +254,7 @@ export async function loadInitialTimingSettings({ file, presenceFile, defaults }
     return defaultsWith(`no file; presence file read failed: ${error?.message ?? error}`);
   }
   const old = presence.found ? extractLegacyTiming(presence.text) : { legacy: null };
-  if (old.legacy === null) return defaultsWith('no file');
+  if (old.legacy === null) return { ...defaultsWith('no file'), legacyTiming: null };
   const { settings, issues } = timingFromLegacy(old.legacy, defaults);
   const keys = Object.keys(old.legacy).join(', ');
   const text = serializeTimingSettings(settings);
@@ -259,27 +264,60 @@ export async function loadInitialTimingSettings({ file, presenceFile, defaults }
     if (!check.found || check.text !== text) throw new Error('read-back mismatch');
   } catch (error) {
     return { settings, issues, source: SettingsSource.PRESENCE_FILE_ONLY,
-      note: `${keys} from presence file; migration to timing file failed: ${error?.message ?? error}` };
+      note: `${keys} from presence file; migration to timing file failed: ${error?.message ?? error}`, legacyTiming: old.legacy };
   }
-  let removed = 'removed from presence file';
+  const strip = await stripLegacyTiming(presenceFile);
+  const removed = strip.error === null ? 'removed from presence file' : `not removed from presence file: ${strip.error}`;
+  return { settings, issues, source: SettingsSource.MIGRATED, note: `${keys} from presence file (${removed})` };
+}
+
+/**
+ * 인식 파일에서 옛 시간 키만 뺀다. **쓰기 직전에 최신 파일을 다시 읽어** 그 내용에서 키만 빼므로, 앞서 읽은 뒤 운영자가 저장한
+ * 인식 값을 덮어쓰지 않는다 (10단계 검수 2). 다시 읽기가 실패하면 쓰지 않는다(다음 시작에 다시 한다). 서버 잠금·버전은 두지 않는다:
+ * 다시 읽기와 쓰기 사이의 아주 짧은 구간에 인식 저장이 겹치면 그 저장이 덮일 수 있으나, 키오스크는 창 하나로 운영하므로 받아들인다.
+ * @returns {Promise<{ removed: boolean, error: string | null }>}
+ */
+async function stripLegacyTiming(presenceFile) {
+  let latest;
+  try {
+    latest = await presenceFile.read();
+  } catch (error) {
+    return { removed: false, error: `re-read failed: ${error?.message ?? error}` };
+  }
+  const old = latest.found ? extractLegacyTiming(latest.text) : { legacy: null };
+  if (old.legacy === null) return { removed: false, error: null };
   try {
     await presenceFile.write(old.strippedText);
+    return { removed: true, error: null };
   } catch (error) {
-    removed = `not removed from presence file: ${error?.message ?? error}`;
+    return { removed: false, error: error?.message ?? String(error) };
   }
-  return { settings, issues, source: SettingsSource.MIGRATED, note: `${keys} from presence file (${removed})` };
 }
 
 // 시간 파일이 있을 때 인식 파일에 남은 옛 시간 키를 뺀다 (옮긴 뒤 빼지 못했거나, 옮기기 실패 뒤 시간 섹션을 저장한 경우).
 // 실패해도 옛 키는 읽지 않으므로 해가 없다. @returns {string} D 화면용 설명 (할 일이 없으면 '')
 async function removeLegacyTiming(presenceFile) {
+  const { removed, error } = await stripLegacyTiming(presenceFile);
+  if (error !== null) return `old timing keys left in presence file (ignored): ${error}`;
+  return removed ? 'old timing keys removed from presence file' : '';
+}
+
+/**
+ * 인식 섹션이 저장할 내용 (10단계 검수 1). 시간 값이 시간 파일에 확인되기 전(timingStored false: 옮기기 실패·시간 파일 읽기 실패·형식 오류)에는
+ * 저장 직전에 인식 파일을 다시 읽어, 거기 남은 옛 시간 키를 그대로 붙인다. 시작할 때 어느 읽기가 실패했든(인식 로더·시간 로더) 옛 값이
+ * 사라지지 않는다. 다시 읽기가 실패하면 시작할 때 알게 된 옛 키(knownLegacy, 모르면 undefined)를 쓰고, 그것도 모르면 저장하지 않는다(예외).
+ * @param {{ text: string, timingStored: boolean, presenceFile: { read: Function }, knownLegacy?: object | null }} options
+ *   text: serializePresenceSettings 결과
+ * @returns {Promise<string>}
+ */
+export async function presenceTextForSave({ text, timingStored, presenceFile, knownLegacy }) {
+  if (timingStored) return text;
+  let latest;
   try {
-    const presence = await presenceFile.read();
-    const old = presence.found ? extractLegacyTiming(presence.text) : { legacy: null };
-    if (old.legacy === null) return '';
-    await presenceFile.write(old.strippedText);
-    return 'old timing keys removed from presence file';
+    latest = await presenceFile.read();
   } catch (error) {
-    return `old timing keys left in presence file (ignored): ${error?.message ?? error}`;
+    if (knownLegacy === undefined) throw new Error(`could not check old timing keys in presence file: ${error?.message ?? error}`);
+    return withLegacyTiming(text, knownLegacy);
   }
+  return withLegacyTiming(text, latest.found ? extractLegacyTiming(latest.text).legacy : null);
 }

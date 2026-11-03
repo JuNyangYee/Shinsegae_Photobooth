@@ -14,8 +14,9 @@ import { createPresenceTuning } from './ui/presence-tuning.js';
 import { SessionState, createSession } from './core/session.js';
 import {
   createSettingsFileClient, loadInitialCameraSettings, loadInitialEffectSettings, loadInitialPresenceSettings, loadInitialTimingSettings,
+  presenceTextForSave,
 } from './config/settings-file.js';
-import { normalizeTimingSettings, serializeTimingSettings, withLegacyTiming } from './config/timing-settings.js';
+import { normalizeTimingSettings, serializeTimingSettings } from './config/timing-settings.js';
 import { createTimingTuning } from './ui/timing-tuning.js';
 import { effectTunables, serializeEffectSettings } from './config/effect-settings.js';
 import { EffectStatus, createEffectPreview } from './effect/effect-preview.js';
@@ -243,8 +244,12 @@ const session = createSession({
 // 그 전까지 감지 루프는 config.presence 기본값으로 돌지만, 자동 시작은 막는다(기본값으로 잠깐 판정해 시작하지 않게).
 const settingsFile = createSettingsFileClient(config.settingsFile);
 let tuning = null; // 인식 섹션. 불러오기가 끝나면 만든다
-// 인식 파일에 남은 9단계까지의 시간 키 (시간 파일에 아직 없으면 인식 섹션을 저장할 때 다시 붙여, 그 값이 사라지지 않게 한다)
-let presenceLegacyTiming = null;
+// 시작할 때 인식 로더·시간 로더가 인식 파일에서 본 9단계까지의 시간 키 (null 없음, undefined 모름). 인식 섹션을 저장할 때는
+// 저장 직전에 인식 파일을 다시 읽어 옛 키를 붙이고(presenceTextForSave), 다시 읽기가 실패할 때만 이 값을 쓴다
+let presenceLegacyTiming;
+let timingLegacyTiming;
+const knownLegacyTiming = () => presenceLegacyTiming ?? timingLegacyTiming
+  ?? (presenceLegacyTiming === null || timingLegacyTiming === null ? null : undefined);
 // 시간 설정 파일 (서버 config/timing.local.json, 10단계). 없으면 인식 파일의 옛 시간 키를 옮긴다
 const timingSettingsFile = createSettingsFileClient(config.timingSettingsFile);
 let timingTuning = null; // 시간 섹션. 불러오기가 끝나면 만든다
@@ -738,10 +743,13 @@ async function loadSettings() {
       monitor: presenceSectionMonitor,
       defaults: config.presence,
       initial,
-      // 시간 값이 아직 시간 파일에 없으면(옮기기 실패·시간 파일 읽기 실패) 인식 파일의 옛 시간 키를 그대로 남긴다
-      saveSettings: (settings) => settingsFile.write(
-        withLegacyTiming(serializePresenceSettings(settings), timingTuning?.isStoredInFile() ? null : presenceLegacyTiming),
-      ),
+      // 시간 값이 아직 시간 파일에 확인되지 않았으면(옮기기 실패·시간 파일 읽기 실패) 인식 파일의 옛 시간 키를 그대로 남긴다 (10단계 검수 1)
+      saveSettings: async (settings) => settingsFile.write(await presenceTextForSave({
+        text: serializePresenceSettings(settings),
+        timingStored: timingTuning?.isStoredInFile() ?? false,
+        presenceFile: settingsFile,
+        knownLegacy: knownLegacyTiming(),
+      })),
       onOpenChange: handleSectionOpenChange,
     });
     operatorPanel.attach(PanelSection.PRESENCE, tuning);
@@ -763,6 +771,7 @@ function settingsLoaded() {
 async function loadTimingSettings() {
   try {
     const initial = await loadInitialTimingSettings({ file: timingSettingsFile, presenceFile: settingsFile, defaults: config.timing });
+    timingLegacyTiming = initial.legacyTiming;
     if (initial.note && initial.note !== 'no file') console.warn('[timing-settings]', `${initial.source}: ${initial.note}`);
     timingTuning = createTimingTuning({
       panel: document.getElementById('timing-panel'),

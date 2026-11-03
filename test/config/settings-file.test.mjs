@@ -9,7 +9,9 @@ import {
 import { describe, it } from 'node:test';
 
 import { PRESENCE_STORAGE_KEY, serializePresenceSettings } from '../../src/web/config/presence-settings.js';
-import { SettingsSource, createSettingsFileClient, loadInitialPresenceSettings } from '../../src/web/config/settings-file.js';
+import {
+  SettingsSource, createSettingsFileClient, loadInitialPresenceSettings, presenceTextForSave,
+} from '../../src/web/config/settings-file.js';
 import { fakeClock, flush } from '../helpers.mjs';
 
 const defaults = Object.freeze({
@@ -419,7 +421,7 @@ describe('loadInitialTimingSettings (시간 설정, 10단계): 시간 파일 →
     assert.equal(sameTimingSettings(later.settings, migrated), true);
   });
 
-  it('옮기지 못한 동안 인식 섹션을 저장해도(main.js: withLegacyTiming) 옛 시간 키가 남아 다음에 옮겨진다', async () => {
+  it('옮기지 못한 동안 인식 섹션을 저장해도(withLegacyTiming) 옛 시간 키가 남아 다음에 옮겨진다', async () => {
     const presenceFile = fakeFile({ text: stage9Presence() });
     const presence = await loadInitialPresenceSettings({ file: presenceFile, storage: memoryStorage(), defaults: criteria });
     const timing = await load(fakeFile({ failWrite: 'HTTP 500' }), presenceFile);
@@ -506,5 +508,101 @@ describe('loadInitialTimingSettings (시간 설정, 10단계): 시간 파일 →
     assert.deepEqual(result.issues, ['presentHoldMs: 5000 -> 2000']);
     assert.equal(JSON.parse(file.text).settings.presentHoldMs, 2000);
     assert.equal(JSON.parse(file.text).settings.absentGraceMs, timingDefaults.absentGraceMs);
+  });
+
+  // ---- 10단계 검수 ----
+
+  // 읽기마다 성공·실패를 정하는 인식 파일 (fails: 실패할 읽기 순번, 1부터)
+  const scriptedPresence = (text, fails = []) => {
+    const f = { text, reads: 0, writes: [],
+      async read() { f.reads += 1; if (fails.includes(f.reads)) throw new Error(`read ${f.reads} failed`); return f.text === null ? { found: false } : { found: true, text: f.text }; },
+      async write(value) { f.writes.push(value); f.text = value; } };
+    return f;
+  };
+  const hold700 = () => JSON.stringify({ version: 1, settings: { ...criteria, presentHoldMs: 700, absentGraceMs: 250 } }, null, 2);
+  // main.js와 같은 순서: 인식 로더 → 시간 로더 → (운영자) 인식 섹션 저장 → 다음 시작
+  const knownOf = (p, t) => p ?? t ?? (p === null || t === null ? null : undefined);
+
+  it('검수 1: 시간 파일 확인 전 인식 저장은 두 읽기의 성공·실패 조합과 관계없이 옛 시간 키를 남긴다 (700 → 다음 시작 700)', async () => {
+    // [인식 로더 읽기, 시간 로더의 인식 파일 읽기, 저장 직전 다시 읽기] 실패 조합. 저장 직전 다시 읽기까지 실패하면 시작할 때 본 값으로
+    const combos = [[false, false, false], [true, false, false], [false, true, false], [true, true, false],
+      [true, false, true], [false, true, true]];
+    for (const [presenceFails, timingFails, saveFails] of combos) {
+      const label = JSON.stringify({ presenceFails, timingFails, saveFails });
+      const presenceFile = scriptedPresence(hold700(), [presenceFails && 1, timingFails && 2, saveFails && 3].filter(Boolean));
+      const presence = await loadInitialPresenceSettings({ file: presenceFile, storage: memoryStorage(), defaults: criteria });
+      const timing = await load(fakeFile({ failWrite: 'HTTP 500' }), presenceFile);
+      if (!timingFails) assert.equal(timing.source, SettingsSource.PRESENCE_FILE_ONLY, label);
+      const text = await presenceTextForSave({ text: serializePresenceSettings({ ...criteria, minScore: 0.8 }), timingStored: false,
+        presenceFile, knownLegacy: knownOf(presence.legacyTiming, timing.legacyTiming) });
+      await presenceFile.write(text);
+      assert.equal(JSON.parse(presenceFile.text).settings.minScore, 0.8, label);
+      const next = await load(fakeFile(), presenceFile);
+      assert.equal(next.source, SettingsSource.MIGRATED, label);
+      assert.equal(next.settings.presentHoldMs, 700, label);
+    }
+  });
+
+  it('검수 1: 저장 직전 다시 읽기도 실패하고 시작할 때도 옛 키를 몰랐으면 저장하지 않는다 (옛 값을 지우지 않게)', async () => {
+    const presenceFile = scriptedPresence(hold700(), [1, 2, 3]);
+    const presence = await loadInitialPresenceSettings({ file: presenceFile, storage: memoryStorage(), defaults: criteria });
+    const timing = await load(fakeFile(), presenceFile);
+    assert.deepEqual([presence.legacyTiming, timing.legacyTiming], [undefined, undefined]);
+    await assert.rejects(presenceTextForSave({ text: serializePresenceSettings(criteria), timingStored: false, presenceFile,
+      knownLegacy: knownOf(presence.legacyTiming, timing.legacyTiming) }), /could not check old timing keys/);
+    assert.equal(presenceFile.text, hold700());
+  });
+
+  it('검수 1: 시간 파일에 확인된 뒤(timingStored)에는 다시 읽지 않고 판정값만 저장한다', async () => {
+    const presenceFile = scriptedPresence(hold700());
+    const text = serializePresenceSettings(criteria);
+    assert.equal(await presenceTextForSave({ text, timingStored: true, presenceFile, knownLegacy: { presentHoldMs: 700 } }), text);
+    assert.equal(presenceFile.reads, 0);
+  });
+
+  it('검수 2: 옮기는 도중 운영자가 인식 섹션에 저장한 값(minScore 0.88)을 덮지 않는다 — 쓰기 직전에 다시 읽어 시간 키만 뺀다', async () => {
+    const presenceFile = scriptedPresence(hold700());
+    const timingFile = fakeFile();
+    const write = timingFile.write;
+    timingFile.write = async (value) => {
+      await write(value);
+      // 시간 파일 확인 전이라 인식 섹션 저장은 옛 키를 붙여 쓴다
+      presenceFile.text = JSON.stringify({ version: 1, settings: { ...criteria, minScore: 0.88, presentHoldMs: 700, absentGraceMs: 250 } }, null, 2);
+    };
+    const result = await load(timingFile, presenceFile);
+    assert.equal(result.source, SettingsSource.MIGRATED);
+    assert.equal(result.settings.presentHoldMs, 700);
+    const after = JSON.parse(presenceFile.text).settings;
+    assert.equal(after.minScore, 0.88);
+    assert.equal(extractLegacyTiming(presenceFile.text).legacy, null);
+  });
+
+  it('검수 2: 옮긴 뒤 다시 읽기가 실패하면 빼지 않는다(덮어쓰지 않음, 다음 시작에 정리). 그사이 옛 키 없이 저장됐으면 쓰지 않는다', async () => {
+    const presenceFile = scriptedPresence(hold700(), [2]);
+    const result = await load(fakeFile(), presenceFile);
+    assert.equal(result.source, SettingsSource.MIGRATED);
+    assert.match(result.note, /not removed from presence file: re-read failed: read 2 failed/);
+    assert.equal(presenceFile.writes.length, 0);
+    const cleaned = await load(fakeFile({ text: serializeTimingSettings(migrated) }), presenceFile);
+    assert.equal(cleaned.note, 'old timing keys removed from presence file');
+
+    const clean = scriptedPresence(hold700());
+    const timingFile = fakeFile();
+    const write = timingFile.write;
+    timingFile.write = async (value) => { await write(value); clean.text = serializePresenceSettings({ ...criteria, minScore: 0.9 }); };
+    await load(timingFile, clean);
+    assert.equal(clean.writes.length, 0);
+    assert.equal(JSON.parse(clean.text).settings.minScore, 0.9);
+  });
+
+  it('검수 2: 시작할 때 정리도 최신 내용에서 시간 키만 뺀다 (다시 읽기 실패면 건너뜀)', async () => {
+    const presenceFile = scriptedPresence(JSON.stringify({ version: 1, settings: { ...criteria, minScore: 0.88, presentHoldMs: 700 } }));
+    const result = await load(fakeFile({ text: serializeTimingSettings(stored) }), presenceFile);
+    assert.equal(result.note, 'old timing keys removed from presence file');
+    assert.equal(JSON.parse(presenceFile.text).settings.minScore, 0.88);
+    const failing = scriptedPresence(hold700(), [1]);
+    const skipped = await load(fakeFile({ text: serializeTimingSettings(stored) }), failing);
+    assert.match(skipped.note, /old timing keys left in presence file \(ignored\): re-read failed/);
+    assert.equal(failing.writes.length, 0);
   });
 });
