@@ -1,0 +1,127 @@
+/* IMPRINT 시안 데모 (검토용, 관람객 화면 아님). 관람객 화면 모양은 ../style.css 그대로이고, 여기는 9:16 영역 옆 조작 패널 배치만. */
+
+body.demo {
+  --demo-panel: 24rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+}
+
+/* 9:16 영역: 패널 폭을 뺀 나머지에서 최대 크기 (앱은 뷰포트 전체) */
+body.demo .stage {
+  width: min(calc(100vw - var(--demo-panel)), calc(100vh * var(--stage-ratio-w) / var(--stage-ratio-h)));
+}
+
+.demo-panel {
+  box-sizing: border-box;
+  width: var(--demo-panel);
+  height: 100vh;
+  overflow-y: auto;
+  padding: 1.6rem 1.4rem 2rem;
+  border-left: 1px solid rgba(236, 235, 231, 0.12);
+  background: #161616;
+  color: #ecebe7;
+  font: 400 0.86rem / 1.55 var(--font-sans);
+  color-scheme: dark;
+}
+
+.demo-panel h1 {
+  margin: 0.2rem 0 0.6rem;
+  font: 300 2.4rem / 1 var(--font-serif);
+  letter-spacing: 0.02em;
+}
+
+.demo-panel h2 {
+  margin: 1.6rem 0 0.6rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid rgba(236, 235, 231, 0.12);
+  color: rgba(236, 235, 231, 0.55);
+  font: 500 0.72rem / 1.2 var(--font-sans);
+  letter-spacing: 0.14em;
+}
+
+.demo-kicker {
+  margin: 0;
+  color: #d9b673;
+  font: 500 0.72rem / 1.2 var(--font-sans);
+  letter-spacing: 0.14em;
+}
+
+.demo-note,
+.demo-hint {
+  margin: 0;
+  color: rgba(236, 235, 231, 0.7);
+}
+
+.demo-hint {
+  margin-top: 0.6rem;
+  font-size: 0.78rem;
+}
+
+.demo-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.demo-buttons button {
+  padding: 0.45rem 0.8rem;
+  border: 1px solid rgba(236, 235, 231, 0.22);
+  border-radius: 0.25rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.demo-buttons button[aria-pressed="true"] {
+  border-color: #ecebe7;
+  background: #ecebe7;
+  color: #161616;
+}
+
+.demo-readout {
+  margin: 0.7rem 0 0;
+  color: rgba(236, 235, 231, 0.6);
+  font: 400 0.76rem / 1.5 Consolas, 'Cascadia Mono', monospace;
+  white-space: pre-wrap;
+}
+
+.demo-print {
+  margin: 0;
+}
+
+/* 576점 인쇄 데이터를 절반으로 (점이 회색으로 섞여 보인다. 실제 점은 1:1에서) */
+.demo-print img {
+  display: block;
+  width: 288px;
+  max-width: 100%;
+  margin-bottom: 0.5rem;
+  background: #fff;
+  outline: 1px solid rgba(236, 235, 231, 0.2);
+}
+
+.demo-print figcaption {
+  color: rgba(236, 235, 231, 0.6);
+  font-size: 0.76rem;
+}
+
+/* 세로로 긴 창: 패널을 아래로 */
+@media (max-aspect-ratio: 3 / 4) {
+  body.demo {
+    flex-direction: column;
+    --demo-panel: 0px;
+  }
+
+  body.demo .stage {
+    width: min(100vw, calc(62vh * var(--stage-ratio-w) / var(--stage-ratio-h)));
+  }
+
+  .demo-panel {
+    width: 100vw;
+    height: 38vh;
+    border-left: 0;
+    border-top: 1px solid rgba(236, 235, 231, 0.12);
+  }
+}

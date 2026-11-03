@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <!-- 앱(/)과 같은 CSP: 같은 출처만, 외부 전송 없음. blob: = 결과 사진·인쇄 데이터 미리보기(메모리 안 Object URL) -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; img-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>IMPRINT 시안 데모 (검토용 · 카메라 없음)</title>
+  <link rel="preload" href="../assets/fonts/Pretendard-Regular.subset.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="../assets/fonts/NotoSerifKR-Light.subset.woff" as="font" type="font/woff" crossorigin>
+  <link rel="stylesheet" href="../style.css">
+  <link rel="stylesheet" href="demo.css">
+  <script type="module" src="demo.js"></script>
+</head>
+<body class="demo">
+  <!-- 9:16 관람객 화면: 앱의 index.html #stage 마크업을 그대로 불러와 이 자리에 넣는다 (demo.js). 이 안에는 검토용 표시를 두지 않는다 -->
+  <div id="stage-slot" class="demo-stage-slot"></div>
+
+  <!-- 검토용 조작 (관람객 화면 밖). 관람객은 화면을 만지지 않는다: 이 패널은 현장 화면에 없다 -->
+  <aside class="demo-panel" aria-label="검토용 데모 조작">
+    <header>
+      <p class="demo-kicker">검토용 데모 · 관람객 화면 아님</p>
+      <h1>IMPRINT</h1>
+      <p class="demo-note">카메라 없음. 도형으로 그린 <b>합성 장면</b>을 실제 카메라 처리 경로·회색조 유화 효과·촬영·인쇄 데이터 경로에 넣었다.
+        사람 인식은 감지기 대신 아래 조작으로 정한다. 사진·인쇄 데이터는 메모리에만 있고 <b>프린터 연동은 없다</b>.</p>
+    </header>
+
+    <section>
+      <h2>흐름</h2>
+      <div class="demo-buttons">
+        <button type="button" data-demo="autoplay" aria-pressed="true">자동 시연</button>
+        <button type="button" data-demo="presence" aria-pressed="false">사람 들어옴</button>
+        <button type="button" data-demo="start">수동 촬영 (S)</button>
+        <button type="button" data-demo="reset">초기화 (X)</button>
+      </div>
+      <p class="demo-readout" data-demo-state>-</p>
+    </section>
+
+    <section>
+      <h2>안내 상태 (흉내)</h2>
+      <div class="demo-buttons" role="group">
+        <button type="button" data-demo="guidance" data-value="none" aria-pressed="true">정상</button>
+        <button type="button" data-demo="guidance" data-value="preparing" aria-pressed="false">준비 중</button>
+        <button type="button" data-demo="guidance" data-value="staff" aria-pressed="false">직원 문의</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>보기</h2>
+      <div class="demo-buttons">
+        <button type="button" data-demo="motion" aria-pressed="false">동작 줄이기</button>
+        <button type="button" data-demo="print-flow" aria-pressed="false">인쇄 연동 뒤 흐름 (가상)</button>
+      </div>
+      <p class="demo-hint">인쇄 연동 뒤 흐름: 결과 처음 2.5초를 "출력 중"으로 보이는 화면 흉내다. 실제로 인쇄하지 않는다.</p>
+    </section>
+
+    <section>
+      <h2>인쇄 데이터</h2>
+      <figure class="demo-print">
+        <img id="demo-print-image" alt="마지막 촬영의 감열지 인쇄 데이터 (합성 장면)" hidden>
+        <figcaption data-demo-print>촬영하면 실제로 만든 1비트 인쇄 데이터(PNG)를 여기에 보인다.</figcaption>
+      </figure>
+    </section>
+  </aside>
+</body>
+</html>
