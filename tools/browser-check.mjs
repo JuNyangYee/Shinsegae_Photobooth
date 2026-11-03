@@ -16,7 +16,7 @@
 
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, rmdirSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -33,8 +33,10 @@ const EFFECT_SETTINGS_FILE = join(repo, 'config', 'effect.local.json');
 const EFFECT_SETTINGS_API = '/local-api/effect-settings';
 const CAMERA_SETTINGS_FILE = join(repo, 'config', 'camera.local.json');
 const CAMERA_SETTINGS_API = '/local-api/camera-settings';
-// 운영자 화면(E, 9-2)의 섹션 요소 id
-const SECTION_IDS = Object.freeze({ camera: 'camera-panel', presence: 'tuning-panel', effect: 'effect-panel' });
+const TIMING_SETTINGS_FILE = join(repo, 'config', 'timing.local.json');
+const TIMING_SETTINGS_API = '/local-api/timing-settings';
+// 운영자 화면(E, 9-2·10)의 섹션 요소 id
+const SECTION_IDS = Object.freeze({ camera: 'camera-panel', presence: 'tuning-panel', timing: 'timing-panel', effect: 'effect-panel' });
 const MODEL_PATTERN = '*blaze_face_short_range.tflite*';
 // MediaPipe 사용 통계 전송은 CSP로 막는 것이 의도된 동작이다(docs/SYSTEM.md 1절). 이 주소의 CSP 메시지는 실패로 세지 않는다.
 const EXPECTED_CSP_HOST = 'odml.pa.googleapis.com';
@@ -85,16 +87,22 @@ const log = (...parts) => console.log(`[${elapsed()}]`, ...parts);
 
 // ---------- 정리 대상 (이 도구가 만든 것만) ----------
 
-const owned = { server: null, chrome: null, profile: null, cdp: null, settingsBackup: null, effectBackup: null, cameraBackup: null };
+const owned = { server: null, chrome: null, profile: null, cdp: null, settingsBackup: null, effectBackup: null, cameraBackup: null, timingBackup: null };
 let cleaning = null;
 
 // 조절값 파일은 시작할 때 바이트 그대로(또는 "없음") 백업하고, 모든 정리 경로에서 파일 시스템으로 직접 되돌린다
 // (4단계 검수 1: 서버 API로 되돌리면 잘못된 JSON·16KB 초과 원본이 거절돼 시험 값이 남았다).
-// 인식 조절값(presence.local.json)·효과 조절값(effect.local.json, 5-2)·카메라 설정(camera.local.json, 9-1) 모두 같은 방법으로 되돌린다.
+// 인식 조절값(presence.local.json)·효과 조절값(effect.local.json, 5-2)·카메라 설정(camera.local.json, 9-1)·시간 설정(timing.local.json, 10)
+// 모두 같은 방법으로 되돌린다.
 function restoreSettings(reason) {
   const details = [];
   let ok = true;
-  for (const [label, backup] of [['settings', owned.settingsBackup], ['effect settings', owned.effectBackup], ['camera settings', owned.cameraBackup]]) {
+  // 시간 시나리오가 쓰기 실패를 만들려고 시간 파일 자리에 둔 빈 폴더가 남았으면 먼저 지운다
+  if (owned.timingBackup && existsSync(TIMING_SETTINGS_FILE) && statSync(TIMING_SETTINGS_FILE).isDirectory()) {
+    try { rmdirSync(TIMING_SETTINGS_FILE); } catch (error) { log('WARN timing placeholder folder:', error.message); }
+  }
+  for (const [label, backup] of [['settings', owned.settingsBackup], ['effect settings', owned.effectBackup], ['camera settings', owned.cameraBackup],
+    ['timing settings', owned.timingBackup]]) {
     if (!backup) continue;
     const result = restoreFile(backup);
     if (!result.ok || result.detail !== 'unchanged') log(`${label} file ${result.ok ? 'OK' : 'FAIL'} (${reason}): ${result.detail}`);
@@ -318,7 +326,7 @@ function createApp(cdp, origin) {
       i.value = '${value}'; i.dispatchEvent(new Event('input')); return i.value; })()`),
     /** 운영자 화면(E) 섹션의 버튼을 누른다 */
     press: (action, scope) => evaluate(`(() => { document.querySelector('${scope} button[data-action="${action}"]').click(); return true; })()`),
-    /** 운영자 화면(E, 9-2)을 열고 그 섹션을 보인다: camera·presence·effect */
+    /** 운영자 화면(E, 9-2)을 열고 그 섹션을 보인다: camera·presence·timing·effect */
     async openSection(name) {
       if (await evaluate("document.getElementById('operator-panel').hidden")) {
         await app.key('KeyE');
@@ -786,6 +794,7 @@ async function waitReady(app) {
   await app.waitFor('camera ready', async () => /^ready/.test((await app.dev()).get('status') ?? ''), 20000);
   await app.waitFor('detector running', async () => /^running, health ok/.test((await app.dev()).get('detector') ?? ''), 20000);
   await app.waitFor('settings loaded', async () => !/^loading/.test((await app.dev()).get('settings') ?? 'loading'), 10000);
+  await app.waitFor('timing settings loaded', async () => !/\(loading, /.test((await app.dev()).get('timing') ?? '(loading, '), 10000);
 }
 
 async function runScenarios(app, origin) {
@@ -809,18 +818,20 @@ async function runScenarios(app, origin) {
     expect(wanted.every((f) => assets.fonts.includes(f)), `fonts ${assets.fonts.join(', ')}`);
     const failed = assets.files.filter((f) => f.status !== 200);
     expect(assets.files.length >= 3 && failed.length === 0, `assets ${JSON.stringify(failed.length ? failed : assets.files)}`);
-    // 반응 속도 (2026-10-27): 저장 파일이 없으면 기본값 인식·이탈 250ms. E 인식 섹션에서는 "고급" 안이 아니라 보이는 묶음에, 초로 보인다
+    // 반응 속도 (2026-10-27): 시간 파일이 없으면(옮길 옛 값도 없으면) 기본값 인식·이탈 250ms. 10단계부터 E 시간 섹션의 보이는 묶음에, 초로 보인다
     const timing = /hold (\d+)ms, grace (\d+)ms/.exec(dev.get('criteria') ?? '');
-    if (/^defaults \(no file\)/.test(dev.get('settings') ?? '')) {
+    if (/\(defaults \(no file\), /.test(dev.get('timing') ?? '')) {
       expect(timing?.[1] === '250' && timing?.[2] === '250', `criteria ${dev.get('criteria')}`);
     }
     const timingUi = await app.evaluate(`['presentHoldMs', 'absentGraceMs'].map((key) => {
-      const input = document.querySelector('#tuning-panel input[data-key="' + key + '"]');
+      const input = document.querySelector('#timing-panel input[data-key="' + key + '"]');
       return { key, inDetails: !!input.closest('details'), range: input.min + '~' + input.max + '/' + input.step,
-        shown: document.querySelector('#tuning-panel output[data-key="' + key + '"]').textContent };
+        shown: document.querySelector('#timing-panel output[data-key="' + key + '"]').textContent,
+        inPresence: !!document.querySelector('#tuning-panel [data-key="' + key + '"]') };
     })`);
-    expect(timingUi.every((t) => !t.inDetails && t.range === '0~2000/50'), `timing sliders ${JSON.stringify(timingUi)}`);
-    return `camera "${dev.get('camera')}", delegate ${dev.get('delegate')}, ${dev.get('video')}, detect @ ${parseFps(dev.get('detect'))}fps, settings ${dev.get('settings')};`
+    expect(timingUi.every((t) => !t.inDetails && !t.inPresence && t.range === '0~2000/50'), `timing sliders ${JSON.stringify(timingUi)}`);
+    return `camera "${dev.get('camera')}", delegate ${dev.get('delegate')}, ${dev.get('video')}, detect @ ${parseFps(dev.get('detect'))}fps, settings ${dev.get('settings')},`
+      + ` timing ${/\(([^,]+), \/local-api/.exec(dev.get('timing') ?? '')?.[1] ?? '?'};`
       + ` hold ${timing?.[1]}ms grace ${timing?.[2]}ms (panel shows ${timingUi.map((t) => t.shown).join('/')}s);`
       + ` fonts loaded, ${assets.files.length} assets 200`;
   });
@@ -1376,7 +1387,7 @@ async function runScenarios(app, origin) {
     }
   });
 
-  await scenario('운영자 패널(E 하나, 9-2): R 없음·섹션 셋, 카메라 값 실행 중 즉시 반영(해상도 다시 열기·회전·확대·반전·색 보정 → 미리보기·원본 창·D), 섹션별 저장 → 새로고침 유지·닫을 때 되돌리기·섹션별 기본값, 원본 창 켬/끔 속도 (파일은 원래대로)', async () => {
+  await scenario('운영자 패널(E 하나, 9-2): R 없음·섹션 넷, 카메라 값 실행 중 즉시 반영(해상도 다시 열기·회전·확대·반전·색 보정 → 미리보기·원본 창·D), 섹션별 저장 → 새로고침 유지·닫을 때 되돌리기·섹션별 기본값, 원본 창 켬/끔 속도 (파일은 원래대로)', async () => {
     const details = [];
     const cam = '#camera-panel';
     const shown = (id) => `!document.getElementById('${id}').hidden`;
@@ -1455,7 +1466,7 @@ async function runScenarios(app, origin) {
       await app.slide('fps', 18);
       const tabs = await app.waitFor('tab dots', async () => {
         const text = await app.evaluate(`[...document.querySelectorAll('#operator-panel [data-section]')].map((b) => b.dataset.section + ':' + b.dataset.save).join(' ')`);
-        return text === 'camera:saved presence:saved effect:dirty' ? text : null;
+        return /^camera:saved presence:saved timing:[\w-]+ effect:dirty$/.test(text) ? text : null;
       }, 3000);
       // 섹션별 기본값: 카메라 섹션 "기본값으로"는 카메라 값만 (인식 값 그대로)
       await app.openSection('camera');
@@ -1534,6 +1545,197 @@ async function runScenarios(app, origin) {
     }
   });
 
+  // 촬영 흐름 시간 (10단계): D 화면은 상태 기계가 바뀔 때마다 바로 다시 그려지므로(renderSession) session 줄의 상태 변화를 페이지 안에서
+  // 시각과 함께 기록한다. 카운트다운 숫자, 진행선 애니메이션 길이도 함께. 영상·사진은 읽지 않는다
+  const TIMELINE = `(() => {
+    if (!window.__timeline) {
+      const dev = document.getElementById('dev-info');
+      const num = document.getElementById('countdown-number');
+      const tl = window.__timeline = { t0: performance.now(), events: [], last: '' };
+      const now = () => Math.round(performance.now() - tl.t0);
+      new MutationObserver(() => {
+        const line = dev.textContent.split('\\n').find((l) => l.startsWith('session'));
+        const state = /:\\s?(\\S+)/.exec(line ?? '')?.[1] ?? '';
+        if (!state || state === tl.last) return;
+        tl.last = state;
+        const bar = state === 'countdown' ? document.getElementById('countdown-progress-fill').getAnimations()[0]?.effect.getTiming().duration : undefined;
+        tl.events.push({ state, at: now(), bar });
+      }).observe(dev, { childList: true, subtree: true, characterData: true });
+      new MutationObserver(() => tl.events.push({ number: num.textContent, at: now() })).observe(num, { childList: true, subtree: true, characterData: true });
+    }
+    window.__timeline.events.length = 0;
+    return true; })()`;
+  // S를 누르거나(press) 이미 누른 회차가 대기로 돌아올 때까지 기다리고 단계별 시간을 돌려준다
+  const timedRound = async ({ during } = {}) => {
+    await app.evaluate(TIMELINE);
+    await app.key('KeyS');
+    await app.waitFor('round countdown', async () => (await app.evaluate('window.__timeline.events')).some((e) => e.state === 'countdown'), 3000);
+    const extra = during ? await during() : undefined;
+    const events = await app.waitFor('round back to idle', async () => {
+      const list = await app.evaluate('window.__timeline.events');
+      return list.some((e) => e.state === 'idle') ? list : null;
+    }, 90000);
+    const at = (state) => events.find((e) => e.state === state)?.at ?? NaN;
+    return {
+      countdown: at('capturing') - at('countdown'), result: at('cooldown') - at('result'), cooldown: at('idle') - at('cooldown'),
+      numbers: events.filter((e) => e.number !== undefined).map((e) => e.number).join(''), bar: events.find((e) => e.state === 'countdown')?.bar, extra,
+    };
+  };
+  const near = (value, target, tolerance) => Math.abs(value - target) <= tolerance;
+  const expectRound = (r, { countdown, result, cooldown }, label) => {
+    const numbers = Array.from({ length: countdown }, (_, i) => String(countdown - i)).join('');
+    expect(near(r.countdown, countdown * 1000, 250) && r.numbers === numbers && r.bar === countdown * 1000
+      && near(r.result, result, 300) && near(r.cooldown, cooldown, 250), `${label}: ${JSON.stringify(r)}`);
+    return `${label} countdown ${r.countdown}ms (${r.numbers}, bar ${r.bar}ms), result ${r.result}ms, cooldown ${r.cooldown}ms`;
+  };
+
+  await scenario('시간 섹션(E, 10단계): 인식 섹션에 시간 설정 없음, 조절 → 즉시 반영(반응 시간)·저장 → 새로고침 유지, 카운트다운·결과·쿨타임이 바뀐 값대로, 회차 도중 바꾸면 다음 회차부터, 인식 파일의 옛 시간 키 옮기기·옮기기 실패(저장 필요·인식 파일 그대로·인식 저장해도 남음) (파일은 원래대로)', async () => {
+    const details = [];
+    const tp = '#timing-panel';
+    const shown = (id) => `!document.getElementById('${id}').hidden`;
+    const message = (scope) => app.evaluate(`document.querySelector('${scope} [data-message]').textContent`);
+    const timingLine = async () => (await app.dev()).get('timing') ?? '';
+    const readJson = (path) => JSON.parse(readFileSync(path, 'utf8'));
+    const stage9 = { region: { x: 0.12, y: 0.1, width: 0.76, height: 0.8 }, minFaceHeight: 0.185, maxFaceHeight: 0.47, minScore: 0.65 };
+    const legacy = { presentHoldMs: 300, absentGraceMs: 350,
+      cameraRecovery: { retryIntervalMs: 3500, firstFrameTimeoutMs: 6000, stallTimeoutMs: 2500, staffNoticeMs: 45000 } };
+    const stage9Text = JSON.stringify({ version: 1, settings: { ...stage9, ...legacy } }, null, 2);
+    const reload = async () => { await app.open(); await waitReady(app); };
+    try {
+      // 시간·인식 파일 없음에서 시작 → 기본값
+      rmSync(TIMING_SETTINGS_FILE, { force: true });
+      rmSync(SETTINGS_FILE, { force: true });
+      await reload();
+      let line = await timingLine();
+      expect(/^countdown 3s result 10s cooldown 5s, hold 250ms grace 250ms, recovery retry 3s first 5s stall 3s staff 30s \(defaults \(no file\), \/local-api\/timing-settings\)$/.test(line),
+        `defaults: timing ${line}`);
+
+      await withAutoPaused(app, async () => {
+        // 시간 섹션: 원본 창·영역 층 없음, 기본값 표시, 인식 섹션에 시간 항목 없음
+        await app.openSection('timing');
+        const look = await app.evaluate(`(() => ({ raw: ${shown('raw-window')}, layer: ${shown('tuning-layer')}, save: document.getElementById('timing-panel').dataset.save,
+          shown: ['countdownSeconds', 'resultMs', 'cooldownMs', 'presentHoldMs', 'absentGraceMs', 'retryIntervalMs', 'firstFrameTimeoutMs', 'stallTimeoutMs', 'staffNoticeMs']
+            .map((k) => document.querySelector('#timing-panel output[data-key="' + k + '"]').textContent).join(' '),
+          presenceKeys: [...document.querySelectorAll('#tuning-panel [data-key]')].map((e) => e.dataset.key).filter((k, i, a) => a.indexOf(k) === i).join(',') }))()`);
+        expect(!look.raw && !look.layer && look.save === 'defaults' && look.shown === '3 10 5.0 0.25 0.25 3.0 5.0 3.0 30'
+          && look.presenceKeys === 'minFaceHeight,maxFaceHeight,minScore', `timing section ${JSON.stringify(look)}`);
+        details.push(`section: no raw window, ${look.shown}s, presence keys ${look.presenceKeys}`);
+
+        // 조절 → 반응 시간은 바로 감지 루프에, 저장 → 파일
+        await app.slide('countdownSeconds', 5, tp);
+        await app.slide('resultMs', 4000, tp);
+        await app.slide('cooldownMs', 1000, tp);
+        await app.slide('absentGraceMs', 300, tp);
+        await app.slide('retryIntervalMs', 4000, tp);
+        const live = await app.waitFor('timing live', async () => {
+          const d = await app.dev();
+          return /^countdown 5s result 4s cooldown 1s, hold 250ms grace 300ms, recovery retry 4s .*\+ unsaved changes/.test(d.get('timing') ?? '')
+            && /grace 300ms$/.test(d.get('criteria') ?? '') ? d.get('criteria') : null;
+        }, 3000);
+        await app.press('save', tp);
+        await app.waitFor('timing saved', async () => (await message(tp)) === '파일에 저장했습니다.', 5000);
+        const file = await getJson(TIMING_SETTINGS_API);
+        expect(file.version === 1 && file.settings.countdownSeconds === 5 && file.settings.resultMs === 4000 && file.settings.cooldownMs === 1000
+          && file.settings.absentGraceMs === 300 && file.settings.cameraRecovery.retryIntervalMs === 4000, `timing file ${JSON.stringify(file)}`);
+        const tab = await app.evaluate(`document.querySelector('#operator-panel [data-section="timing"]').dataset.save`);
+        expect(tab === 'saved', `timing tab ${tab}`);
+        details.push(`live: criteria "${live.split(', ').at(-1)}" before saving; saved -> timing.local.json`);
+        await app.closePanel();
+      });
+
+      // 새로고침 뒤 유지 → S 한 회차가 바뀐 값대로
+      await reload();
+      line = await timingLine();
+      expect(/^countdown 5s result 4s cooldown 1s, hold 250ms grace 300ms, recovery retry 4s first 5s stall 3s staff 30s \(file, /.test(line), `after reload: timing ${line}`);
+      await withAutoPaused(app, async () => {
+        details.push(expectRound(await timedRound(), { countdown: 5, result: 4000, cooldown: 1000 }, 'reload+S'));
+
+        // 회차 도중(카운트다운 중) 바꾸면 이 회차는 시작할 때의 값, 다음 회차부터 새 값. 패널이 열려 있어도 S는 된다
+        await app.openSection('timing');
+        const first = await timedRound({ during: async () => {
+          await app.slide('countdownSeconds', 2, tp);
+          await app.slide('resultMs', 3000, tp);
+          return app.waitFor('this round note', async () => {
+            const value = await timingLine();
+            return /^countdown 2s result 3s cooldown 1s \(this round countdown 5s\),/.test(value) ? value.split(',')[0] : null;
+          }, 3000);
+        } });
+        details.push(`${expectRound(first, { countdown: 5, result: 4000, cooldown: 1000 }, 'changed during countdown')} (D "${first.extra}")`);
+        details.push(expectRound(await timedRound(), { countdown: 2, result: 3000, cooldown: 1000 }, 'next round'));
+        // 저장하지 않고 닫으면 저장된 값으로
+        await app.closePanel();
+        line = await timingLine();
+        expect(/^countdown 5s result 4s cooldown 1s,/.test(line) && !/unsaved/.test(line), `after close without saving: ${line}`);
+      });
+      details.push('close without saving -> 5s/4s/1s');
+
+      // 옮기기: 9단계 인식 파일(시간 키 포함) + 시간 파일 없음 → 시간 파일로, 인식 파일에서는 그 키만 뺀다
+      writeFileSync(SETTINGS_FILE, stage9Text);
+      rmSync(TIMING_SETTINGS_FILE, { force: true });
+      await reload();
+      line = await timingLine();
+      expect(/^countdown 3s result 10s cooldown 5s, hold 300ms grace 350ms, recovery retry 3.5s first 6s stall 2.5s staff 45s \(migrated \(presentHoldMs, absentGraceMs, cameraRecovery from presence file \(removed from presence file\)\), /.test(line),
+        `migration: timing ${line}`);
+      let dev = await app.dev();
+      expect(/hold 300ms, grace 350ms$/.test(dev.get('criteria') ?? '') && /^file/.test(dev.get('settings') ?? ''), `migration: criteria ${dev.get('criteria')} / ${dev.get('settings')}`);
+      let timingFile = readJson(TIMING_SETTINGS_FILE);
+      let presenceFile = readJson(SETTINGS_FILE);
+      expect(timingFile.settings.presentHoldMs === 300 && timingFile.settings.cameraRecovery.staffNoticeMs === 45000 && timingFile.settings.countdownSeconds === 3,
+        `migration: timing file ${JSON.stringify(timingFile)}`);
+      expect(JSON.stringify(Object.keys(presenceFile.settings)) === JSON.stringify(Object.keys(stage9)) && presenceFile.settings.region.x === 0.12,
+        `migration: presence file ${JSON.stringify(presenceFile)}`);
+      details.push('migration: stage-9 presence file -> timing file (300/350ms, recovery 3.5/6/2.5/45s), presence file keeps only region·face·score');
+
+      // 옮기기 실패: 시간 파일 자리에 폴더를 두어 서버 쓰기를 실패시킨다 → 이번엔 옛 값, 인식 파일은 바이트 그대로, 시간 섹션 "저장 필요"
+      writeFileSync(SETTINGS_FILE, stage9Text);
+      rmSync(TIMING_SETTINGS_FILE, { force: true });
+      mkdirSync(TIMING_SETTINGS_FILE);
+      await reload();
+      line = await timingLine();
+      expect(/hold 300ms grace 350ms, recovery retry 3.5s first 6s stall 2.5s staff 45s \(presence file \(.*migration to timing file failed: HTTP 500/.test(line), `failed migration: timing ${line}`);
+      expect(readFileSync(SETTINGS_FILE, 'utf8') === stage9Text, 'failed migration: presence file changed');
+      await withAutoPaused(app, async () => {
+        await app.openSection('timing');
+        const state = await app.evaluate(`({ save: document.getElementById('timing-panel').dataset.save, text: document.querySelector('#timing-panel [data-state]').textContent,
+          message: document.querySelector('#timing-panel [data-message]').textContent, tab: document.querySelector('#operator-panel [data-section="timing"]').dataset.save })`);
+        expect(state.save === 'adjusted' && state.text === '파일 값을 고쳐 사용 · 저장 필요' && /옮기지 못했습니다/.test(state.message), `failed migration: section ${JSON.stringify(state)}`);
+        details.push(`migration failed (HTTP 500): old values used, presence file untouched, section "${state.text}" (tab ${state.tab})`);
+        // 그동안 인식 섹션을 저장해도 옛 시간 키는 인식 파일에 남는다 (값이 사라지지 않게)
+        await app.openSection('presence');
+        await app.slide('minScore', 0.75, '#tuning-panel');
+        await app.press('save', '#tuning-panel');
+        await app.waitFor('presence saved', async () => (await message('#tuning-panel')) === '파일에 저장했습니다.', 5000);
+        presenceFile = readJson(SETTINGS_FILE);
+        expect(presenceFile.settings.minScore === 0.75 && presenceFile.settings.presentHoldMs === 300 && presenceFile.settings.cameraRecovery?.staffNoticeMs === 45000,
+          `presence save kept old keys? ${JSON.stringify(presenceFile)}`);
+        // 쓰기가 다시 되면 시간 섹션 저장 → 시간 파일
+        rmdirSync(TIMING_SETTINGS_FILE);
+        await app.openSection('timing');
+        await app.press('save', tp);
+        await app.waitFor('timing saved after failure', async () => (await message(tp)) === '파일에 저장했습니다.', 5000);
+        await app.closePanel();
+      });
+      timingFile = readJson(TIMING_SETTINGS_FILE);
+      expect(timingFile.settings.presentHoldMs === 300 && timingFile.settings.absentGraceMs === 350, `timing file after save ${JSON.stringify(timingFile)}`);
+      // 다시 시작: 시간 파일 값(옛 키는 무시하고 인식 파일에서 정리), 인식 섹션 저장값은 그대로
+      await reload();
+      line = await timingLine();
+      dev = await app.dev();
+      presenceFile = readJson(SETTINGS_FILE);
+      expect(/hold 300ms grace 350ms, .*\(file \(old timing keys removed from presence file\), /.test(line), `after recovery: timing ${line}`);
+      expect(!('presentHoldMs' in presenceFile.settings) && !('cameraRecovery' in presenceFile.settings) && presenceFile.settings.minScore === 0.75
+        && /min score 0\.75, hold 300ms, grace 350ms$/.test(dev.get('criteria') ?? ''), `after recovery: presence ${JSON.stringify(presenceFile)} / ${dev.get('criteria')}`);
+      details.push('presence save kept old keys; timing saved later -> next start: timing file wins, old keys removed, min score 0.75 kept');
+      return details.join('; ');
+    } finally {
+      await app.closePanel().catch(() => {});
+      const restored = restoreSettings('after timing scenario');
+      if (!restored.ok) throw new Error(`could not restore settings files: ${restored.detail}`);
+      await app.open();
+      await waitReady(app);
+    }
+  });
+
   await scenario('결과 효과 렌더 실패 3가지(예외·INVALID_OPERATION·컨텍스트 손실) → 원본 사진으로 대신, 인쇄 읽기만 실패 2가지 → 유화 사진 그대로·인쇄 데이터는 사진에서 CPU로 (관람객 흐름 계속)', async () => {
     // 효과 캔버스 컨텍스트의 결과 화소 읽기만 건드린다(회색조 유화 결과는 1080x1920 화소가 먼저, 인쇄 데이터는 4점씩 묶은 144x1024.
     // 미리보기는 읽지 않는다).
@@ -1603,23 +1805,33 @@ async function runScenarios(app, origin) {
     }
   });
 
-  await scenario('조절값 API GET·PUT 왕복 (저장 파일은 원래대로)', async () => {
-    const existed = owned.settingsBackup.existed;
+  await scenario('조절값 API GET·PUT 왕복: 인식·시간(10단계) (저장 파일은 원래대로)', async () => {
     try {
-      const probe = JSON.stringify({ version: 1, settings: { region: { x: 0.1, y: 0.1, width: 0.8, height: 0.8 }, minFaceHeight: 0.05,
-        maxFaceHeight: 0.6, minScore: 0.71, presentHoldMs: 500, absentGraceMs: 1000 }, browserCheck: new Date().toISOString() }, null, 2);
-      const outcome = await app.evaluate(`(async () => {
-        const url = '${SETTINGS_API}';
-        const before = (await fetch(url, { cache: 'no-store' })).status;
-        const put = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Photobooth': '1' }, body: ${JSON.stringify(probe)} });
-        const back = await fetch(url, { cache: 'no-store' });
-        const noHeader = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-        return { before, put: put.status, back: back.status, same: (await back.text()) === ${JSON.stringify(probe)}, noHeader: noHeader.status };
-      })()`);
-      expect(outcome.before === (existed ? 200 : 404), `GET before ${outcome.before}`);
-      expect(outcome.put === 204 && outcome.back === 200 && outcome.same, `PUT ${outcome.put}, GET ${outcome.back}, same ${outcome.same}`);
-      expect(outcome.noHeader === 403, `PUT without X-Photobooth ${outcome.noHeader}`);
-      return `GET ${outcome.before} → PUT ${outcome.put} → GET ${outcome.back} same; no header → ${outcome.noHeader}`;
+      const probes = [
+        [SETTINGS_API, { region: { x: 0.1, y: 0.1, width: 0.8, height: 0.8 }, minFaceHeight: 0.05, maxFaceHeight: 0.6, minScore: 0.71 }],
+        [TIMING_SETTINGS_API, { ...config.timing, countdownSeconds: 4 }],
+      ];
+      const lines = [];
+      for (const [url, settings] of probes) {
+        const probe = JSON.stringify({ version: 1, settings, browserCheck: new Date().toISOString() }, null, 2);
+        const outcome = await app.evaluate(`(async () => {
+          const url = '${url}';
+          const before = (await fetch(url, { cache: 'no-store' })).status;
+          const put = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Photobooth': '1' }, body: ${JSON.stringify(probe)} });
+          const back = await fetch(url, { cache: 'no-store' });
+          const noHeader = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+          const big = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Photobooth': '1' },
+            body: JSON.stringify({ version: 1, pad: 'x'.repeat(17000) }) });
+          return { before, put: put.status, back: back.status, same: (await back.text()) === ${JSON.stringify(probe)}, noHeader: noHeader.status, big: big.status };
+        })()`);
+        // GET before: 앞 시나리오가 원래대로 되돌렸으므로 시작할 때의 파일 유무와 같다
+        const existed = (url === SETTINGS_API ? owned.settingsBackup : owned.timingBackup).existed;
+        expect(outcome.before === (existed ? 200 : 404), `${url} GET before ${outcome.before}`);
+        expect(outcome.put === 204 && outcome.back === 200 && outcome.same, `${url} PUT ${outcome.put}, GET ${outcome.back}, same ${outcome.same}`);
+        expect(outcome.noHeader === 403 && outcome.big === 413, `${url} PUT without X-Photobooth ${outcome.noHeader}, 17KB ${outcome.big}`);
+        lines.push(`${url}: GET ${outcome.before} → PUT ${outcome.put} → GET ${outcome.back} same; no header → ${outcome.noHeader}; 17KB → ${outcome.big}`);
+      }
+      return lines.join('; ');
     } finally {
       // 원래대로: 시작할 때 백업한 바이트(또는 "없음")로 파일 시스템에서 직접 되돌린다. 마지막 정리에서도 한 번 더 확인한다.
       const restored = restoreSettings('after settings scenario');
@@ -1688,7 +1900,7 @@ async function runScenarios(app, origin) {
     }
   });
 
-  await scenario('운영자 화면 캡처 (--screens, 가짜 카메라): 섹션 셋·원본 창, 1080x1920·1920x1080', async () => {
+  await scenario('운영자 화면 캡처 (--screens, 가짜 카메라): 섹션 넷·원본 창, 1080x1920·1920x1080', async () => {
     if (!options.screens) return 'skipped (no --screens)';
     mkdirSync(options.screens, { recursive: true });
     const files = [];
@@ -1698,7 +1910,7 @@ async function runScenarios(app, origin) {
         await app.open();
         await waitReady(app);
         await app.key('KeyD'); // open()이 켠 D를 끈다 (패널·원본 창만)
-        for (const section of ['camera', 'presence', 'effect']) {
+        for (const section of ['camera', 'presence', 'timing', 'effect']) {
           await app.openSection(section);
           await sleep(1500);
           const shot = await app.cdp.send('Page.captureScreenshot', { format: 'png' });
@@ -1865,6 +2077,9 @@ async function main() {
   log(`effect settings file backup: ${owned.effectBackup.existed ? `${owned.effectBackup.bytes.length} bytes` : 'none (will stay absent)'}`);
   owned.cameraBackup = backupFile(CAMERA_SETTINGS_FILE);
   log(`camera settings file backup: ${owned.cameraBackup.existed ? `${owned.cameraBackup.bytes.length} bytes` : 'none (will stay absent)'}`);
+  if (existsSync(TIMING_SETTINGS_FILE) && statSync(TIMING_SETTINGS_FILE).isDirectory()) throw new Error(`${TIMING_SETTINGS_FILE} is a folder`);
+  owned.timingBackup = backupFile(TIMING_SETTINGS_FILE);
+  log(`timing settings file backup: ${owned.timingBackup.existed ? `${owned.timingBackup.bytes.length} bytes` : 'none (will stay absent)'}`);
   const port = await freePort();
   const origin = `http://localhost:${port}`;
   log(`repo ${repo}`);
