@@ -51,7 +51,7 @@ const applyMotionPreference = () => { document.documentElement.dataset.motion = 
 applyMotionPreference();
 reducedMotionQuery.addEventListener('change', applyMotionPreference);
 
-// 관람객 화면 표현 (IMPRINT 시안, 채택 전). 문구는 config/guest-text.js 한곳에 있고, 상태 상세는 D 키 개발용 정보에만 보인다.
+// 관람객 화면 표현 (IMPRINT, 사용자 채택 2026-11-03). 문구는 config/guest-text.js 한곳에 있고, 상태 상세는 D 키 개발용 정보에만 보인다.
 // 카운트다운 진행선 길이는 회차마다 상태 기계 스냅숏(countdownSeconds)을 따른다
 const guest = createGuestScreen({
   root: document, text: guestText, countdownSeconds: config.timing.countdownSeconds,

@@ -95,7 +95,7 @@ body {
   display: none;
 }
 
-/* ---- 관람객 화면 (IMPRINT 시안, 채택 전, ui/guest-screen.js). 화면을 활자로 짠 한 쪽으로 다룬다.
+/* ---- 관람객 화면 (IMPRINT, 사용자 채택 2026-11-03, ui/guest-screen.js). 화면을 활자로 짠 한 쪽으로 다룬다.
    9:16 화면 안의 사진 틀(4:5, --frame-*)이 실제로 찍히는 곳이고, 틀 밖 위·아래 여백은 영상을 어둡게 눌러 글자 자리로 쓴다.
    글자·숫자는 여백에만 있어 촬영 중 얼굴·몸을 가리지 않는다. 무채색, 장식 없음, 가는 선과 서체(한국어 Pretendard,
    영어·숫자 Noto Serif KR Light의 라틴 글자)만. 움직임은 transform·opacity만 쓰고, 동작 줄이기(:root[data-motion="reduce"])에서는

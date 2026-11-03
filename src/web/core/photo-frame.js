@@ -1,4 +1,4 @@
-// 사진 틀 (IMPRINT 시안, 채택 전): 9:16 화면 안에서 실제로 찍히는 영역 (config.photoFrame, 화면 폭 전체 × 높이의 일부).
+// 사진 틀 (IMPRINT, 사용자 채택 2026-11-03): 9:16 화면 안에서 실제로 찍히는 영역 (config.photoFrame, 화면 폭 전체 × 높이의 일부).
 // 결과 사진·인쇄 데이터는 이 줄 범위로 자르고(effect/photo-effect.js), 인식 영역은 이 틀 안으로 줄인다(main.js).
 // 관람객 화면은 같은 비율을 CSS 변수로 받아 틀 밖 여백에만 글자를 둔다. 순수 함수. Node 테스트: test/core/photo-frame.test.mjs
 
