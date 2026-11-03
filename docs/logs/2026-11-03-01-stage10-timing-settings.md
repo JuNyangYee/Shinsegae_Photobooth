@@ -76,7 +76,7 @@
 - 운영자 패널 시나리오: 섹션 점 `camera:saved presence:saved timing:defaults effect:dirty`. OBS 실행에서 실행 중 장치 전환 `SpoutCam` 640×480, `Logitech StreamCam`은 OBS가 사용 중이라 `unavailable`(9단계와 같음). 원본 창 켬 60.3fps·감지 16·효과 12 / 끔 60.0·15·12.
 - 외부 요청 0, CSP 위반 0(MediaPipe 통계 차단 2, 설계대로), 페이지 예외 0 (두 실행 모두).
 - 확인 도구에서 고친 것 없음(새 시나리오는 첫 실행부터 통과). 처음 짠 페이지 안 시각 기록 코드의 정규식 역슬래시를 템플릿 문자열에 맞게 두 겹으로 고친 뒤 돌렸다.
-- 정리: OBS는 꺼져 있어 `--startvirtualcam --minimize-to-tray --disable-updater --disable-missing-files-check`로 직접 띄웠고, 끝난 뒤 그 프로세스만 닫고 그 실행이 남긴 `%APPDATA%\obs-studio\.sentinelun_*` 한 개만 지웠다(시작 전 폴더는 비어 있었고 생성 시각이 실행 시각과 같음). 확인 도구가 띄운 서버·Chrome·임시 프로필은 남지 않았고 `config/`는 없던 상태로 돌아갔다. 사용자 Chrome에는 붙지 않았다.
+- 정리: OBS는 꺼져 있어 `--startvirtualcam --minimize-to-tray --disable-updater --disable-missing-files-check`로 직접 띄웠고, 끝난 뒤 그 프로세스만 닫고 그 실행이 남긴 `%APPDATA%\obs-studio\.sentinel\run_*` 한 개만 지웠다(시작 전 폴더는 비어 있었고 생성 시각이 실행 시각과 같음). 확인 도구가 띄운 서버·Chrome·임시 프로필은 남지 않았고 `config/`는 없던 상태로 돌아갔다. 사용자 Chrome에는 붙지 않았다.
 
 ## 미검증
 
