@@ -484,8 +484,8 @@ async function previewScaleOne(app) {
 }
 
 /**
- * 감열지 S 한 장: 효과 캔버스 그림을 기록하고 S → 결과 화면용 이미지(무손실 PNG, 1080x1920)가 셔터 직전 그림과 화소까지 같고,
- * 다른 그림과는 다르며, 종이색·잉크색과 그 사이(경계 화소)뿐이고, 인쇄 데이터가 576x1024 1비트인지 본다 (6-1).
+ * 감열지 S 한 장: 효과 캔버스 그림을 기록하고 S → 결과 화면용 이미지(무손실 PNG, 사진 틀 1080x1350)가 셔터 직전 그림의 틀 줄과 화소까지 같고,
+ * 다른 그림과는 다르며, 종이색·잉크색과 그 사이(경계 화소)뿐이고, 인쇄 데이터가 576x912 1비트(사진 576x720 + 머리·꼬리, IMPRINT 시안)인지 본다 (6-1).
  * withAutoPaused 안에서 부른다.
  */
 async function thermalShot(app, { method, check }) {
@@ -498,15 +498,15 @@ async function thermalShot(app, { method, check }) {
   expect(photoFree(resources), `resources ${dev.get('resources')}`);
   const fx = dev.get('photo-fx') ?? '';
   expect(new RegExp(`^applied thermal 576x1024 ${method} .*same drawing as preview, ${check}`).test(fx), `photo-fx ${fx}`);
-  expect(image.startsWith('1080x1920') && /image\/png/.test(dev.get('capture') ?? ''), `result ${image}, capture ${dev.get('capture')}`);
+  expect(image.startsWith('1080x1350') && /image\/png/.test(dev.get('capture') ?? ''), `result ${image}, capture ${dev.get('capture')}`);
   const print = dev.get('print') ?? '';
-  expect(/^576x1024 1-bit, raster 72B\/row 73728B, png \d+B \(IHDR depth 1 color 0\)/.test(print), `print ${print}`);
+  expect(/^576x912 1-bit \(imprint: photo 576x720 at row 84\), raster 72B\/row 65664B, png \d+B \(IHDR depth 1 color 0\)/.test(print), `print ${print}`);
   // 화면용 이미지(b)는 결과 크기로 미리 확대한다(정수배 최근접 + 경계 1화소만 섞음). CSS 확대 방식은 쓰지 않는다
-  expect(c.size === '1080x1920' && c.previewSize === '1080x1920' && c.shutterIndex >= 0, `compare ${JSON.stringify(c)}`);
+  expect(c.size === '1080x1350' && c.previewSize === '1080x1920' && c.shutterIndex >= 0, `compare ${JSON.stringify(c)}`);
   expect(c.twoTone.ends.length === 2 && c.twoTone.offLine === 0, `result is not paper/ink only: ${JSON.stringify(c.twoTone)}`);
   expect(c.resultRendering === 'auto' && c.canvasRendering === 'auto', `image-rendering ${c.resultRendering} / ${c.canvasRendering}`);
-  // 1비트 점 사진은 인쇄 점 = 화면 화소 1:1 폭 (576/1080, 6-3·8단계)
-  expect(c.box.dots && Math.abs(c.box.ratio - 576 / 1080) < 0.001, `result box ${JSON.stringify(c.box)}`);
+  // 사진 틀 = 화면 폭 전체 (IMPRINT 시안: 점 사진도 결과 크기로 확대한 화면용이라 1080 화면 1:1)
+  expect(c.box.dots && Math.abs(c.box.ratio - 1) < 0.001, `result box ${JSON.stringify(c.box)}`);
   const atShutter = c.drawings[c.shutterIndex];
   const others = c.drawings.filter((_, i) => i !== c.shutterIndex);
   expect(atShutter.mismatch === 0, `shutter drawing differs in ${atShutter.mismatch} px (${JSON.stringify(c.drawings)})`);
@@ -517,7 +517,7 @@ async function thermalShot(app, { method, check }) {
 
 /**
  * 회색조 유화 S 한 장 (8단계 기본값): 결과(JPEG 1080x1920)가 셔터 직전 미리보기 그림과 같은 영역의 블록 평균(결과 10x10)으로 가장 가깝고,
- * 미리보기 그림이 무채색(R=G=B)이며 결과도 무채색에 가깝고(JPEG), 인쇄 데이터가 576x1024 1비트이고, 결과 폭이 영역의 정확히 절반인지 본다.
+ * 미리보기 그림이 무채색(R=G=B)이며 결과도 무채색에 가깝고(JPEG), 인쇄 데이터가 576x912 1비트(IMPRINT 시안 인쇄 쪽)이고, 결과 사진(틀 1080x1350)이 화면 폭 전체인지 본다.
  * 미리보기가 결과와 같은 크기(처리 해상도 1)면 차이 1/255 미만이어야 한다. 기본값 0.5(540x960, 2026-10-19)는 같은 그림을 낮은 해상도로
  * 그려 화소가 다르므로(docs/SYSTEM.md 6절 "원본과의 차이") 셔터 직전 그림이 다른 그림보다 가까운지와 상한만 본다.
  * withAutoPaused 안에서 부른다.
@@ -532,10 +532,10 @@ async function grayOilShot(app, { method = 'blue-noise', check = 'gpu=cpu', prev
   expect(photoFree(resources), `resources ${dev.get('resources')}`);
   const fx = dev.get('photo-fx') ?? '';
   expect(new RegExp(`^applied gray-oil 1080x1920 print ${method} seed \\d+ tick \\d+ \\(same drawing as preview, ${check}\\)`).test(fx), `photo-fx ${fx}`);
-  expect(image.startsWith('1080x1920') && /image\/jpeg/.test(dev.get('capture') ?? ''), `result ${image}, capture ${dev.get('capture')}`);
+  expect(image.startsWith('1080x1350') && /image\/jpeg/.test(dev.get('capture') ?? ''), `result ${image}, capture ${dev.get('capture')}`);
   const print = dev.get('print') ?? '';
-  expect(/^576x1024 1-bit, raster 72B\/row 73728B, png \d+B \(IHDR depth 1 color 0\)/.test(print), `print ${print}`);
-  expect(c.size === '1080x1920' && c.previewSize === previewSize && c.shutterIndex >= 0, `compare ${JSON.stringify(c)}`);
+  expect(/^576x912 1-bit \(imprint: photo 576x720 at row 84\), raster 72B\/row 65664B, png \d+B \(IHDR depth 1 color 0\)/.test(print), `print ${print}`);
+  expect(c.size === '1080x1350' && c.previewSize === previewSize && c.shutterIndex >= 0, `compare ${JSON.stringify(c)}`);
   const atShutter = c.drawings[c.shutterIndex];
   const others = c.drawings.filter((_, i) => i !== c.shutterIndex);
   const limit = previewSize === c.size ? 1 : SCALED_PREVIEW_DIFF_LIMIT;
@@ -543,8 +543,8 @@ async function grayOilShot(app, { method = 'blue-noise', check = 'gpu=cpu', prev
   // 무채색: 미리보기 그림은 화소마다 R=G=B, 결과는 JPEG라 1 이하 허용
   expect(c.drawings.every((d) => d.chroma === 0), `preview chroma ${c.drawings.map((d) => d.chroma).join('/')}`);
   expect(c.resultChroma <= 1, `result chroma ${c.resultChroma}`);
-  // 연속 톤 사진은 영역 폭의 정확히 절반 (1080 화면 1/2, 4K 1:1, 8단계)
-  expect(!c.box.dots && Math.abs(c.box.ratio - 0.5) < 0.001, `result box ${JSON.stringify(c.box)}`);
+  // 사진 틀 = 화면 폭 전체 (IMPRINT 시안: 1080 화면 1:1, 4K 2:1)
+  expect(!c.box.dots && Math.abs(c.box.ratio - 1) < 0.001, `result box ${JSON.stringify(c.box)}`);
   return { fx, print, compare: `preview ${c.previewSize}, shutter drawing block diff ${atShutter.diff}/255, other drawings ${others.map((d) => d.diff).join('/')},`
     + ` max chroma preview 0 / result ${c.resultChroma}, result ${c.box.width}px = ${c.box.ratio} of stage` };
 }
@@ -587,10 +587,12 @@ const SCALED_PREVIEW_DIFF_LIMIT = 4;
 
 // 결과 사진(#result)과 기록한 그림들을 10x10 블록 평균(RGB)으로 비교한다. 셔터 직전 그림 = 셔터 전에 마지막으로 그린 것.
 // 미리보기가 결과보다 작으면(처리 해상도 < 1) 같은 영역의 블록(0.5배면 5x5)끼리 비교한다. 블록이 정수 화소가 아닌 크기는 건너뛴다.
+// 결과 사진은 사진 틀(IMPRINT 시안, config.photoFrame)로 자른 것이므로 그림의 틀 줄(9:16 높이 Hf의 FT부터)과 비교한다
 const EFFECT_COMPARE = `(() => {
   const r = window.__fxReader;
   const img = document.getElementById('result');
   const W = img.naturalWidth, H = img.naturalHeight, B = 10, gw = Math.floor(W / B), gh = Math.floor(H / B);
+  const FT = ${config.photoFrame.top}, FH = ${config.photoFrame.height}, Hf = Math.round(H / FH), top = Math.round(Hf * FT);
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const x = cv.getContext('2d', { willReadFrequently: true }); x.drawImage(img, 0, 0);
   const res = x.getImageData(0, 0, W, H).data; cv.width = 0;
@@ -601,7 +603,7 @@ const EFFECT_COMPARE = `(() => {
   const resGrid = grid((xx, y) => { const i = (y * W + xx) * 4; return [res[i], res[i + 1], res[i + 2]]; });
   const diff = (a, b) => { let s = 0; for (let k = 0; k < a.length; k++) s += Math.abs(a[k] - b[k]); return s / a.length; };
   // 화소가 정확히 다른 수 (감열지 결과는 무손실 PNG라 셔터 직전 그림과 0이어야 한다, 6-1)
-  const mismatch = (d) => { if (d.W !== W || d.H !== H) return null; let c = 0; for (let y = 0; y < H; y++) for (let xx = 0; xx < W; xx++) { const i = (y * W + xx) * 4, j = ((d.H - 1 - y) * d.W + xx) * 4;
+  const mismatch = (d) => { if (d.W !== W || d.H !== Hf) return null; let c = 0; for (let y = 0; y < H; y++) for (let xx = 0; xx < W; xx++) { const i = (y * W + xx) * 4, j = ((d.H - 1 - (y + top)) * d.W + xx) * 4;
     if (res[i] !== d.buf[j] || res[i + 1] !== d.buf[j + 1] || res[i + 2] !== d.buf[j + 2]) c++; } return c; };
   // 감열지 화면은 종이색·잉크색 두 색과 그 사이(경계 화소)뿐이다: 화소마다 R로 비율을 구해 G·B가 같은 비율인지, 순수 두 색 비율
   const ends = (() => { const c = new Map(); for (let i = 0; i < res.length; i += 4) { const k = res[i] + ',' + res[i + 1] + ',' + res[i + 2]; c.set(k, (c.get(k) ?? 0) + 1); }
@@ -615,12 +617,13 @@ const EFFECT_COMPARE = `(() => {
   const chroma = (a) => { let m = 0; for (let i = 0; i < a.length; i += 4) { const hi = Math.max(a[i], a[i + 1], a[i + 2]), lo = Math.min(a[i], a[i + 1], a[i + 2]); if (hi - lo > m) m = hi - lo; } return m; };
   const list = r.pinned && !r.drawings.includes(r.pinned) ? [r.pinned, ...r.drawings] : r.drawings;
   const blockOf = (d) => d.W * B / W; // 미리보기 그림에서 결과 10x10과 같은 영역의 블록 크기
-  const out = list.filter((d) => d.W * H === d.H * W && Number.isInteger(blockOf(d))).map((d) => ({
+  const topOf = (d) => top * d.W / W; // 그림에서 틀 위끝 줄
+  const out = list.filter((d) => d.W * Hf === d.H * W && Number.isInteger(blockOf(d)) && Number.isInteger(topOf(d))).map((d) => ({
     beforeShutter: d.at < r.shutterAt, msFromShutter: Math.round(d.at - r.shutterAt),
-    diff: +diff(resGrid, grid((xx, y) => { const i = ((d.H - 1 - y) * d.W + xx) * 4; return [d.buf[i], d.buf[i + 1], d.buf[i + 2]]; }, blockOf(d))).toFixed(3),
+    diff: +diff(resGrid, grid((xx, y) => { const i = ((d.H - 1 - (y + topOf(d))) * d.W + xx) * 4; return [d.buf[i], d.buf[i + 1], d.buf[i + 2]]; }, blockOf(d))).toFixed(3),
     mismatch: mismatch(d), chroma: chroma(d.buf),
   }));
-  // 결과 출력물 폭: 9:16 영역 대비 비율, 1비트 점 사진 표시(is-dots)
+  // 결과 사진 폭: 9:16 영역 대비 비율 (IMPRINT 시안: 틀 = 화면 폭 전체), 1비트 점 사진 표시(is-dots)
   const photoBox = document.querySelector('.result-photo').getBoundingClientRect(), stageBox = document.getElementById('stage').getBoundingClientRect();
   const box = { width: +photoBox.width.toFixed(3), ratio: +(photoBox.width / stageBox.width).toFixed(4), dots: document.getElementById('result-card').classList.contains('is-dots') };
   const shutterDrawing = out.map((d) => d.beforeShutter).lastIndexOf(true);
@@ -635,28 +638,31 @@ const EFFECT_COMPARE = `(() => {
 // (셔터 순간에 영상을 새로 읽으면 다른 프레임이라, 움직이는 가짜 카메라에서는 상관이 0.3까지 떨어졌다).
 // 방향은 비대칭 성분의 상관(anti, -1~1)으로 본다: 각 격자에서 자기 좌우 뒤집음을 뺀 것(g - flip(g))끼리의 피어슨 상관이다.
 // 같은 방향이면 +, 거울 방향이면 −. 가짜 카메라 화면은 거의 좌우 대칭이라 그냥 상관은 그대로·뒤집음이 비슷하다(0.86 / 0.89).
+// 결과 사진은 사진 틀(IMPRINT 시안, config.photoFrame)로 자른 것이라, 셔터 순간 그림·영상은 틀 줄만의 격자(GW x GHF, *Frame)도 남겨 그것과 비교한다.
 const MIRROR_READER = `(() => {
   if (window.__mirrorReader) return true;
   const c = document.getElementById('effect'), v = document.getElementById('preview');
   const gl = c.getContext('webgl2');
-  const GW = 18, GH = 32, UP = 4;
+  const GW = 18, GH = 32, UP = 4, GHF = 24, FT = ${config.photoFrame.top}, FH = ${config.photoFrame.height};
   const t = document.createElement('canvas'); t.width = GW * UP; t.height = GH * UP;
   const tx = t.getContext('2d', { willReadFrequently: true }); tx.imageSmoothingQuality = 'high';
   const luma = (d, i) => 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
-  // 큰 그림을 GW x GH 블록 평균 밝기로. at(x, y)는 왼쪽 위 원점 화소의 RGBA 시작 번호
-  const grid = (W, H, data, at) => { const g = new Float64Array(GW * GH), n = new Float64Array(GW * GH);
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const k = Math.floor(y * GH / H) * GW + Math.floor(x * GW / W); g[k] += luma(data, at(x, y)); n[k]++; }
+  // 큰 그림의 y0~y1줄을 GW x gh 블록 평균 밝기로 (기본 전체·GH). at(x, y)는 왼쪽 위 원점 화소의 RGBA 시작 번호
+  const grid = (W, H, data, at, y0 = 0, y1 = H, gh = GH) => { const g = new Float64Array(GW * gh), n = new Float64Array(GW * gh);
+    for (let y = y0; y < y1; y++) for (let x = 0; x < W; x++) { const k = Math.floor((y - y0) * gh / (y1 - y0)) * GW + Math.floor(x * GW / W); g[k] += luma(data, at(x, y)); n[k]++; }
     for (let k = 0; k < g.length; k++) g[k] /= n[k]; return g; };
-  const videoGrid = () => { const vw = v.videoWidth, vh = v.videoHeight, a = 9 / 16, va = vw / vh;
+  // 사진 틀 줄만의 격자 (9:16 그림 높이 H에서 FT ~ FT + FH)
+  const frameGrid = (W, H, data, at) => grid(W, H, data, at, Math.round(H * FT), Math.round(H * (FT + FH)), GHF);
+  const videoGrid = (framed = false) => { const vw = v.videoWidth, vh = v.videoHeight, a = 9 / 16, va = vw / vh;
     const sw = va > a ? vh * a : vw, sh = va > a ? vh : vw / a;
     tx.drawImage(v, (vw - sw) / 2, (vh - sh) / 2, sw, sh, 0, 0, t.width, t.height);
-    return grid(t.width, t.height, tx.getImageData(0, 0, t.width, t.height).data, (x, y) => (y * t.width + x) * 4); };
+    return (framed ? frameGrid : grid)(t.width, t.height, tx.getImageData(0, 0, t.width, t.height).data, (x, y) => (y * t.width + x) * 4); };
   // 카메라 처리 경로(9-1)를 거친 영상 격자: r.view(core/camera-view.js computeCameraView)가 있으면 그 변환으로 그린다 (색 보정 없음)
-  const stageGrid = () => { if (!r.view || !r.canvasTransform) return null;
+  const stageGrid = (framed = false) => { if (!r.view || !r.canvasTransform) return null;
     tx.save(); tx.fillStyle = '#000'; tx.fillRect(0, 0, t.width, t.height); tx.setTransform(...r.canvasTransform(r.view, t.width, t.height));
     tx.drawImage(v, 0, 0); tx.restore();
-    return grid(t.width, t.height, tx.getImageData(0, 0, t.width, t.height).data, (x, y) => (y * t.width + x) * 4); };
-  const r = window.__mirrorReader = { GW, GH, samples: [], shutter: null, grid, view: null, canvasTransform: null };
+    return (framed ? frameGrid : grid)(t.width, t.height, tx.getImageData(0, 0, t.width, t.height).data, (x, y) => (y * t.width + x) * 4); };
+  const r = window.__mirrorReader = { GW, GH, GHF, samples: [], shutter: null, grid, view: null, canvasTransform: null };
   r.stageGrid = stageGrid;
   r.videoGrid = videoGrid;
   new MutationObserver(() => { const cd = document.getElementById('countdown');
@@ -678,7 +684,9 @@ const MIRROR_READER = `(() => {
     if (any === 0) return;
     const buf = new Uint8Array(W * H * 4);
     gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, buf);
-    r.samples.push({ drawing: grid(W, H, buf, (x, y) => ((H - 1 - y) * W + x) * 4), video: videoGrid(), stage: stageGrid() });
+    const at = (x, y) => ((H - 1 - y) * W + x) * 4;
+    r.samples.push({ drawing: grid(W, H, buf, at), video: videoGrid(), stage: stageGrid(),
+      drawingFrame: frameGrid(W, H, buf, at), videoFrame: videoGrid(true), stageFrame: stageGrid(true) });
     if (r.samples.length > 12) r.samples.shift();
   };
   requestAnimationFrame(loop);
@@ -688,7 +696,7 @@ const MIRROR_READER = `(() => {
 // 격자 상관 도구 (페이지 안): corr(a, b), flip(g) 좌우 뒤집기, orient(a, b) = { same, flipped, anti }
 const MIRROR_MATH = `const corr = (a, b) => { const n = a.length; let ma = 0, mb = 0; for (let i = 0; i < n; i++) { ma += a[i]; mb += b[i]; } ma /= n; mb /= n;
     let s = 0, sa = 0, sb = 0; for (let i = 0; i < n; i++) { const x = a[i] - ma, y = b[i] - mb; s += x * y; sa += x * x; sb += y * y; } return sa && sb ? s / Math.sqrt(sa * sb) : 0; };
-  const flip = (g) => { const { GW, GH } = window.__mirrorReader, f = new Float64Array(g.length); for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) f[y * GW + x] = g[y * GW + GW - 1 - x]; return f; };
+  const flip = (g) => { const { GW } = window.__mirrorReader, rows = g.length / GW, f = new Float64Array(g.length); for (let y = 0; y < rows; y++) for (let x = 0; x < GW; x++) f[y * GW + x] = g[y * GW + GW - 1 - x]; return f; };
   const odd = (g) => { const f = flip(g); return g.map((v, i) => v - f[i]); };
   const orient = (a, b) => ({ same: +corr(a, b).toFixed(3), flipped: +corr(a, flip(b)).toFixed(3), anti: +corr(odd(a), odd(b)).toFixed(3) });`;
 
@@ -698,17 +706,17 @@ const MIRROR_PREVIEW = `(() => { ${MIRROR_MATH}
   const avg = (k) => +(list.reduce((a, o) => a + o[k], 0) / Math.max(1, list.length)).toFixed(3);
   return { n: list.length, same: avg('same'), flipped: avg('flipped'), anti: avg('anti'), antiMin: Math.min(...list.map((o) => Math.abs(o.anti))) }; })()`;
 
-// 결과 사진 ↔ 셔터 순간 그림·그 그림의 영상 상관 (결과 화면에서 부른다)
+// 결과 사진(사진 틀로 자른 것) ↔ 셔터 순간 그림·그 그림의 영상의 틀 줄 격자 상관 (결과 화면에서 부른다)
 const MIRROR_RESULT = `(() => { ${MIRROR_MATH}
   const r = window.__mirrorReader, img = document.getElementById('result');
   const W = img.naturalWidth, H = img.naturalHeight, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const x = cv.getContext('2d', { willReadFrequently: true }); x.drawImage(img, 0, 0);
-  const res = r.grid(W, H, x.getImageData(0, 0, W, H).data, (xx, y) => (y * W + xx) * 4); cv.width = 0;
+  const res = r.grid(W, H, x.getImageData(0, 0, W, H).data, (xx, y) => (y * W + xx) * 4, 0, H, r.GHF); cv.width = 0;
   // 격자 값 범위(최소·최대·NaN 수): 실패 메시지에서 그림을 못 읽었는지 가린다
   const range = (g) => (g ? [Math.round(Math.min(...g)), Math.round(Math.max(...g)), g.filter(Number.isNaN).length].join('/') : '-');
-  return { size: W + 'x' + H, ranges: [range(res), range(r.shutter?.drawing), range(r.shutter?.video)].join(' '),
-    drawing: r.shutter?.drawing ? orient(res, r.shutter.drawing) : null, video: r.shutter ? orient(res, r.shutter.video) : null,
-    stage: r.shutter?.stage ? orient(res, r.shutter.stage) : null }; })()`;
+  return { size: W + 'x' + H, ranges: [range(res), range(r.shutter?.drawingFrame), range(r.shutter?.videoFrame)].join(' '),
+    drawing: r.shutter?.drawingFrame ? orient(res, r.shutter.drawingFrame) : null, video: r.shutter ? orient(res, r.shutter.videoFrame) : null,
+    stage: r.shutter?.stageFrame ? orient(res, r.shutter.stageFrame) : null }; })()`;
 
 // 원본 창(9-2) ↔ 지금 변환한 영상·변환 전 cover 영상: 원본 창 캔버스를 같은 격자로 줄여 상관 (원본 창은 색 보정 포함, 격자 영상은 기하만)
 const RAW_WINDOW_CHECK = `(() => { ${MIRROR_MATH}
@@ -930,7 +938,7 @@ async function runScenarios(app, origin) {
     return `${line.split(', fps')[0]}; ${m[2]} drawings/s at fps ${m[1]}; ${ready}; context lost → camera preview → restored → ${readyAgain}`;
   });
 
-  await scenario('촬영 결과(회색조 유화 기본값): 1080x1920 JPEG = 셔터 순간 미리보기 그림(540x960, 같은 영역 블록 비교), 미리보기·결과 무채색, 인쇄 데이터 576x1024 1비트(블루 노이즈, GPU = CPU), 결과 폭 1/2', async () => withAutoPaused(app, async () => {
+  await scenario('촬영 결과(회색조 유화 기본값): 사진 틀 1080x1350 JPEG = 셔터 순간 미리보기 그림의 틀 줄(540x960, 같은 영역 블록 비교), 미리보기·결과 무채색, 인쇄 데이터 576x912 1비트(사진 576x720 블루 노이즈, GPU = CPU, 머리·꼬리), 결과 폭 = 화면 폭', async () => withAutoPaused(app, async () => {
     const output = subLine(await app.devText(), 'output');
     expect(/^gray-oil \(input luma Rec\.709 -> oil2f -> gray\), print data on photo: paper 576 blue-noise/.test(output), `output ${output}`);
     const { fx, print, compare } = await grayOilShot(app);
@@ -963,7 +971,7 @@ async function runScenarios(app, origin) {
       const { completedDelta, resources, dev: after } = await withAutoPaused(app, () => manualCycle(app));
       // 회색조 유화 기본값: 원본 사진(결과 크기)을 입력 회색조·레벨로, 인쇄 데이터도 그 사진에서 (8단계)
       expect(/^RAW PHOTO gray-oil 1080x1920 /.test(after.get('photo-fx') ?? ''), `photo-fx ${after.get('photo-fx')}`);
-      expect(/^576x1024 1-bit/.test(after.get('print') ?? ''), `print ${after.get('print')}`);
+      expect(/^576x912 1-bit/.test(after.get('print') ?? ''), `print ${after.get('print')}`);
       expect(completedDelta === 1, `S completed +${completedDelta}`);
       expect(resources && resources.urls === 0 && resources.canvases === 0 && resources.pending === 0, 'resources not released');
       return `${effect}; raw preview ${raw2[1]} (${raw2[2]} draws); camera ready, detector ok, S cycle ok`;
@@ -972,7 +980,7 @@ async function runScenarios(app, origin) {
     }
   });
 
-  await scenario('출력 모드 전환(E, 기본값 밖의 세 모드, 처리 해상도 1): 끔 1080x1920 JPEG, 회색조 1080x1920 JPEG, 감열지 Atkinson(CPU) PNG = 미리보기, 용지 384점·감마 저장 → 새로고침 유지', async () => {
+  await scenario('출력 모드 전환(E, 기본값 밖의 세 모드, 처리 해상도 1): 끔·회색조 그림 1080x1920 → 사진 틀 1080x1350 JPEG, 감열지 Atkinson(CPU) PNG = 미리보기, 용지 384점·감마 저장 → 새로고침 유지', async () => {
     const details = [];
     try {
       await app.open();
@@ -988,7 +996,7 @@ async function runScenarios(app, origin) {
         const fx = dev.get('photo-fx') ?? '';
         expect(completedDelta === 1 && photoFree(resources), `${mode}: S +${completedDelta}, ${dev.get('resources')}`);
         expect(new RegExp(`^applied ${mode === 'gray' ? 'gray ' : ''}1080x1920 .*same drawing as preview`).test(fx), `${mode}: photo-fx ${fx}`);
-        expect(image.startsWith('1080x1920') && /image\/jpeg/.test(dev.get('capture') ?? ''), `${mode}: ${image}, ${dev.get('capture')}`);
+        expect(image.startsWith('1080x1350') && /image\/jpeg/.test(dev.get('capture') ?? ''), `${mode}: ${image}, ${dev.get('capture')}`);
         expect(dev.get('print') === '-', `${mode}: print ${dev.get('print')}`);
         details.push(`${mode} ${image.split(' ')[0]} jpeg`);
       }
@@ -1107,7 +1115,7 @@ async function runScenarios(app, origin) {
       + ` CPU dither 576x1024: atkinson ${t.atkinson}ms, floyd-steinberg ${t['floyd-steinberg']}ms, bayer ${t.bayer}ms, blue-noise ${t['blue-noise']}ms`;
   });
 
-  await scenario('흑백 스타일 4가지(E, 감열지, 처리 해상도 1): 미리보기 캔버스 1080x1920·D 표시, 붓 결 선·흐름 선·질감 강조 점 결과 = 셔터 순간 그림(화면용 PNG 화소까지, 인쇄 576x1024), 저장 → 새로고침 유지 (파일은 원래대로)', async () => {
+  await scenario('흑백 스타일 4가지(E, 감열지, 처리 해상도 1): 미리보기 캔버스 1080x1920·D 표시, 붓 결 선·흐름 선·질감 강조 점 결과 = 셔터 순간 그림의 틀 줄(화면용 PNG 화소까지, 인쇄 576x912), 저장 → 새로고침 유지 (파일은 원래대로)', async () => {
     const details = [];
     try {
       await app.open();
@@ -1828,8 +1836,8 @@ async function runScenarios(app, origin) {
           // 셔터 순간 유화 사진은 그대로(applied), 인쇄 데이터는 확정된 사진에서 CPU로 (8단계 검수 1)
           const print = dev.get('print') ?? '';
           expect(/^applied gray-oil 1080x1920 print blue-noise .*\(same drawing as preview, cpu from photo\)/.test(fx), `${mode}: photo-fx ${fx}`);
-          expect(/^576x1024 1-bit/.test(print) && expected[mode].test(print) && /from photo on CPU/.test(print), `${mode}: print ${print}`);
-          expect(image.startsWith('1080x1920') && /image\/jpeg/.test(dev.get('capture') ?? ''), `${mode}: result ${image}, ${dev.get('capture')}`);
+          expect(/^576x912 1-bit/.test(print) && expected[mode].test(print) && /from photo on CPU/.test(print), `${mode}: print ${print}`);
+          expect(image.startsWith('1080x1350') && /image\/jpeg/.test(dev.get('capture') ?? ''), `${mode}: result ${image}, ${dev.get('capture')}`);
           expect(photoFree(resources), `${mode}: resources ${dev.get('resources')}`);
           expect(/^running,/.test(dev.get('effect') ?? ''), `${mode}: preview after failure ${dev.get('effect')}`);
           details.push(`${mode} → applied, print from photo (${/GPU print failed: ([^)]*)/.exec(print)?.[1] ?? print})`);
@@ -1837,8 +1845,8 @@ async function runScenarios(app, origin) {
         }
         // 회색조 유화 기본값: 원본 사진(결과 크기)을 입력 회색조·레벨로, 인쇄 데이터도 그 사진에서 (8단계)
         expect(/^RAW PHOTO gray-oil 1080x1920 /.test(fx) && expected[mode].test(fx), `${mode}: photo-fx ${fx}`);
-        expect(image.startsWith('1080x1920'), `${mode}: result image ${image}`);
-        expect(/^576x1024 1-bit/.test(dev.get('print') ?? ''), `${mode}: print ${dev.get('print')}`);
+        expect(image.startsWith('1080x1350'), `${mode}: result image ${image}`);
+        expect(/^576x912 1-bit/.test(dev.get('print') ?? ''), `${mode}: print ${dev.get('print')}`);
         expect(photoFree(resources), `${mode}: resources ${dev.get('resources')}`);
         if (mode === 'lose') {
           expect(/^context-lost/.test(dev.get('effect') ?? ''), `lose: preview ${dev.get('effect')}`);
@@ -1849,7 +1857,7 @@ async function runScenarios(app, origin) {
         }
         details.push(`${mode} → ${/\(([^)]*)\)/.exec(fx)?.[1] ?? fx}`);
       }
-      return `${details.join('; ')}; photo read failures: raw photo -> gray 1080x1920 on CPU with print data 576x1024, preview running again`;
+      return `${details.join('; ')}; photo read failures: raw photo -> gray 1080x1920 on CPU -> frame 1080x1350 with print data 576x912, preview running again`;
     } finally {
       await app.cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier });
     }
@@ -1948,6 +1956,218 @@ async function runScenarios(app, origin) {
     } finally {
       await app.blockModel(false);
     }
+  });
+
+  // ---- IMPRINT 시안 (채택 전) ----
+  // 사진 틀(4:5, config.photoFrame 7/64~52/64) 밖에만 글자가 있는지, 결과 사진이 틀 자리에 1080x1350으로 놓이는지, 인쇄 쪽이 머리·꼬리를 포함한
+  // 576x912(사진 576x720)인지, 머리 시각이 결과 동안 멈춰 있는지, 동작 줄이기에서 위치 움직임이 없는지. --screens면 상태별 화면(가짜 카메라)
+  const shot = async (name) => {
+    if (!options.screens) return;
+    mkdirSync(options.screens, { recursive: true });
+    const { data } = await app.cdp.send('Page.captureScreenshot', { format: 'png' });
+    writeFileSync(join(options.screens, `${name}.png`), Buffer.from(data, 'base64'));
+  };
+  const IMPRINT_LAYOUT = `(() => {
+    const st = document.getElementById('stage').getBoundingClientRect();
+    const top = document.querySelector('.frame-margin.is-top').getBoundingClientRect().bottom - st.top;
+    const bottom = document.querySelector('.frame-margin.is-bottom').getBoundingClientRect().top - st.top;
+    const boxes = {};
+    for (const id of ['guide', 'countdown', 'notice', 'result-note', 'status']) {
+      const e = document.getElementById(id);
+      if (e.hidden) continue;
+      const r = e.getBoundingClientRect();
+      boxes[id] = [Math.round(r.top - st.top), Math.round(r.bottom - st.top)];
+    }
+    const m = document.querySelector('.masthead').getBoundingClientRect();
+    boxes.masthead = [Math.round(m.top - st.top), Math.round(m.bottom - st.top)];
+    const img = document.getElementById('result').getBoundingClientRect();
+    return { h: st.height, w: st.width, top, bottom, boxes, motion: document.documentElement.dataset.motion,
+      phase: document.getElementById('stage').dataset.phase, time: document.getElementById('masthead-time').textContent,
+      result: document.getElementById('result').hidden ? null : [Math.round(img.left - st.left), Math.round(img.top - st.top), Math.round(img.width), Math.round(img.height)] };
+  })()`;
+  const textOutsideFrame = (l) => Object.entries(l.boxes).filter(([, [a, b]]) => !(b <= l.top + 1 || a >= l.bottom - 1)).map(([id]) => id);
+
+  await scenario('관람객 화면(IMPRINT 시안): 글자·숫자는 사진 틀(4:5) 밖에만, 결과 사진 = 틀 자리 1080x1350, 인쇄 쪽 576x912(사진 576x720 · 머리·꼬리 글자), 머리 시각 멈춤, 동작 줄이기 (--screens면 상태별 화면)', async () => {
+    const details = [];
+    await app.open();
+    await waitReady(app);
+    await app.key('KeyD'); // 화면 캡처·배치에 D가 겹치지 않게 (D 값은 결과 때 잠깐 켜서 읽는다)
+    const idle = await app.waitFor('idle guide', async () => { const l = await app.evaluate(IMPRINT_LAYOUT); return l.boxes.guide ? l : null; }, 5000);
+    expect(Math.abs(idle.top - idle.h * 7 / 64) <= 1 && Math.abs(idle.bottom - idle.h * 52 / 64) <= 1, `frame ${idle.top}-${idle.bottom} of ${idle.h}`);
+    expect(textOutsideFrame(idle).length === 0, `idle text inside frame: ${JSON.stringify(idle)}`);
+    expect(idle.motion === 'full' && idle.phase === 'idle' && /^\d\d:\d\d:\d\d$/.test(idle.time), `idle ${JSON.stringify(idle)}`);
+    await sleep(1200); // 짜 넣기가 끝난 뒤
+    await shot('app-1-idle');
+    const cycle = async (label) => {
+      await app.key('KeyS');
+      const counting = await app.waitFor(`${label} countdown`, async () => {
+        const l = await app.evaluate(IMPRINT_LAYOUT);
+        return l.phase === 'countdown' && (await app.evaluate("document.getElementById('countdown-number').textContent")) === '2' ? l : null;
+      }, 4000);
+      expect(textOutsideFrame(counting).length === 0, `${label}: countdown text inside frame ${JSON.stringify(counting.boxes)}`);
+      const rolls = await app.evaluate("document.getElementById('countdown-number').getAnimations().map((a) => a.effect.getKeyframes().some((k) => k.transform && k.transform !== 'none'))");
+      if (label === 'full') {
+        await sleep(450);
+        await shot('app-2-countdown');
+      }
+      const result = await app.waitFor(`${label} result`, async () => { const l = await app.evaluate(IMPRINT_LAYOUT); return l.phase === 'result' && l.result ? l : null; }, 8000);
+      await sleep(1300);
+      const later = await app.evaluate(IMPRINT_LAYOUT);
+      if (label === 'full') await shot('app-3-result');
+      expect(later.time === result.time, `${label}: masthead time moved during result ${result.time} -> ${later.time}`);
+      expect(JSON.stringify(result.result) === JSON.stringify([0, Math.round(result.top), result.w, Math.round(result.bottom - result.top)]),
+        `${label}: result box ${JSON.stringify(result.result)} vs frame ${result.top}-${result.bottom}`);
+      expect(textOutsideFrame(later).length === 0, `${label}: result text inside frame ${JSON.stringify(later.boxes)}`);
+      await app.key('KeyD');
+      const dev = await app.dev();
+      await app.key('KeyD');
+      expect(/^1080x1350 /.test(dev.get('capture') ?? ''), `${label}: capture ${dev.get('capture')}`);
+      expect(/frame 1080x1350 rows 210-1560/.test(dev.get('photo-fx') ?? ''), `${label}: photo-fx ${dev.get('photo-fx')}`);
+      expect(/^576x912 1-bit \(imprint: photo 576x720 at row 84\), raster 72B\/row 65664B, png \d+B \(IHDR depth 1 color 0\)/.test(dev.get('print') ?? ''),
+        `${label}: print ${dev.get('print')}`);
+      expect(/^photo 4:5 = stage rows 0\.1094-0\.8125 \(result 1920 -> 210-1560, print 1024 -> 112-832\), presence region clipped to frame/.test(dev.get('frame') ?? ''),
+        `${label}: frame ${dev.get('frame')}`);
+      expect(/\(clipped to photo frame\)/.test(dev.get('criteria') ?? ''), `${label}: criteria ${dev.get('criteria')}`);
+      const cooling = await app.waitFor(`${label} cooldown`, async () => { const l = await app.evaluate(IMPRINT_LAYOUT); return l.phase === 'cooldown' && l.boxes.notice ? l : null; }, 13000);
+      expect(textOutsideFrame(cooling).length === 0, `${label}: cooldown text inside frame`);
+      if (label === 'full') {
+        await sleep(1200);
+        await shot('app-4-cooldown');
+      }
+      await app.waitFor(`${label} idle`, async () => (await app.evaluate(IMPRINT_LAYOUT)).phase === 'idle', 8000);
+      return { rolls, print: dev.get('print').split(', raster')[0], time: result.time };
+    };
+    // 가짜 카메라에는 얼굴이 없어 자동 회차가 끼어들지 않는다: 일시정지(P, 화면에 운영자 표시가 생긴다) 없이 돈다.
+    // 실제 카메라면 withAutoPaused (D를 읽으므로 그동안 D를 켜 두고, 회차 동안만 끈다)
+    const round = async (label) => {
+      if (options.camera === 'fake') return cycle(label);
+      await app.key('KeyD');
+      const r = await withAutoPaused(app, async () => { await app.key('KeyD'); try { return await cycle(label); } finally { await app.key('KeyD'); } });
+      await app.key('KeyD');
+      return r;
+    };
+    const full = await round('full');
+    expect(full.rolls.length > 0 && full.rolls.some(Boolean), `countdown digit roll animation ${JSON.stringify(full.rolls)}`);
+    details.push(`frame ${idle.top}-${idle.bottom}px of ${idle.h}, text outside frame in idle·countdown·result·cooldown, result box = frame, masthead frozen at ${full.time}, print ${full.print}`);
+    // 동작 줄이기: 시스템 설정(prefers-reduced-motion) → :root[data-motion=reduce] → 숫자는 위치 움직임 없이, 바닥 쪽 선은 멈춤
+    await app.cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+    try {
+      await app.waitFor('reduced motion', async () => (await app.evaluate(IMPRINT_LAYOUT)).motion === 'reduce', 3000);
+      const cue = await app.evaluate("getComputedStyle(document.querySelector('#guide .floor-cue'), '::before').animationName");
+      const reduced = await round('reduced');
+      expect(cue === 'none' && reduced.rolls.every((moves) => !moves), `reduced: floor cue ${cue}, digit rolls ${JSON.stringify(reduced.rolls)}`);
+      details.push('reduced motion: floor cue animation none, digit without transform, same layout/print');
+    } finally {
+      await app.cdp.send('Emulation.setEmulatedMedia', { features: [] });
+    }
+    if (options.screens) {
+      // 준비 중 (모델 요청 차단 → 감지기 재시도 → "준비 중입니다." 화면)
+      await app.blockModel(true);
+      try {
+        await app.open();
+        await app.waitFor('preparing notice', async () => (await app.status()).startsWith('준비 중입니다.'), 20000);
+        await app.key('KeyD');
+        await sleep(900);
+        await shot('app-5-preparing');
+      } finally {
+        await app.blockModel(false);
+      }
+      await app.open();
+      await waitReady(app);
+      details.push(`screens app-1..5 in ${options.screens}`);
+    }
+    return details.join('; ');
+  });
+
+  await scenario('시안 데모(IMPRINT, /demo/index.html, 카메라 없음): 앱과 같은 관람객 화면 마크업, 합성 장면 → 실제 효과·촬영·인쇄 데이터 576x912, 검토 조작(사람·안내·동작 줄이기·인쇄 연동 흐름 흉내) (--screens면 상태별 화면·인쇄 데이터)', async () => {
+    const details = [];
+    const demoShot = async (name) => {
+      if (!options.screens) return;
+      mkdirSync(options.screens, { recursive: true });
+      const box = await app.evaluate("(() => { const r = document.getElementById('stage').getBoundingClientRect(); return { x: r.left, y: r.top, width: r.width, height: r.height }; })()");
+      const { data } = await app.cdp.send('Page.captureScreenshot', { format: 'png', clip: { ...box, scale: 1 } });
+      writeFileSync(join(options.screens, `${name}.png`), Buffer.from(data, 'base64'));
+    };
+    const click = (selector) => app.evaluate(`(() => { document.querySelector('${selector}').click(); return true; })()`);
+    const phase = () => app.evaluate("document.getElementById('stage').dataset.phase");
+    await app.cdp.send('Emulation.setDeviceMetricsOverride', { width: 1464, height: 1920, deviceScaleFactor: 1, mobile: false });
+    try {
+      await app.cdp.send('Page.navigate', { url: `${origin}/demo/index.html` });
+      await app.waitFor('demo ready', () => app.evaluate("document.body?.dataset.demoReady === 'true'"), 15000);
+      await click('[data-demo="autoplay"]'); // 자동 시연을 끄고 직접 진행 (첫 도착 2.2초 전)
+      const ids = await app.evaluate(`(async () => {
+        const fromApp = new DOMParser().parseFromString(await (await fetch('/', { cache: 'no-store' })).text(), 'text/html');
+        const list = (root) => [...root.getElementById('stage').querySelectorAll('[id]')].map((e) => e.id).join(',');
+        return { same: list(fromApp) === list(document), count: document.getElementById('stage').querySelectorAll('[id]').length,
+          stage: document.getElementById('stage').getBoundingClientRect().width };
+      })()`);
+      expect(ids.same && ids.count > 20 && ids.stage === 1080, `demo stage markup ${JSON.stringify(ids)}`);
+      await app.waitFor('demo effect running', async () => /효과 running 540×960/.test(await app.evaluate("document.querySelector('[data-demo-state]').textContent")), 10000);
+      await sleep(1500);
+      await demoShot('demo-1-idle');
+      await click('[data-demo="presence"]');
+      await app.waitFor('demo countdown', async () => (await phase()) === 'countdown', 4000);
+      await sleep(700);
+      await demoShot('demo-2-countdown-3');
+      await app.waitFor('demo countdown 1', () => app.evaluate("document.getElementById('countdown-number').textContent === '1'"), 3000);
+      await sleep(560);
+      await demoShot('demo-3-countdown-1');
+      await app.waitFor('demo result', async () => (await phase()) === 'result', 6000);
+      await sleep(1400);
+      await demoShot('demo-4-result');
+      const result = await app.evaluate(`(async () => {
+        const img = document.getElementById('result'), print = document.getElementById('demo-print-image');
+        await print.decode();
+        return { w: img.naturalWidth, h: img.naturalHeight, pw: print.naturalWidth, ph: print.naturalHeight,
+          caption: document.querySelector('[data-demo-print]').textContent };
+      })()`);
+      expect(result.w === 1080 && result.h === 1350 && result.pw === 576 && result.ph === 912 && /머리·꼬리 글자 포함/.test(result.caption)
+        && !/서체 미적재/.test(result.caption), `demo result ${JSON.stringify(result)}`);
+      details.push(`result 1080x1350, print PNG 576x912 ("${result.caption}")`);
+      if (options.screens) {
+        // 인쇄 데이터 PNG를 같은 화소로 옮겨 저장한다 (blob: fetch는 CSP connect-src 'self'가 막는다 — 앱과 같은 정책). 합성 장면이다
+        const png = await app.evaluate(`(() => { const img = document.getElementById('demo-print-image'), c = document.createElement('canvas');
+          c.width = img.naturalWidth; c.height = img.naturalHeight; const x = c.getContext('2d'); x.imageSmoothingEnabled = false; x.drawImage(img, 0, 0);
+          return c.toDataURL('image/png').split(',')[1]; })()`);
+        writeFileSync(join(options.screens, 'demo-print-data.png'), Buffer.from(png, 'base64'));
+        const { data } = await app.cdp.send('Page.captureScreenshot', { format: 'png' });
+        writeFileSync(join(options.screens, 'demo-0-page-with-panel.png'), Buffer.from(data, 'base64'));
+      }
+      await app.waitFor('demo cooldown', async () => (await phase()) === 'cooldown', 12000);
+      await sleep(1300);
+      await demoShot('demo-5-cooldown');
+      // 인쇄 연동 뒤 흐름 흉내: 사람이 그대로 서 있으면 쿨타임이 끝나자마자 다음 자동 회차(실제 규칙). 그 결과 처음 2.5초는 출력 중 문구·남은 시간 선 없음
+      await click('[data-demo="print-flow"]');
+      await app.waitFor('demo printing', async () => (await phase()) === 'result'
+        && (await app.evaluate("document.getElementById('result-note').textContent")).startsWith('사진을 출력하고 있습니다'), 12000);
+      expect(await app.evaluate("document.getElementById('result-timer').hidden"), 'printing: timer line hidden');
+      await sleep(1000);
+      await demoShot('demo-6-result-printing');
+      await app.waitFor('demo printed', async () => (await app.evaluate("document.getElementById('result-note').textContent")).startsWith('사진이 완성되었습니다'), 4000);
+      await click('[data-demo="print-flow"]');
+      await click('[data-demo="presence"]'); // 떠남
+      await click('[data-demo="reset"]');
+      await app.waitFor('demo idle', async () => (await phase()) === 'idle', 8000);
+      // 안내 상태 흉내
+      for (const kind of ['preparing', 'staff']) {
+        await click(`[data-demo="guidance"][data-value="${kind}"]`);
+        await app.waitFor(`demo ${kind}`, async () => (await app.evaluate("document.getElementById('status').hidden ? '' : document.getElementById('status').textContent")).startsWith('준비 중입니다.'), 3000);
+        await sleep(900);
+        await demoShot(`demo-7-${kind}`);
+      }
+      await click('[data-demo="guidance"][data-value="none"]');
+      // 동작 줄이기 (검토용 강제): 앱과 같은 data-motion 값을 쓴다
+      await click('[data-demo="motion"]');
+      expect(await app.evaluate("document.documentElement.dataset.motion === 'reduce'"), 'demo reduced motion');
+      await click('[data-demo="motion"]');
+      details.push('markup = app #stage ids, guidance preparing/staff, reduced motion toggle, print flow (printing -> set) simulated');
+      if (options.screens) details.push(`screens demo-0..7 + demo-print-data.png in ${options.screens}`);
+    } finally {
+      await app.cdp.send('Emulation.setDeviceMetricsOverride', { width: 1080, height: 1920, deviceScaleFactor: 1, mobile: false });
+      await app.open();
+      await waitReady(app);
+    }
+    return details.join('; ');
   });
 
   await scenario('운영자 화면 캡처 (--screens, 가짜 카메라): 섹션 넷·원본 창, 1080x1920·1920x1080', async () => {
