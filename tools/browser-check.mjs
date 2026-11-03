@@ -1604,19 +1604,23 @@ async function runScenarios(app, origin) {
     if (!window.__timeline) {
       const dev = document.getElementById('dev-info');
       const num = document.getElementById('countdown-number');
-      const tl = window.__timeline = { t0: performance.now(), events: [], last: '' };
+      const stateNow = () => /:\\s?(\\S+)/.exec(dev.textContent.split('\\n').find((l) => l.startsWith('session')) ?? '')?.[1] ?? '';
+      // last는 지금 상태로 시작한다: ''로 두면 설치 뒤 S 전에 D가 다시 그려질 때(0.5초 주기) 지금 상태 idle을 "바뀐 상태"로 남겨,
+      // timedRound가 카운트다운 시작 직후 "대기로 돌아옴"으로 끝냈다 (IMPRINT 시안 작업 중 실제 카메라 실행에서 한 번, 0.6초 지연으로 재현, 로그 2026-11-03-02)
+      const tl = window.__timeline = { t0: performance.now(), events: [], last: stateNow(), stateNow };
       const now = () => Math.round(performance.now() - tl.t0);
       new MutationObserver(() => {
-        const line = dev.textContent.split('\\n').find((l) => l.startsWith('session'));
-        const state = /:\\s?(\\S+)/.exec(line ?? '')?.[1] ?? '';
+        const state = stateNow();
         if (!state || state === tl.last) return;
         tl.last = state;
         const bar = state === 'countdown' ? document.getElementById('countdown-progress-fill').getAnimations()[0]?.effect.getTiming().duration : undefined;
-        tl.events.push({ state, at: now(), bar });
+        // 대기로 돌아온 이유와 그때의 카메라 상태 (실패 진단: 카운트다운이 취소됐는지, 카메라가 끊겼는지)
+        const lineOf = (head) => (dev.textContent.split('\\n').find((l) => l.startsWith(head)) ?? '').replace(/^[^:]*:\\s?/, '');
+        tl.events.push({ state, at: now(), bar, ...(state === 'idle' ? { end: lineOf('last end'), camera: lineOf('status'), ignored: lineOf('ignored') } : {}) });
       }).observe(dev, { childList: true, subtree: true, characterData: true });
       new MutationObserver(() => tl.events.push({ number: num.textContent, at: now() })).observe(num, { childList: true, subtree: true, characterData: true });
     }
-    window.__timeline.events.length = 0;
+    window.__timeline.events.length = 0; window.__timeline.last = window.__timeline.stateNow(); // 초기화할 때도 지금 상태에서
     return true; })()`;
   // S를 누르거나(press) 이미 누른 회차가 대기로 돌아올 때까지 기다리고 단계별 시간을 돌려준다
   const timedRound = async ({ during } = {}) => {
@@ -1632,6 +1636,8 @@ async function runScenarios(app, origin) {
     return {
       countdown: at('capturing') - at('countdown'), result: at('cooldown') - at('result'), cooldown: at('idle') - at('cooldown'),
       numbers: events.filter((e) => e.number !== undefined).map((e) => e.number).join(''), bar: events.find((e) => e.state === 'countdown')?.bar, extra,
+      // 실패 메시지용: 단계 순서(시각 ms)와 대기로 돌아온 이유
+      states: events.filter((e) => e.state).map((e) => `${e.state}@${e.at}`).join(' '), idle: events.find((e) => e.state === 'idle'),
     };
   };
   const near = (value, target, tolerance) => Math.abs(value - target) <= tolerance;
