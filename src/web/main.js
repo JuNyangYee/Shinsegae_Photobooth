@@ -13,8 +13,10 @@ import { serializePresenceSettings } from './config/presence-settings.js';
 import { createPresenceTuning } from './ui/presence-tuning.js';
 import { SessionState, createSession } from './core/session.js';
 import {
-  createSettingsFileClient, loadInitialCameraSettings, loadInitialEffectSettings, loadInitialPresenceSettings,
+  createSettingsFileClient, loadInitialCameraSettings, loadInitialEffectSettings, loadInitialPresenceSettings, loadInitialTimingSettings,
 } from './config/settings-file.js';
+import { normalizeTimingSettings, serializeTimingSettings, withLegacyTiming } from './config/timing-settings.js';
+import { createTimingTuning } from './ui/timing-tuning.js';
 import { effectTunables, serializeEffectSettings } from './config/effect-settings.js';
 import { EffectStatus, createEffectPreview } from './effect/effect-preview.js';
 import { createPhotoEffect } from './effect/photo-effect.js';
@@ -36,12 +38,13 @@ const devInfo = document.getElementById('dev-info');
 const devOverlay = document.getElementById('dev-overlay');
 const pauseBadge = document.getElementById('pause-badge');
 
-// 운영자 단축키 (관람객용 아님): D 개발용 정보, E 운영자 조절 화면(카메라·인식·필터, 9-2. 예전 R은 인식 섹션으로 합쳤다),
+// 운영자 단축키 (관람객용 아님): D 개발용 정보, E 운영자 조절 화면(카메라·인식·시간·필터, 9-2·10. 예전 R은 인식 섹션으로 합쳤다),
 // S 수동 촬영 시작, X 강제 초기화, P 자동 촬영 일시정지
 const Keys = Object.freeze({ devInfo: 'KeyD', operatorPanel: 'KeyE', start: 'KeyS', reset: 'KeyX', pause: 'KeyP' });
 
 // 관람객 화면 표현 (6-2, 7-2 미니멀). 문구는 config/guest-text.js 한곳에 있고, 상태 상세는 D 키 개발용 정보에만 보인다.
-const guest = createGuestScreen({ root: document, text: guestText, countdownSeconds: config.session.countdownSeconds });
+// 카운트다운 진행선 길이는 회차마다 상태 기계 스냅숏(countdownSeconds)을 따른다
+const guest = createGuestScreen({ root: document, text: guestText, countdownSeconds: config.timing.countdownSeconds });
 
 // 기다려도 스스로 풀리기 어려운 카메라 상태는 바로 직원 문의 문구를 보인다. 감지기는 장애(fault)가 그렇다.
 const staffNowStatuses = new Set([CameraStatus.UNSUPPORTED, CameraStatus.PERMISSION_DENIED]);
@@ -70,12 +73,21 @@ const cameraRequestFor = (settings) => ({
   deviceLabel: settings.deviceLabel, idealResolution: resolutionRequest(settings, config.idealResolution),
 });
 
+// 시간 설정 (10단계, E 시간 섹션, config/timing.local.json): 촬영 흐름·인식 반응·카메라 회복. 불러오기 전에는 기본값이다.
+// 바꾸는 곳은 applyTimingSettings 하나 (촬영 흐름은 다음 회차부터, 인식 반응은 다음 감지부터, 카메라 회복은 다음 재시도·판정부터)
+let timingNow = normalizeTimingSettings(config.timing, config.timing).settings;
+// 인식 섹션의 판정값(영역·얼굴 크기·신뢰도). 감지 루프에는 시간 섹션의 반응 시간과 합쳐 넣는다 (presenceSettingsFor)
+let presenceCriteria = config.presence;
+const presenceSettingsFor = () => ({
+  ...presenceCriteria, presentHoldMs: timingNow.presentHoldMs, absentGraceMs: timingNow.absentGraceMs,
+});
+
 const camera = createCameraMonitor({
   video,
   preferredLabel: config.preferredCameraLabel,
   request: cameraRequestFor(cameraFrame.getSettings()),
-  // 회복 시간은 인식 조절값(presence.local.json)의 cameraRecovery (9-1). 쓸 때마다 지금 인식 설정에서 읽는다
-  recovery: () => presence.getSettings().cameraRecovery ?? config.presence.cameraRecovery,
+  // 회복 시간은 시간 설정의 cameraRecovery (9-1은 인식 조절값, 10단계부터 시간 섹션). 쓸 때마다 지금 값을 읽는다
+  recovery: () => timingNow.cameraRecovery,
 });
 
 // 감지 입력은 카메라 처리 경로를 거친 9:16 화면 영역이라 감지 박스가 곧 화면 좌표다. 기하 설정이 바뀌면 인식을 처음부터 다시 잰다
@@ -83,7 +95,7 @@ const presence = createPresenceMonitor({
   video,
   camera,
   detection: config.faceDetection,
-  presence: config.presence,
+  presence: presenceSettingsFor(),
   stageAspect,
   cameraKey: cameraGeometryKey(cameraFrame.getSettings()),
   drawFrame: (ctx, width, height) => cameraFrame.draw(ctx, video, width, height),
@@ -186,6 +198,27 @@ function applyCameraSettings(settings) {
   return changed;
 }
 
+/**
+ * 시간 설정을 바꾼다 (시작할 때 불러온 값, E 시간 섹션). 카운트다운·결과·쿨타임은 다음 회차부터(진행 중인 회차는 시작할 때의 값으로 끝까지),
+ * 인식 반응은 감지 루프에 바로 넣어 인식을 처음부터 다시 잰다(값이 바뀐 경우), 카메라 회복은 카메라 감시·관람객 안내가 다음에 읽을 때부터.
+ */
+function applyTimingSettings(settings) {
+  timingNow = settings;
+  session.setTiming(flowTiming(settings));
+  presence.setSettings(presenceSettingsFor());
+  renderStatus(); // 직원 문의 전환 시간
+  if (!devInfo.hidden) renderDevInfo();
+}
+
+// 인식 섹션(presence-tuning.js)에 넘기는 감지 루프: 판정값을 받아 시간 섹션의 반응 시간과 합쳐 넣는다
+const presenceSectionMonitor = {
+  setSettings(criteria) {
+    presenceCriteria = criteria;
+    presence.setSettings(presenceSettingsFor());
+  },
+  getDebugSnapshot: () => presence.getDebugSnapshot(),
+};
+
 // 촬영 결과에도 같은 효과: 셔터 순간 화면의 그림과 같은 프레임·seed로 결과 크기(짧은 변 1080)에 다시 그린다.
 // 효과를 그리지 못하면 원본 사진으로 대신한다 (photo-effect.js)
 const photoEffect = createPhotoEffect({ preview: effect });
@@ -196,8 +229,10 @@ const capture = createCapture({
 });
 
 // 촬영 한 사이클. 시작·취소·초기화는 session.request() 한 곳으로 들어간다 (키보드와 auto-start.js).
+// 카운트다운·결과·쿨타임은 시간 설정(setTiming, 회차가 시작될 때의 값을 그 회차 끝까지), 나머지는 config.session
+const flowTiming = (t) => ({ countdownSeconds: t.countdownSeconds, resultMs: t.resultMs, cooldownMs: t.cooldownMs });
 const session = createSession({
-  timing: config.session,
+  timing: { ...config.session, ...flowTiming(timingNow) },
   takePhoto: capture.take,
   releasePhoto: capture.release,
   cameraReady: camera.isReady(),
@@ -208,14 +243,22 @@ const session = createSession({
 // 그 전까지 감지 루프는 config.presence 기본값으로 돌지만, 자동 시작은 막는다(기본값으로 잠깐 판정해 시작하지 않게).
 const settingsFile = createSettingsFileClient(config.settingsFile);
 let tuning = null; // 인식 섹션. 불러오기가 끝나면 만든다
-let settingsReady = false;
+// 인식 파일에 남은 9단계까지의 시간 키 (시간 파일에 아직 없으면 인식 섹션을 저장할 때 다시 붙여, 그 값이 사라지지 않게 한다)
+let presenceLegacyTiming = null;
+// 시간 설정 파일 (서버 config/timing.local.json, 10단계). 없으면 인식 파일의 옛 시간 키를 옮긴다
+const timingSettingsFile = createSettingsFileClient(config.timingSettingsFile);
+let timingTuning = null; // 시간 섹션. 불러오기가 끝나면 만든다
+// 인식 판정값과 시간 설정을 모두 불러와야 자동 시작한다 (기본값으로 잠깐 판정하거나, 기본 카운트다운으로 시작하지 않게)
+let presenceLoaded = false;
+let timingLoaded = false;
+const settingsReady = () => presenceLoaded && timingLoaded;
 // 효과 조절값 파일 (서버 config/effect.local.json). 불러오기 전에는 config.effect 기본값으로 그린다 (판정과 무관하므로 막지 않는다)
 const effectSettingsFile = createSettingsFileClient(config.effectSettingsFile);
 // 카메라 조절값 파일 (서버 config/camera.local.json, 9-1). 카메라를 열기 전에 읽는다
 const cameraSettingsFile = createSettingsFileClient(config.cameraSettingsFile);
 let effectTuning = null; // 필터 섹션. 불러오기가 끝나면 만든다
 let cameraTuning = null; // 카메라 섹션. 불러오기가 끝나면 만든다
-// 운영자 조절 화면 (9-2, E): 섹션 셋. 섹션 모듈은 각 조절값을 불러온 뒤 붙는다(다 붙어야 열린다)
+// 운영자 조절 화면 (9-2, E): 섹션 넷(10단계에 시간). 섹션 모듈은 각 조절값을 불러온 뒤 붙는다(다 붙어야 열린다)
 const operatorPanel = createOperatorPanel({
   root: document.getElementById('operator-panel'),
   onOpenChange: handlePanelOpenChange,
@@ -232,7 +275,7 @@ const autoStart = createAutoStart({
   // 자동 회차가 끼어들면 결과 사진이 미리보기를 가린다.
   isTuningOpen: () => operatorPanel.isOpen(),
   isPaused: () => autoPaused,
-  isSettingsReady: () => settingsReady,
+  isSettingsReady: settingsReady,
 });
 
 let staffNoticeTimer = null;
@@ -284,7 +327,7 @@ function renderStatus() {
     },
     since: guidanceSince,
     now: performance.now(),
-    staffAfterMs: (presence.getSettings().cameraRecovery ?? config.presence.cameraRecovery).staffNoticeMs,
+    staffAfterMs: timingNow.cameraRecovery.staffNoticeMs,
   });
   guidanceSince = decision.since;
   guidanceNow = decision.guidance;
@@ -519,6 +562,19 @@ function describeAuto(record) {
   return record ? `${formatTime(record.at)} (${record.trigger})` : '-';
 }
 
+// 시간 설정 (10단계): 다음 회차 값, 진행 중인 회차가 다른 값이면 그 값, 반응·회복 시간, 출처
+function describeTiming() {
+  const t = timingNow;
+  const sec = (ms) => `${ms / 1000}s`;
+  const s = session.getState();
+  const round = s.state !== SessionState.IDLE && s.countdownSeconds !== t.countdownSeconds ? ` (this round countdown ${s.countdownSeconds}s)` : '';
+  const r = t.cameraRecovery;
+  return `countdown ${t.countdownSeconds}s result ${sec(t.resultMs)} cooldown ${sec(t.cooldownMs)}${round},`
+    + ` hold ${t.presentHoldMs}ms grace ${t.absentGraceMs}ms, recovery retry ${sec(r.retryIntervalMs)} first ${sec(r.firstFrameTimeoutMs)}`
+    + ` stall ${sec(r.stallTimeoutMs)} staff ${sec(r.staffNoticeMs)}`
+    + ` (${timingTuning ? timingTuning.describeSettingsSource() : 'loading'}, ${config.timingSettingsFile.url})`;
+}
+
 function sessionDevLines() {
   const s = session.getState();
   const left = s.endsAt === null ? '' : ` ${Math.max(0, (s.endsAt - performance.now()) / 1000).toFixed(1)}s left`;
@@ -532,6 +588,7 @@ function sessionDevLines() {
     `last end   : ${s.lastEnd || '-'}${s.lastError ? ` / ${s.lastError}` : ''}`,
     `failures   : ${s.failures} in a row${s.retryAt === null ? '' : `, auto start waits ${Math.max(0, (s.retryAt - performance.now()) / 1000).toFixed(1)}s`}`,
     `ignored    : ${s.lastIgnored || '-'}`,
+    `timing     : ${describeTiming()}`,
     last
       ? `capture    : ${last.width}x${last.height} from video ${last.source}`
         + ` (rotate ${last.view.rotation} zoom ${last.view.zoom.toFixed(2)}${last.view.autoZoom ? ' auto' : ''}`
@@ -673,14 +730,18 @@ async function loadSettings() {
   try {
     const initial = await loadInitialPresenceSettings({ file: settingsFile, storage: getStorage(), defaults: config.presence });
     if (initial.note && initial.note !== 'no file') console.warn('[settings]', `${initial.source}: ${initial.note}`);
+    presenceLegacyTiming = initial.legacyTiming;
     tuning = createPresenceTuning({
       stage,
       panel: document.getElementById('tuning-panel'),
       layer: document.getElementById('tuning-layer'),
-      monitor: presence,
+      monitor: presenceSectionMonitor,
       defaults: config.presence,
       initial,
-      saveSettings: (settings) => settingsFile.write(serializePresenceSettings(settings)),
+      // 시간 값이 아직 시간 파일에 없으면(옮기기 실패·시간 파일 읽기 실패) 인식 파일의 옛 시간 키를 그대로 남긴다
+      saveSettings: (settings) => settingsFile.write(
+        withLegacyTiming(serializePresenceSettings(settings), timingTuning?.isStoredInFile() ? null : presenceLegacyTiming),
+      ),
       onOpenChange: handleSectionOpenChange,
     });
     operatorPanel.attach(PanelSection.PRESENCE, tuning);
@@ -688,9 +749,36 @@ async function loadSettings() {
     // 여기까지 오면 코드 오류다. 자동 촬영이 영영 막히지 않게 기본값으로 계속한다.
     console.error('[settings] setup failed; continuing with defaults', error);
   }
-  settingsReady = true;
-  autoStart.evaluate('settings-loaded');
+  presenceLoaded = true;
+  settingsLoaded();
+}
+
+// 인식 판정값·시간 설정을 모두 불러오면 자동 시작을 다시 판단한다
+function settingsLoaded() {
+  if (settingsReady()) autoStart.evaluate('settings-loaded');
   if (!devInfo.hidden) renderDevInfo();
+}
+
+// 시간 설정: 파일 → (없으면) 인식 파일의 옛 시간 키를 옮김 → 기본값 (settings-file.js). 끝나면 시간 섹션을 만들고 그 값을 넣는다.
+async function loadTimingSettings() {
+  try {
+    const initial = await loadInitialTimingSettings({ file: timingSettingsFile, presenceFile: settingsFile, defaults: config.timing });
+    if (initial.note && initial.note !== 'no file') console.warn('[timing-settings]', `${initial.source}: ${initial.note}`);
+    timingTuning = createTimingTuning({
+      panel: document.getElementById('timing-panel'),
+      session,
+      defaults: config.timing,
+      initial,
+      applySettings: applyTimingSettings,
+      saveSettings: (settings) => timingSettingsFile.write(serializeTimingSettings(settings)),
+      onOpenChange: handleSectionOpenChange,
+    });
+    operatorPanel.attach(PanelSection.TIMING, timingTuning);
+  } catch (error) {
+    console.error('[timing-settings] setup failed; continuing with defaults', error);
+  }
+  timingLoaded = true;
+  settingsLoaded();
 }
 
 // 효과 조절값: 파일 → 기본값 (settings-file.js). 끝나면 조절 화면을 만들고 그 값을 미리보기에 넣는다.
@@ -752,6 +840,7 @@ session.subscribe(renderSession);
 document.addEventListener('visibilitychange', () => session.setPageVisible(!document.hidden));
 autoStart.start();
 loadSettings();
+loadTimingSettings();
 loadEffectSettings();
 loadCameraSettings(); // 읽은 뒤 camera.start()
 presence.start();

@@ -65,6 +65,16 @@ describe('guest-screen: 3·2·1', () => {
     assert.equal(el('countdown-progress-fill').animations.length, 1, '진행선은 회차에 한 번만 시작한다');
   });
 
+  it('진행선 길이는 상태 기계 스냅숏의 그 회차 countdownSeconds를 따른다 (10단계 시간 섹션, 없으면 만들 때 값)', () => {
+    const { screen, el, snapshot } = setup({ countdownSeconds: 3 });
+    screen.renderSession(snapshot(SessionState.COUNTDOWN, { countdown: 5, countdownSeconds: 5 }));
+    assert.equal(el('countdown-number').textContent, '5');
+    assert.equal(el('countdown-progress-fill').animations[0].options.duration, 5000);
+    screen.renderSession(snapshot(SessionState.IDLE, { countdownSeconds: 2 }));
+    screen.renderSession(snapshot(SessionState.COUNTDOWN, { countdown: 2, countdownSeconds: 2 }));
+    assert.equal(el('countdown-progress-fill').animations[1].options.duration, 2000);
+  });
+
   it('카운트다운이 끝나거나 취소되면 진행선을 멈추고, 다음 회차는 처음부터 차오른다', () => {
     const { screen, el, snapshot } = setup();
     screen.renderSession(snapshot(SessionState.COUNTDOWN, { countdown: 3 }));

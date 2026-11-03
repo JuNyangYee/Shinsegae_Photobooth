@@ -76,9 +76,10 @@
   <section id="dev-info" class="dev-info" aria-label="개발 정보" hidden></section>
 
   <!-- 운영자 조절 화면 (9-2, E 키로 열고 닫는다. Esc로도 닫는다. ui/operator-panel.js).
-       섹션 셋: 카메라(config/camera.local.json, ui/camera-tuning.js) · 인식(presence.local.json, ui/presence-tuning.js) ·
-       필터(effect.local.json, ui/effect-tuning.js). 섹션마다 저장 상태·저장·취소·기본값을 따로 가진다.
-       섹션 id(#camera-panel·#tuning-panel·#effect-panel)와 [data-key]·[data-action]·[data-state]·[data-message]는 확인 도구·테스트가 쓴다 -->
+       섹션 넷: 카메라(config/camera.local.json, ui/camera-tuning.js) · 인식(presence.local.json, ui/presence-tuning.js) ·
+       시간(timing.local.json, ui/timing-tuning.js, 10단계) · 필터(effect.local.json, ui/effect-tuning.js).
+       섹션마다 저장 상태·저장·취소·기본값을 따로 가진다.
+       섹션 id(#camera-panel·#tuning-panel·#timing-panel·#effect-panel)와 [data-key]·[data-action]·[data-state]·[data-message]는 확인 도구·테스트가 쓴다 -->
   <section id="operator-panel" class="op-panel" data-dock="bottom" aria-label="운영자 조절" hidden>
     <header class="op-header">
       <div class="op-heading">
@@ -93,6 +94,7 @@
     <nav class="op-tabs" role="tablist" aria-label="섹션">
       <button type="button" role="tab" data-section="camera">카메라</button>
       <button type="button" role="tab" data-section="presence">인식</button>
+      <button type="button" role="tab" data-section="timing">시간</button>
       <button type="button" role="tab" data-section="effect">필터</button>
     </nav>
     <section id="camera-panel" class="op-section" data-section-panel="camera" data-save="saved" aria-label="카메라" hidden>
@@ -233,8 +235,45 @@
             <span class="op-value"><output data-key="minScore"></output><span class="op-unit">점수</span></span>
           </label>
         </fieldset>
+        <details class="op-group op-json">
+          <summary>현재값 JSON (복사용)</summary>
+          <textarea data-json readonly rows="10" spellcheck="false"></textarea>
+          <button type="button" data-action="copy">복사</button>
+        </details>
+      </div>
+      <footer class="op-footer">
+        <p class="op-state" data-state></p>
+        <div class="op-buttons">
+          <button type="button" class="is-primary" data-action="save">저장</button>
+          <button type="button" data-action="revert">취소 (저장된 값으로)</button>
+          <button type="button" data-action="defaults">기본값으로</button>
+        </div>
+        <p class="op-message" data-message></p>
+      </footer>
+    </section>
+    <section id="timing-panel" class="op-section" data-section-panel="timing" data-save="saved" aria-label="시간" hidden>
+      <p class="op-live" data-live></p>
+      <div class="op-body">
         <fieldset class="op-group">
-          <legend>반응 속도</legend>
+          <legend>촬영 흐름 <small>다음 회차부터 적용</small></legend>
+          <label class="op-row">
+            <span class="op-label">카운트다운<small>인식(또는 S) 뒤 셔터까지 세는 숫자</small></span>
+            <input type="range" data-key="countdownSeconds">
+            <span class="op-value"><output data-key="countdownSeconds"></output><span class="op-unit">초</span></span>
+          </label>
+          <label class="op-row">
+            <span class="op-label">결과 표시<small>결과 사진을 보이는 시간. 인쇄 연동 뒤에는 출력 완료 확인 후 리셋까지</small></span>
+            <input type="range" data-key="resultMs">
+            <span class="op-value"><output data-key="resultMs"></output><span class="op-unit">초</span></span>
+          </label>
+          <label class="op-row">
+            <span class="op-label">쿨타임<small>대기로 돌아온 뒤 새 촬영을 시작하지 않는 시간</small></span>
+            <input type="range" data-key="cooldownMs">
+            <span class="op-value"><output data-key="cooldownMs"></output><span class="op-unit">초</span></span>
+          </label>
+        </fieldset>
+        <fieldset class="op-group">
+          <legend>인식 반응 <small>바로 적용</small></legend>
           <p class="op-help">짧을수록 빨리 바뀐다. 너무 짧으면 잠깐 가려지거나 고개를 돌려도 바뀐다.</p>
           <label class="op-row">
             <span class="op-label">인식까지<small>이만큼 계속 보여야 인식됨 (자동 촬영 시작)</small></span>
@@ -248,7 +287,7 @@
           </label>
         </fieldset>
         <fieldset class="op-group">
-          <legend>카메라 회복 <small>연결이 끊기거나 열리지 않을 때</small></legend>
+          <legend>카메라 회복 <small>연결이 끊기거나 열리지 않을 때 · 다음 재시도·판정부터</small></legend>
           <label class="op-row">
             <span class="op-label">다시 시도 간격<small>실패·끊김 뒤 다시 여는 간격</small></span>
             <input type="range" data-key="retryIntervalMs">
@@ -270,11 +309,6 @@
             <span class="op-value"><output data-key="staffNoticeMs"></output><span class="op-unit">초</span></span>
           </label>
         </fieldset>
-        <details class="op-group op-json">
-          <summary>현재값 JSON (복사용)</summary>
-          <textarea data-json readonly rows="10" spellcheck="false"></textarea>
-          <button type="button" data-action="copy">복사</button>
-        </details>
       </div>
       <footer class="op-footer">
         <p class="op-state" data-state></p>

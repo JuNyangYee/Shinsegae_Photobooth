@@ -3,10 +3,10 @@
 // Node 테스트: test/config/presence-settings.test.mjs
 //
 // 저장 형식 (4-3부터 서버 파일 config/presence.local.json, settings-file.js. 그전에는 localStorage 키 PRESENCE_STORAGE_KEY):
-//   { "version": 1, "settings": { "region": {x, y, width, height}, "minFaceHeight", "maxFaceHeight",
-//     "minScore", "presentHoldMs", "absentGraceMs", "cameraRecovery": { retryIntervalMs, firstFrameTimeoutMs, stallTimeoutMs, staffNoticeMs } } }
-// cameraRecovery(카메라 연결 재시도·끊김 판정, 9-1)는 운영자 화면 "인식" 묶음에서 다루므로 이 파일에 둔다. 키가 없는 예전 파일은
-// 그 값이 늘 기본값이던 때 저장한 것이라 기본값으로 채우고 "고쳐 씀"으로 알리지 않는다.
+//   { "version": 1, "settings": { "region": {x, y, width, height}, "minFaceHeight", "maxFaceHeight", "minScore" } }
+// 9단계까지 함께 있던 반응 시간(presentHoldMs·absentGraceMs)과 카메라 회복 시간(cameraRecovery)은 10단계부터 시간 설정
+// (timing-settings.js, config/timing.local.json)이다. 예전 파일에 그 키가 남아 있으면 여기서는 읽지 않고(알리지도 않는다)
+// 시간 설정이 처음 읽을 때 옮긴다.
 // localStorage는 파일이 없을 때 한 번 옮기기(마이그레이션) 위해 읽기만 하고, 옮긴 뒤 지운다.
 // 좌표·크기는 9:16 영역 기준 0~1, 관람객이 보는 화면(반전 후) 기준이다 (presence.js와 같음).
 
@@ -19,42 +19,7 @@ export const presenceLimits = Object.freeze({
   faceHeight: Object.freeze({ min: 0.01, max: 1, step: 0.005 }), // 최소·최대 얼굴 크기 공통
   // 감지기 자체 기준(config.faceDetection.detectorMinConfidence 0.3)보다 낮추면 효과가 없으므로 하한을 맞춘다.
   minScore: Object.freeze({ min: 0.3, max: 1, step: 0.01 }),
-  // 판정 시간(ms). 0은 감지 한 프레임으로 바로 바뀐다. 2초보다 길면 떠난 사람이 찍히거나 자동 시작이 굼떠 상한을 둔다 (2026-10-27)
-  presentHoldMs: Object.freeze({ min: 0, max: 2000, step: 50 }),
-  absentGraceMs: Object.freeze({ min: 0, max: 2000, step: 50 }),
-  // 카메라 회복 시간(ms, 9-1). 프레임 정지 판정은 촬영 직전 정지 화면 검사(config.capture.maxFrameAgeMs 500)보다 길어야 한다
-  cameraRecovery: Object.freeze({
-    retryIntervalMs: Object.freeze({ min: 1000, max: 30000, step: 500 }), // 실패·끊김 뒤 다시 시도하는 간격
-    firstFrameTimeoutMs: Object.freeze({ min: 2000, max: 30000, step: 500 }), // 첫 프레임 제한 시간
-    stallTimeoutMs: Object.freeze({ min: 1000, max: 10000, step: 500 }), // 프레임 정지를 끊김으로 보는 시간
-    staffNoticeMs: Object.freeze({ min: 5000, max: 300000, step: 1000 }), // 직원 문의 문구로 바꾸는 시간
-  }),
 });
-
-export const CAMERA_RECOVERY_KEYS = Object.freeze(['retryIntervalMs', 'firstFrameTimeoutMs', 'stallTimeoutMs', 'staffNoticeMs']);
-
-/** 카메라 회복 시간. 키가 없으면(예전 파일) 알리지 않고 기본값, 형식이 틀리면 그 항목만 기본값 */
-function normalizeCameraRecovery(raw, defaults, issues) {
-  if (raw === undefined) return Object.freeze({ ...defaults });
-  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
-    issues.push('cameraRecovery: invalid -> default');
-    return Object.freeze({ ...defaults });
-  }
-  const out = {};
-  for (const key of CAMERA_RECOVERY_KEYS) {
-    const value = raw[key];
-    if (!isFiniteNumber(value)) {
-      issues.push(`cameraRecovery.${key}: ${value === undefined ? 'missing' : 'not a number'} -> default`);
-      out[key] = defaults[key];
-      continue;
-    }
-    const { min, max } = presenceLimits.cameraRecovery[key];
-    const adjusted = Math.round(clamp(value, min, max));
-    if (adjusted !== value) issues.push(`cameraRecovery.${key}: ${value} -> ${adjusted}`);
-    out[key] = adjusted;
-  }
-  return Object.freeze(out);
-}
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const round = (value, digits) => Number(value.toFixed(digits));
@@ -120,9 +85,6 @@ export function normalizePresenceSettings(input, defaults) {
     minFaceHeight,
     maxFaceHeight,
     minScore: number('minScore', presenceLimits.minScore, 2),
-    presentHoldMs: number('presentHoldMs', presenceLimits.presentHoldMs, 0),
-    absentGraceMs: number('absentGraceMs', presenceLimits.absentGraceMs, 0),
-    cameraRecovery: normalizeCameraRecovery(source.cameraRecovery, defaults.cameraRecovery, issues),
   };
   return { settings, issues };
 }

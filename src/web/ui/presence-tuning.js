@@ -1,8 +1,9 @@
-// 운영자 조절 화면(E, operator-panel.js)의 "인식" 섹션 (관람객용 아님): 인식 범위·얼굴 크기·신뢰도·반응 속도·카메라 회복 시간(9-2).
+// 운영자 조절 화면(E, operator-panel.js)의 "인식" 섹션 (관람객용 아님): 인식 범위·얼굴 크기·신뢰도.
+// 반응 속도(인식까지·이탈까지)와 카메라 회복 시간은 10단계부터 "시간" 섹션(timing-tuning.js)이다.
 // 조절하는 즉시 감지 루프에 반영하고, "저장"을 눌러야 조절값 파일(서버 config/presence.local.json)에 기록한다.
 // 패널을 닫을 때 저장하지 않은 변경은 저장된 값으로 되돌린다: 실행 중인 값과 다시 시작했을 때의 값이 항상 같게 하기 위해서다.
 // 패널 표시·섹션 고르기는 operator-panel.js가 하고, 이 모듈은 이 섹션이 보이는 동안(setActive) 실시간 줄과 영역 편집 층을 보인다.
-// 카메라 회복 시간은 감지 루프 설정에 함께 들어가고, 카메라 감시·관람객 안내가 쓸 때마다 읽는다(main.js).
+// monitor.setSettings에는 이 섹션의 값만 넘긴다. main.js가 시간 섹션의 반응 시간과 합쳐 감지 루프에 넣는다.
 
 import {
   normalizePresenceSettings,
@@ -14,21 +15,14 @@ import { createRegionDrag } from './region-drag.js';
 import { SettingsSource } from '../config/settings-file.js';
 import { loadedSaveState, saveStateOf, showSaveState } from './save-state.js';
 
-// 슬라이더 항목: [설정 키, 범위, 표시 소수 자릿수, 표시 배율]. 단위 글자는 index.html op-unit에 있다.
-// 판정 시간은 ms로 저장하고 초로 보인다 (250 → 0.25초).
+// 슬라이더 항목: [설정 키, 범위, 표시 소수 자릿수]. 단위 글자는 index.html op-unit에 있다.
 const SLIDERS = [
-  ['minFaceHeight', presenceLimits.faceHeight, 3, 1],
-  ['maxFaceHeight', presenceLimits.faceHeight, 3, 1],
-  ['minScore', presenceLimits.minScore, 2, 1],
-  ['presentHoldMs', presenceLimits.presentHoldMs, 2, 1000],
-  ['absentGraceMs', presenceLimits.absentGraceMs, 2, 1000],
+  ['minFaceHeight', presenceLimits.faceHeight, 3],
+  ['maxFaceHeight', presenceLimits.faceHeight, 3],
+  ['minScore', presenceLimits.minScore, 2],
 ];
-// 카메라 회복 시간 (settings.cameraRecovery 안, ms로 저장하고 초로 보인다)
-const RECOVERY_SLIDERS = [
-  ['retryIntervalMs', 1], ['firstFrameTimeoutMs', 1], ['stallTimeoutMs', 1], ['staffNoticeMs', 0],
-].map(([key, digits]) => [key, presenceLimits.cameraRecovery[key], digits, 1000]);
 
-const clone = (settings) => ({ ...settings, region: { ...settings.region }, cameraRecovery: { ...settings.cameraRecovery } });
+const clone = (settings) => ({ ...settings, region: { ...settings.region } });
 
 /**
  * @param {{ stage: HTMLElement, panel: HTMLElement, layer: HTMLElement, monitor: object, defaults: object,
@@ -43,15 +37,13 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, i
   const stateText = panel.querySelector('[data-state]');
   const messageText = panel.querySelector('[data-message]');
   const jsonText = panel.querySelector('[data-json]');
-  const sliderOf = ([key, limits, digits, scale]) => {
+  const sliders = new Map(SLIDERS.map(([key, limits, digits]) => {
     const input = panel.querySelector(`input[data-key="${key}"]`);
     input.min = String(limits.min);
     input.max = String(limits.max);
     input.step = String(limits.step);
-    return [key, { input, output: panel.querySelector(`output[data-key="${key}"]`), digits, scale }];
-  };
-  const sliders = new Map(SLIDERS.map(sliderOf));
-  const recoverySliders = new Map(RECOVERY_SLIDERS.map(sliderOf));
+    return [key, { input, output: panel.querySelector(`output[data-key="${key}"]`), digits }];
+  }));
 
   const loaded = initial;
   if (loaded.issues.length > 0) console.warn('[presence-tuning] stored settings adjusted:', loaded.issues);
@@ -97,14 +89,9 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, i
     });
     // 끌어 옮기는 방법은 패널 도움말에 있다 (6-3). 여기는 값만
     regionText.textContent = `x ${region.x.toFixed(3)} · y ${region.y.toFixed(3)} · 폭 ${region.width.toFixed(3)} · 높이 ${region.height.toFixed(3)}`;
-    for (const [key, { input, output, digits, scale }] of sliders) {
+    for (const [key, { input, output, digits }] of sliders) {
       input.value = String(current[key]);
-      output.textContent = (current[key] / scale).toFixed(digits);
-    }
-    for (const [key, { input, output, digits, scale }] of recoverySliders) {
-      const value = current.cameraRecovery?.[key];
-      input.value = String(value);
-      output.textContent = value === undefined ? '-' : (value / scale).toFixed(digits);
+      output.textContent = current[key].toFixed(digits);
     }
     renderSaveState();
     jsonText.value = serializePresenceSettings(current);
@@ -178,12 +165,6 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, i
       showMessage('');
     });
   }
-  for (const [key, { input }] of recoverySliders) {
-    input.addEventListener('input', () => {
-      apply({ ...current, cameraRecovery: { ...current.cameraRecovery, [key]: Number(input.value) } });
-      showMessage('');
-    });
-  }
 
   // ---- 버튼 ----
   panel.addEventListener('click', async (event) => {
@@ -223,7 +204,7 @@ export function createPresenceTuning({ stage, panel, layer, monitor, defaults, i
       apply(saved);
       showMessage('저장된 값으로 되돌렸습니다.');
     } else if (action === 'defaults') {
-      // 이 섹션의 값만 (영역·얼굴 크기·신뢰도·반응 속도·카메라 회복 시간). 다른 섹션은 그대로
+      // 이 섹션의 값만 (영역·얼굴 크기·신뢰도). 다른 섹션(시간의 반응 속도 포함)은 그대로
       apply(defaults);
       showMessage('인식 기본값을 적용했습니다. 유지하려면 저장하세요.');
     } else if (action === 'copy') {

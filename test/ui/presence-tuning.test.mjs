@@ -9,9 +9,7 @@ import { flush } from '../helpers.mjs';
 
 const defaults = Object.freeze({
   region: Object.freeze({ x: 0.1, y: 0.1, width: 0.8, height: 0.8 }),
-  minFaceHeight: 0.05, maxFaceHeight: 0.6, minScore: 0.7, presentHoldMs: 500, absentGraceMs: 1000,
-  // 카메라 회복 시간 (9-1부터 인식 조절값 파일에 함께 둔다)
-  cameraRecovery: Object.freeze({ retryIntervalMs: 3000, firstFrameTimeoutMs: 5000, stallTimeoutMs: 3000, staffNoticeMs: 30000 }),
+  minFaceHeight: 0.05, maxFaceHeight: 0.6, minScore: 0.7,
 });
 
 function fakeElement() {
@@ -163,37 +161,12 @@ describe('presence-tuning: 불러온 결과에 따른 저장 상태 (6단계 검
   });
 });
 
-describe('presence-tuning: 반응 속도 (2026-10-27)', () => {
-  it('판정 시간 슬라이더는 ms 값(0~2000, 50 단위)이고 초로 보인다', () => {
-    const t = current = setup({ loaded: { settings: { ...defaults, presentHoldMs: 250, absentGraceMs: 250 } } });
-    t.tuning.toggle();
-    for (const key of ['presentHoldMs', 'absentGraceMs']) {
-      const input = t.element(`input[data-key="${key}"]`);
-      assert.deepEqual([input.min, input.max, input.step, input.value], ['0', '2000', '50', '250']);
-      assert.equal(t.element(`output[data-key="${key}"]`).textContent, '0.25');
-    }
-    t.slide('absentGraceMs', 100);
-    assert.equal(t.running().absentGraceMs, 100);
-    assert.equal(t.element('output[data-key="absentGraceMs"]').textContent, '0.10');
-    t.slide('presentHoldMs', 1500);
-    assert.equal(t.element('output[data-key="presentHoldMs"]').textContent, '1.50');
-    // 다른 슬라이더 표시는 그대로
-    assert.equal(t.element('output[data-key="minScore"]').textContent, '0.70');
-  });
-});
-
 describe('presence-tuning: 운영자 패널의 인식 섹션 (9-2)', () => {
-  it('카메라 회복 시간 슬라이더: ms 값을 초로 보이고, 움직이면 바로 감지 루프 설정(cameraRecovery)에 들어간다', () => {
+  it('반응 속도·카메라 회복 시간은 이 섹션에 없다 (10단계부터 시간 섹션): 감지 루프에 넘기는 값에도 없다', () => {
     const t = current = setup();
     t.tuning.open();
-    const input = t.element('input[data-key="retryIntervalMs"]');
-    assert.deepEqual([input.min, input.max, input.step, input.value], ['1000', '30000', '500', '3000']);
-    assert.equal(t.element('output[data-key="retryIntervalMs"]').textContent, '3.0');
-    assert.equal(t.element('output[data-key="staffNoticeMs"]').textContent, '30');
-    t.slide('retryIntervalMs', 5500);
-    assert.deepEqual(t.running().cameraRecovery, { ...defaults.cameraRecovery, retryIntervalMs: 5500 });
-    assert.equal(t.element('output[data-key="retryIntervalMs"]').textContent, '5.5');
-    assert.equal(t.panel.dataset.save, 'dirty');
+    t.slide('minScore', 0.8);
+    assert.deepEqual(Object.keys(t.running()), ['region', 'minFaceHeight', 'maxFaceHeight', 'minScore']);
   });
 
   it('영역 편집 층은 패널이 열려 있고 이 섹션이 보일 때만 보인다', () => {
@@ -210,12 +183,12 @@ describe('presence-tuning: 운영자 패널의 인식 섹션 (9-2)', () => {
     assert.equal(t.layer.hidden, true, '닫으면 숨는다');
   });
 
-  it('"기본값으로"는 이 섹션의 값(영역·크기·신뢰도·반응 속도·카메라 회복)만 기본값으로 바꾼다', () => {
-    const saved = { ...defaults, minScore: 0.9, cameraRecovery: { ...defaults.cameraRecovery, retryIntervalMs: 9000 } };
+  it('"기본값으로"는 이 섹션의 값(영역·크기·신뢰도)만 기본값으로 바꾼다', () => {
+    const saved = { ...defaults, minScore: 0.9, region: { x: 0.2, y: 0.2, width: 0.5, height: 0.5 } };
     const t = current = setup({ loaded: { settings: saved } });
     t.tuning.open();
     t.panel.fire('click', { target: { closest: () => ({ dataset: { action: 'defaults' } }) } });
-    assert.deepEqual(t.running(), { ...defaults, region: { ...defaults.region }, cameraRecovery: { ...defaults.cameraRecovery } });
+    assert.deepEqual(t.running(), { ...defaults, region: { ...defaults.region } });
   });
 });
 

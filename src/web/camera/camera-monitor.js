@@ -41,7 +41,7 @@ const STALL_CHECK_INTERVAL_MS = 500;
  *   recovery: {retryIntervalMs: number, firstFrameTimeoutMs: number, stallTimeoutMs: number} | (() => object),
  *   log?: { warn: Function, clear: Function } }} options  log: 반복 오류 로그 제한 (기본 log-limit.js errorLog)
  *   request: 카메라 설정의 장치 라벨·해상도 권장값 (9-1). 바뀌면 setRequest()로 다시 연다.
- *   recovery: 회복 시간. 함수면 쓸 때마다 불러 지금 값을 읽는다 (인식 조절값 파일의 cameraRecovery, 9-1)
+ *   recovery: 회복 시간. 함수면 쓸 때마다 불러 지금 값을 읽는다 (시간 설정의 cameraRecovery, 10단계. 9단계까지 인식 조절값)
  */
 export function createCameraMonitor({ video, preferredLabel, request: initialRequest, recovery, log = errorLog }) {
   let request = { deviceLabel: initialRequest?.deviceLabel ?? '', idealResolution: initialRequest?.idealResolution ?? null };

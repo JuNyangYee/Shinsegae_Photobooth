@@ -463,3 +463,70 @@ describe('createSession: 실패 뒤 자동 시작 대기 기록 (검수 A)', () 
     assert.equal(t.state().retryAt - t.clock.now(), 5000); // 처음부터 다시
   }));
 });
+
+describe('createSession: 시간 값 바꾸기 (10단계 E 시간 섹션, setTiming)', () => {
+  it('대기 중에 바꾸면 다음 회차가 새 카운트다운·결과·쿨타임으로 돈다 (스냅숏 countdownSeconds도)', async () => {
+    const { clock, camera, session, state } = setup();
+    session.setTiming({ countdownSeconds: 5, resultMs: 4000, cooldownMs: 0 });
+    assert.equal(state().countdownSeconds, 5);
+    assert.deepEqual({ ...session.getTiming() }, { ...timing, countdownSeconds: 5, resultMs: 4000, cooldownMs: 0 });
+    session.request('start', 'key');
+    assert.equal(state().countdown, 5);
+    clock.advance(4999);
+    assert.equal(state().state, SessionState.COUNTDOWN);
+    assert.equal(state().countdown, 1);
+    clock.advance(1);
+    assert.equal(camera.shots.length, 1);
+    await camera.shots[0].finish();
+    assert.equal(state().state, SessionState.RESULT);
+    assert.equal(state().endsAt, clock.now() + 4000);
+    clock.advance(3999);
+    assert.equal(state().state, SessionState.RESULT);
+    clock.advance(1);
+    assert.equal(state().state, SessionState.IDLE, '쿨타임 0이면 결과가 끝나는 즉시 대기');
+    assert.equal(state().lastEnd, 'completed');
+  });
+
+  it('카운트다운 도중에 바꿔도 그 회차는 시작할 때의 값으로 끝까지 (숫자·셔터·결과·쿨타임), 다음 회차부터 새 값', async () => {
+    const { clock, camera, session, state } = setup();
+    session.request('start', 'key');
+    clock.advance(1000);
+    assert.equal(state().countdown, 2);
+    session.setTiming({ countdownSeconds: 8, resultMs: 3000, cooldownMs: 1000 });
+    assert.equal(state().countdownSeconds, 3, '이 회차의 카운트다운 길이 그대로');
+    assert.equal(state().countdown, 2);
+    clock.advance(2000); // 3000: 원래 길이대로 셔터
+    assert.equal(camera.shots.length, 1);
+    await camera.shots[0].finish();
+    assert.equal(state().endsAt, clock.now() + timing.resultMs);
+    clock.advance(timing.resultMs);
+    assert.equal(state().state, SessionState.COOLDOWN);
+    assert.equal(state().endsAt, clock.now() + timing.cooldownMs);
+    clock.advance(timing.cooldownMs);
+    assert.equal(state().state, SessionState.IDLE);
+    assert.equal(state().countdownSeconds, 8);
+    session.request('start', 'key');
+    assert.equal(state().countdown, 8);
+  });
+
+  it('결과·쿨타임 중에 바꿔도 남은 시간은 그대로 (이미 걸린 타이머를 바꾸지 않는다)', async () => {
+    const { clock, camera, session, state } = setup();
+    session.request('start', 'key');
+    clock.advance(3000);
+    await camera.shots[0].finish();
+    const resultEnds = state().endsAt;
+    session.setTiming({ resultMs: 60000, cooldownMs: 30000 });
+    assert.equal(state().endsAt, resultEnds);
+    clock.advance(timing.resultMs);
+    assert.equal(state().state, SessionState.COOLDOWN);
+    assert.equal(state().endsAt, clock.now() + timing.cooldownMs, '이 회차의 쿨타임');
+    clock.advance(timing.cooldownMs);
+    assert.equal(state().state, SessionState.IDLE);
+  });
+
+  it('주지 않은 키는 그대로이고, 촬영 제한 시간·실패 대기 같은 다른 값은 바뀌지 않는다', () => {
+    const { session } = setup();
+    session.setTiming({ cooldownMs: 1500 });
+    assert.deepEqual({ ...session.getTiming() }, { ...timing, cooldownMs: 1500 });
+  });
+});

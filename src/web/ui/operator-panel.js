@@ -1,17 +1,18 @@
-// 운영자 조절 화면 (9-2, 숨김 단축키 E 하나, 관람객용 아님): 패널 하나에 섹션 셋 — 카메라·인식·필터.
-// 섹션마다 파일 하나(camera·presence·effect)와 저장 상태·저장·취소·기본값을 따로 가진다(각 섹션 모듈: camera-tuning.js,
-// presence-tuning.js, effect-tuning.js). 이 모듈은 열기·닫기, 보이는 섹션 고르기, 위·아래, 섹션 버튼의 저장 상태 점만 맡는다.
+// 운영자 조절 화면 (9-2, 숨김 단축키 E 하나, 관람객용 아님): 패널 하나에 섹션 넷 — 카메라·인식·시간(10단계)·필터.
+// 섹션마다 파일 하나(camera·presence·timing·effect)와 저장 상태·저장·취소·기본값을 따로 가진다(각 섹션 모듈: camera-tuning.js,
+// presence-tuning.js, timing-tuning.js, effect-tuning.js). 이 모듈은 열기·닫기, 보이는 섹션 고르기, 위·아래, 섹션 버튼의 저장 상태 점만 맡는다.
 // - 열면 모든 섹션이 "열림"(저장하지 않은 변경을 셀 수 있게)이고 고른 섹션 하나만 보인다(실시간 줄·영역 편집은 보이는 섹션만 돈다).
 // - 닫으면 섹션마다 저장하지 않은 변경을 되돌린다(실행 중인 값 = 다시 시작했을 때의 값). 저장 중인 섹션이 있으면 그 섹션을 보이고
 //   저장이 끝난 뒤 닫는다(섹션 모듈이 닫힘을 알릴 때 다시 확인한다). 그동안 패널은 비활성(inert, data-closing: 입력·섹션 이동 없음)이고,
 //   실제로 닫히는 순간 모든 섹션의 저장하지 않은 변경을 다시 확인해 되돌린다 (9단계 검수 1: 기다리는 동안 다른 섹션을 바꾸면 남았다).
 // - 마지막으로 본 섹션은 기억하지만 저장하지 않는다(새로고침하면 카메라 섹션부터). Node 테스트: test/ui/operator-panel.test.mjs
 
-export const PanelSection = Object.freeze({ CAMERA: 'camera', PRESENCE: 'presence', EFFECT: 'effect' });
-const ORDER = Object.freeze([PanelSection.CAMERA, PanelSection.PRESENCE, PanelSection.EFFECT]);
+export const PanelSection = Object.freeze({ CAMERA: 'camera', PRESENCE: 'presence', TIMING: 'timing', EFFECT: 'effect' });
+const ORDER = Object.freeze([PanelSection.CAMERA, PanelSection.PRESENCE, PanelSection.TIMING, PanelSection.EFFECT]);
 
 /**
- * 원본 창(9-2)을 보일지: 패널이 열려 있고 카메라·인식 섹션이 보일 때. 필터 섹션에서는 효과 미리보기 자체를 보므로 숨긴다.
+ * 원본 창(9-2)을 보일지: 패널이 열려 있고 카메라·인식 섹션이 보일 때. 필터 섹션에서는 효과 미리보기 자체를 보므로 숨기고,
+ * 시간 섹션은 그림과 관계없는 값이라 숨긴다(카운트다운·결과를 화면 그대로 확인).
  * 인식 섹션에서도 보이는 이유: 필터(회색조 유화)가 얼굴을 덜 보이게 해도 감지는 필터 전 그림으로 한다는 것을 박스와 함께 보여 준다
  */
 export function showsRawWindow({ open, section }) {

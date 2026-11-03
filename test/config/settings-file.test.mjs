@@ -2,7 +2,10 @@
 import assert from 'node:assert/strict';
 import { config } from '../../src/web/config/config.js';
 import { normalizeCameraSettings, serializeCameraSettings } from '../../src/web/config/camera-settings.js';
-import { loadInitialCameraSettings, loadInitialEffectSettings } from '../../src/web/config/settings-file.js';
+import { loadInitialCameraSettings, loadInitialEffectSettings, loadInitialTimingSettings } from '../../src/web/config/settings-file.js';
+import {
+  extractLegacyTiming, normalizeTimingSettings, sameTimingSettings, serializeTimingSettings, withLegacyTiming,
+} from '../../src/web/config/timing-settings.js';
 import { describe, it } from 'node:test';
 
 import { PRESENCE_STORAGE_KEY, serializePresenceSettings } from '../../src/web/config/presence-settings.js';
@@ -11,12 +14,9 @@ import { fakeClock, flush } from '../helpers.mjs';
 
 const defaults = Object.freeze({
   region: Object.freeze({ x: 0.1, y: 0.1, width: 0.8, height: 0.8 }),
-  minFaceHeight: 0.05, maxFaceHeight: 0.6, minScore: 0.7, presentHoldMs: 500, absentGraceMs: 1000,
-  // 카메라 회복 시간 (9-1부터 인식 조절값 파일에 함께 둔다)
-  cameraRecovery: Object.freeze({ retryIntervalMs: 3000, firstFrameTimeoutMs: 5000, stallTimeoutMs: 3000, staffNoticeMs: 30000 }),
+  minFaceHeight: 0.05, maxFaceHeight: 0.6, minScore: 0.7,
 });
-const fileValue = { region: { x: 0.2, y: 0.2, width: 0.6, height: 0.6 }, minFaceHeight: 0.1, maxFaceHeight: 0.5,
-  minScore: 0.8, presentHoldMs: 700, absentGraceMs: 1200, cameraRecovery: { ...defaults.cameraRecovery } };
+const fileValue = { region: { x: 0.2, y: 0.2, width: 0.6, height: 0.6 }, minFaceHeight: 0.1, maxFaceHeight: 0.5, minScore: 0.8 };
 const localValue = { ...fileValue, minScore: 0.9 };
 
 function memoryStorage(initial = {}) {
@@ -56,8 +56,22 @@ describe('loadInitialPresenceSettings: 시작할 때 불러오는 순서', () =>
     const result = await loadInitialPresenceSettings({ file, storage, defaults });
     assert.equal(result.source, SettingsSource.FILE);
     assert.deepEqual(result.settings, fileValue);
+    assert.equal(result.legacyTiming, null);
     assert.equal(file.writes.length, 0);
     assert.ok(storage.data.has(PRESENCE_STORAGE_KEY));
+  });
+
+  it('9단계 파일에 남은 시간 키는 판정값에 넣지 않고 알리지 않으며 legacyTiming(검사 전 값)으로 돌려준다. 파일은 고치지 않는다', async () => {
+    const legacy = { presentHoldMs: 250, absentGraceMs: 250, cameraRecovery: { retryIntervalMs: 3000 } };
+    const text = JSON.stringify({ version: 1, settings: { ...fileValue, ...legacy } }, null, 2);
+    const file = fakeFile({ text });
+    const result = await loadInitialPresenceSettings({ file, storage: memoryStorage(), defaults });
+    assert.equal(result.source, SettingsSource.FILE);
+    assert.deepEqual(result.settings, fileValue);
+    assert.deepEqual(result.issues, []);
+    assert.deepEqual(result.legacyTiming, legacy);
+    assert.equal(file.writes.length, 0);
+    assert.equal(file.text, text);
   });
 
   it('2. 파일이 없고(404) localStorage가 있으면 파일로 옮기고, 다시 읽어 확인한 뒤 localStorage를 지운다', async () => {
@@ -337,5 +351,160 @@ describe('loadInitialCameraSettings (카메라 설정, 9-1): 카메라 파일 �
     const text = JSON.stringify({ version: 1, settings: { ...config.camera, zoom: 9 } });
     const adjusted = await loadInitialCameraSettings({ file: fakeFile({ text }), effectFile: fakeFile(), defaults: config.camera });
     assert.deepEqual([adjusted.source, adjusted.settings.zoom, adjusted.issues], [SettingsSource.FILE, 4, ['zoom: 9 -> 4']]);
+  });
+});
+
+describe('loadInitialTimingSettings (시간 설정, 10단계): 시간 파일 → 인식 파일의 옛 시간 키 옮기기 → 기본값', () => {
+  const timingDefaults = config.timing;
+  const criteria = { region: { x: 0.1, y: 0.1, width: 0.8, height: 0.8 }, minFaceHeight: 0.185, maxFaceHeight: 0.47, minScore: 0.65 };
+  const legacy = { presentHoldMs: 300, absentGraceMs: 400,
+    cameraRecovery: { retryIntervalMs: 3500, firstFrameTimeoutMs: 6000, stallTimeoutMs: 2000, staffNoticeMs: 45000 } };
+  const stage9Presence = () => JSON.stringify({ version: 1, settings: { ...criteria, ...legacy } }, null, 2);
+  const migrated = normalizeTimingSettings({ ...timingDefaults, ...legacy }, timingDefaults).settings;
+  const stored = { ...migrated, countdownSeconds: 5, resultMs: 20000, cooldownMs: 1500 };
+  const load = (file, presenceFile) => loadInitialTimingSettings({ file, presenceFile, defaults: timingDefaults });
+
+  it('시간 파일이 없고 인식 파일에 옛 키가 있으면: 시간 파일로 옮기고(다시 읽어 확인), 확인된 뒤 인식 파일에서 그 키만 뺀다', async () => {
+    const file = fakeFile();
+    const presenceFile = fakeFile({ text: stage9Presence() });
+    const result = await load(file, presenceFile);
+    assert.equal(result.source, SettingsSource.MIGRATED);
+    assert.equal(result.note, 'presentHoldMs, absentGraceMs, cameraRecovery from presence file (removed from presence file)');
+    assert.deepEqual(result.issues, []);
+    assert.equal(sameTimingSettings(result.settings, migrated), true);
+    assert.equal(result.settings.countdownSeconds, 3); // 촬영 흐름은 기본값
+    assert.deepEqual(file.writes, [serializeTimingSettings(migrated)]);
+    assert.equal(file.reads, 2); // 처음 확인 + 옮긴 뒤 다시 읽기
+    assert.deepEqual(presenceFile.writes, [serializePresenceSettings(criteria)]); // 판정값은 그대로, 시간 키만 빠짐
+    // 다음 시작은 시간 파일에서, 인식 파일은 더 고치지 않는다
+    const next = await load(file, presenceFile);
+    assert.equal(next.source, SettingsSource.FILE);
+    assert.equal(next.note, '');
+    assert.equal(sameTimingSettings(next.settings, migrated), true);
+    assert.equal(presenceFile.writes.length, 1);
+  });
+
+  it('시간 파일을 지워도(초기화) 옛 값이 다시 옮겨지지 않는다 (인식 파일에서 뺐으므로)', async () => {
+    const file = fakeFile();
+    const presenceFile = fakeFile({ text: stage9Presence() });
+    await load(file, presenceFile);
+    file.text = null; // 운영자가 timing.local.json을 지움
+    const result = await load(file, presenceFile);
+    assert.equal(result.source, SettingsSource.DEFAULTS);
+    assert.equal(result.note, 'no file');
+    assert.equal(sameTimingSettings(result.settings, timingDefaults), true);
+  });
+
+  it('시간 파일이 확인되지 않으면(쓰기 실패·다시 읽은 내용이 다름) 이번엔 옮긴 값, 인식 파일은 바이트 그대로 (다음 시작에 다시 옮긴다)', async () => {
+    const original = stage9Presence();
+    const failing = fakeFile({ failWrite: 'HTTP 500' });
+    const presenceFile = fakeFile({ text: original });
+    const result = await load(failing, presenceFile);
+    assert.equal(result.source, SettingsSource.PRESENCE_FILE_ONLY);
+    assert.match(result.note, /from presence file; migration to timing file failed: HTTP 500/);
+    assert.equal(sameTimingSettings(result.settings, migrated), true);
+    assert.equal(presenceFile.writes.length, 0);
+    assert.equal(presenceFile.text, original);
+    // 다시 읽은 내용이 다름 (다른 프로그램이 동시에 씀 등)
+    const mismatch = fakeFile();
+    mismatch.read = async () => (mismatch.writes.length ? { found: true, text: '{}' } : { found: false });
+    const again = await load(mismatch, presenceFile);
+    assert.equal(again.source, SettingsSource.PRESENCE_FILE_ONLY);
+    assert.match(again.note, /read-back mismatch/);
+    assert.equal(presenceFile.text, original);
+    // 다음 시작(시간 파일 쓰기가 되면)에 다시 옮긴다: 값이 사라지지 않는다
+    const file = fakeFile();
+    const later = await load(file, presenceFile);
+    assert.equal(later.source, SettingsSource.MIGRATED);
+    assert.equal(sameTimingSettings(later.settings, migrated), true);
+  });
+
+  it('옮기지 못한 동안 인식 섹션을 저장해도(main.js: withLegacyTiming) 옛 시간 키가 남아 다음에 옮겨진다', async () => {
+    const presenceFile = fakeFile({ text: stage9Presence() });
+    const presence = await loadInitialPresenceSettings({ file: presenceFile, storage: memoryStorage(), defaults: criteria });
+    const timing = await load(fakeFile({ failWrite: 'HTTP 500' }), presenceFile);
+    assert.equal(timing.source, SettingsSource.PRESENCE_FILE_ONLY);
+    // 운영자가 인식 섹션에서 신뢰도를 바꿔 저장 (시간 파일에 아직 없으므로 옛 키를 붙인다)
+    await presenceFile.write(withLegacyTiming(serializePresenceSettings({ ...presence.settings, minScore: 0.8 }), presence.legacyTiming));
+    assert.deepEqual(extractLegacyTiming(presenceFile.text).legacy, legacy);
+    const file = fakeFile();
+    const later = await load(file, presenceFile);
+    assert.equal(later.source, SettingsSource.MIGRATED);
+    assert.equal(sameTimingSettings(later.settings, migrated), true);
+    assert.equal(JSON.parse(presenceFile.text).settings.minScore, 0.8); // 인식 섹션의 저장값은 그대로
+    assert.equal(extractLegacyTiming(presenceFile.text).legacy, null);
+  });
+
+  it('인식 파일에서 키를 빼지 못해도 옮긴 것으로 본다. 다음 시작은 시간 파일 값이고(옛 키 무시, 두 번 적용하지 않음) 다시 빼 본다', async () => {
+    const file = fakeFile();
+    const presenceFile = fakeFile({ text: stage9Presence(), failWrite: 'HTTP 503' });
+    const result = await load(file, presenceFile);
+    assert.equal(result.source, SettingsSource.MIGRATED);
+    assert.match(result.note, /not removed from presence file: HTTP 503/);
+    // 운영자가 시간 섹션에서 바꿔 저장한 뒤 다시 시작: 시간 파일 값이 이기고 옛 키는 쓰이지 않는다
+    file.text = serializeTimingSettings(stored);
+    const next = await load(file, presenceFile);
+    assert.equal(next.source, SettingsSource.FILE);
+    assert.equal(sameTimingSettings(next.settings, stored), true);
+    assert.match(next.note, /old timing keys left in presence file \(ignored\): HTTP 503/);
+    // 쓰기가 되면 정리된다 (판정값은 그대로)
+    presenceFile.write = async (value) => { presenceFile.writes.push(value); presenceFile.text = value; };
+    const cleaned = await load(file, presenceFile);
+    assert.equal(cleaned.note, 'old timing keys removed from presence file');
+    assert.equal(presenceFile.text, serializePresenceSettings(criteria));
+    assert.equal(sameTimingSettings(cleaned.settings, stored), true);
+  });
+
+  it('시간 파일이 있으면 그 값 (인식 파일의 옛 키는 읽지 않는다). 인식 파일이 없거나 읽기 실패여도 그대로', async () => {
+    for (const presenceFile of [fakeFile({ text: serializePresenceSettings(criteria) }), fakeFile(), fakeFile({ failRead: 'timeout 3000ms' })]) {
+      const result = await load(fakeFile({ text: serializeTimingSettings(stored) }), presenceFile);
+      assert.equal(result.source, SettingsSource.FILE);
+      assert.equal(sameTimingSettings(result.settings, stored), true);
+      assert.equal(presenceFile.writes.length, 0);
+    }
+  });
+
+  it('둘 다 없거나 인식 파일에 옛 키가 없으면 기본값 (no file), 아무것도 쓰지 않는다', async () => {
+    for (const presenceFile of [fakeFile(), fakeFile({ text: serializePresenceSettings(criteria) }), fakeFile({ text: '{oops' })]) {
+      const file = fakeFile();
+      const result = await load(file, presenceFile);
+      assert.equal(result.source, SettingsSource.DEFAULTS);
+      assert.equal(result.note, 'no file');
+      assert.equal(sameTimingSettings(result.settings, timingDefaults), true);
+      assert.equal(file.writes.length + presenceFile.writes.length, 0);
+    }
+  });
+
+  it('시간 파일 읽기 실패면 기본값이고 옮기지 않는다 (파일이 있는데 못 읽었을 수 있다). 인식 파일 읽기 실패도 기본값', async () => {
+    const presenceFile = fakeFile({ text: stage9Presence() });
+    const failed = await load(fakeFile({ failRead: 'timeout 3000ms' }), presenceFile);
+    assert.equal(failed.source, SettingsSource.DEFAULTS);
+    assert.equal(failed.note, 'file read failed: timeout 3000ms');
+    assert.equal(presenceFile.writes.length, 0);
+    const presenceFailed = await load(fakeFile(), fakeFile({ failRead: 'HTTP 500' }));
+    assert.equal(presenceFailed.source, SettingsSource.DEFAULTS);
+    assert.equal(presenceFailed.note, 'no file; presence file read failed: HTTP 500');
+  });
+
+  it('시간 파일 형식이 틀리면 기본값 (file is invalid, 인식 파일의 옛 키를 옮기지도 빼지도 않는다), 값 일부가 틀리면 고쳐 쓰고 알린다', async () => {
+    const presenceFile = fakeFile({ text: stage9Presence() });
+    const invalid = await load(fakeFile({ text: '{"version": 9}' }), presenceFile);
+    assert.equal(invalid.source, SettingsSource.DEFAULTS);
+    assert.equal(invalid.note, 'file is invalid');
+    assert.equal(presenceFile.writes.length, 0);
+    const adjusted = await load(fakeFile({ text: serializeTimingSettings({ ...stored, countdownSeconds: 30 }) }), fakeFile());
+    assert.equal(adjusted.source, SettingsSource.FILE);
+    assert.equal(adjusted.settings.countdownSeconds, 10);
+    assert.deepEqual(adjusted.issues, ['countdownSeconds: 30 -> 10']);
+  });
+
+  it('옛 키 값이 범위 밖이면 고쳐 옮기고 알린다 (고친 값이 시간 파일에 들어간다)', async () => {
+    const file = fakeFile();
+    const presenceFile = fakeFile({ text: JSON.stringify({ version: 1, settings: { ...criteria, presentHoldMs: 5000 } }) });
+    const result = await load(file, presenceFile);
+    assert.equal(result.source, SettingsSource.MIGRATED);
+    assert.deepEqual(result.issues, ['presentHoldMs: 5000 -> 2000']);
+    assert.equal(JSON.parse(file.text).settings.presentHoldMs, 2000);
+    assert.equal(JSON.parse(file.text).settings.absentGraceMs, timingDefaults.absentGraceMs);
   });
 });

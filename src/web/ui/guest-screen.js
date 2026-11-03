@@ -8,7 +8,8 @@ const SETTLE = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
 
 /**
  * @param {{ root: Document, text: typeof import('../config/guest-text.js').guestText, countdownSeconds: number,
- *   now?: () => number }} options  now: session의 endsAt과 같은 시계 (performance.now)
+ *   now?: () => number }} options  now: session의 endsAt과 같은 시계 (performance.now).
+ *   countdownSeconds는 기본값이고, 상태 기계 스냅숏에 그 회차의 countdownSeconds가 있으면 그 값을 쓴다 (10단계 시간 섹션)
  */
 export function createGuestScreen({ root, text, countdownSeconds, now = () => performance.now() }) {
   const $ = (id) => root.getElementById(id);
@@ -51,9 +52,9 @@ export function createGuestScreen({ root, text, countdownSeconds, now = () => pe
   function renderCountdown(s) {
     const counting = s.state === SessionState.COUNTDOWN;
     if (counting && lastState !== SessionState.COUNTDOWN) {
-      // 진행선: 3초(countdownSeconds) 동안 가운데에서 양쪽으로 차오른다 (transform만)
+      // 진행선: 그 회차의 카운트다운 길이(기본 3초) 동안 가운데에서 양쪽으로 차오른다 (transform만)
       progressAnimation = progress.animate([{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }],
-        { duration: countdownSeconds * 1000, fill: 'forwards' });
+        { duration: (s.countdownSeconds ?? countdownSeconds) * 1000, fill: 'forwards' });
       countdown.animate(fadeUp, { duration: 400, easing: SETTLE });
     } else if (!counting && lastState === SessionState.COUNTDOWN) {
       progressAnimation?.cancel();

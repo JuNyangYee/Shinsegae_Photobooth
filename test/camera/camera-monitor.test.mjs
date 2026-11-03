@@ -169,7 +169,7 @@ describe('createCameraMonitor: 장치·해상도 요청과 다시 열기 (9-1)',
     ]);
   });
 
-  it('회복 시간을 함수로 주면 쓸 때마다 지금 값을 읽는다 (인식 조절값 cameraRecovery)', async () => {
+  it('회복 시간을 함수로 주면 쓸 때마다 지금 값을 읽는다 (시간 설정 cameraRecovery)', async () => {
     const live = { ...recovery, retryIntervalMs: 3000 };
     const camera = create({ deviceLabel: '', idealResolution: null }, () => live);
     env.fail('NotReadableError');

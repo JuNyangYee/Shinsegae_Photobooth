@@ -71,17 +71,7 @@ export const config = Object.freeze({
     maxFaceHeight: 0.47, // 같은 비율의 최대값. 화면을 덮는 큰 오검출 박스를 거른다
     // 최소 신뢰도 (실제 얼굴 0.95. 가짜 카메라 640x480 오검출 최고 0.663 관찰 — 0.65는 그보다 낮아 영역·얼굴 크기가 함께 거른다)
     minScore: 0.65,
-    // 인식·이탈 반응 시간 (사용자 결정 2026-10-27, 로그 2026-10-27-01). 감지 15fps면 약 4프레임
-    presentHoldMs: 250, // "있음"이 이만큼 이어져야 인식됨
-    absentGraceMs: 250, // "없음"이 이만큼 이어져야 인식 안됨
-    // 카메라 준비·끊김·회복 시간 (단위 ms, 사용자 확정 2026-10-15). 9-1부터 인식 조절값 파일에 함께 저장한다
-    // (운영자 화면 "인식" 묶음에서 조절, 범위는 config/presence-settings.js presenceLimits.cameraRecovery)
-    cameraRecovery: Object.freeze({
-      retryIntervalMs: 3000, // 실패·끊김 뒤 다시 시도하는 간격
-      firstFrameTimeoutMs: 5000, // 스트림을 얻은 뒤 첫 프레임을 기다리는 시간
-      stallTimeoutMs: 3000, // 새 프레임이 이 시간 동안 없으면 끊김으로 본다
-      staffNoticeMs: 30000, // 준비되지 않은 상태가 이 시간 이상 이어지면 직원 문의 문구로 바꾼다
-    }),
+    // 인식·이탈 반응 시간(presentHoldMs·absentGraceMs)과 카메라 회복 시간(cameraRecovery)은 10단계부터 timing (E 시간 섹션)
   }),
 
   // 인식 표시: 인식되면 관람객 화면 테두리가 따뜻하게 밝아진다 (6-2). 끄면 대기 안내만 보인다
@@ -97,11 +87,35 @@ export const config = Object.freeze({
     timeoutMs: 3000,
   }),
 
-  // 촬영 한 사이클 시간 (단위 ms, captureTimeoutMs 외 사용자 확정 2026-10-15)
-  session: Object.freeze({
+  // 운영자 시간 설정 기본값 (10단계, E "시간" 섹션). 운영자가 저장한 값(config/timing.local.json)이 있으면 그 값이다.
+  // 범위·정규화는 config/timing-settings.js. 9단계까지 presentHoldMs·absentGraceMs·cameraRecovery는 인식 조절값 파일에 있었고
+  // 처음 읽을 때 옮긴다 (settings-file.js loadInitialTimingSettings)
+  timing: Object.freeze({
+    // 촬영 흐름 (단위 ms, 카운트다운만 초. 사용자 확정 2026-10-15). 회차가 시작될 때의 값을 그 회차 끝(쿨타임 포함)까지 쓴다
     countdownSeconds: 3, // 3·2·1 뒤 한 장
     resultMs: 10000, // 결과 표시 시간. 인쇄 연동 뒤에는 "출력 완료 확인 후" 시간이 된다
     cooldownMs: 5000, // 대기로 돌아온 뒤 시작 요청을 무시하는 시간
+    // 인식·이탈 반응 시간 (사용자 결정 2026-10-27, 로그 2026-10-27-01). 감지 15fps면 약 4프레임
+    presentHoldMs: 250, // "있음"이 이만큼 이어져야 인식됨
+    absentGraceMs: 250, // "없음"이 이만큼 이어져야 인식 안됨
+    // 카메라 준비·끊김·회복 시간 (단위 ms, 사용자 확정 2026-10-15). 카메라 감시·관람객 안내가 쓸 때마다 지금 값을 읽는다
+    cameraRecovery: Object.freeze({
+      retryIntervalMs: 3000, // 실패·끊김 뒤 다시 시도하는 간격
+      firstFrameTimeoutMs: 5000, // 스트림을 얻은 뒤 첫 프레임을 기다리는 시간
+      stallTimeoutMs: 3000, // 새 프레임이 이 시간 동안 없으면 끊김으로 본다 (capture.maxFrameAgeMs보다 길어야 한다)
+      staffNoticeMs: 30000, // 준비되지 않은 상태가 이 시간 이상 이어지면 직원 문의 문구로 바꾼다
+    }),
+  }),
+
+  // 시간 설정 파일 API (서버 bin/server/serve.ps1 → config/timing.local.json, 10단계).
+  // 시작할 때 이 시간 안에 읽지 못하면 기본값으로 시작한다 (가안)
+  timingSettingsFile: Object.freeze({
+    url: '/local-api/timing-settings',
+    timeoutMs: 3000,
+  }),
+
+  // 촬영 한 사이클의 운영자가 만지지 않는 시간 (단위 ms, 가안). 카운트다운·결과·쿨타임은 위 timing
+  session: Object.freeze({
     captureTimeoutMs: 5000, // 결과 이미지 만들기(효과·인코딩) 제한 시간. 넘으면 대기로 (가안)
     // 촬영 실패 뒤 자동 시작을 쉬는 시간 (가안). 연속 실패마다 두 배(5→10→20→40→60초), 성공하면 처음으로. S 수동 시작은 막지 않는다.
     failureRetryMs: 5000,

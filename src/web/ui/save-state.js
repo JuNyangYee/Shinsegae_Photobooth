@@ -32,8 +32,10 @@ const TEXT = Object.freeze({
 export function loadedSaveState({ source, note, issues }) {
   if (source === SettingsSource.SAVED) return SaveState.SAVED;
   if (source === SettingsSource.DEFAULTS) return note === 'no file' ? SaveState.DEFAULTS : SaveState.LOAD_FAILED;
-  // 파일에 없는 값을 쓰는 중: 옮기지 못한 브라우저 저장값(인식), 카메라 파일로 옮기지 못한 효과 파일의 좌우 반전(카메라, 9단계 검수 2)
-  if (source === SettingsSource.LOCAL_ONLY || source === SettingsSource.EFFECT_FILE_ONLY || issues.length > 0) return SaveState.ADJUSTED;
+  // 파일에 없는 값을 쓰는 중: 옮기지 못한 브라우저 저장값(인식), 카메라 파일로 옮기지 못한 효과 파일의 좌우 반전(카메라, 9단계 검수 2),
+  // 시간 파일로 옮기지 못한 인식 파일의 시간 키(시간, 10단계)
+  if (source === SettingsSource.LOCAL_ONLY || source === SettingsSource.EFFECT_FILE_ONLY
+    || source === SettingsSource.PRESENCE_FILE_ONLY || issues.length > 0) return SaveState.ADJUSTED;
   return SaveState.SAVED; // FILE, MIGRATED (파일에 옮김)
 }
 

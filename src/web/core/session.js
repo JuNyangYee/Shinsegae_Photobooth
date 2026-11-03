@@ -15,7 +15,7 @@ export const SessionState = Object.freeze({
 /**
  * @param {{
  *   timing: { countdownSeconds: number, resultMs: number, cooldownMs: number, captureTimeoutMs: number,
- *     failureRetryMs: number, failureRetryMaxMs: number },
+ *     failureRetryMs: number, failureRetryMaxMs: number },  setTiming()으로 바꿀 수 있다 (다음 회차부터)
  *   takePhoto: ({ signal }) => Promise<object>,  호출 순간 프레임을 동기로 잡고, 결과 이미지(photo)를 비동기로 돌려준다.
  *     signal은 회차별 취소 경계다. 제한 시간 초과·강제 초기화 때 abort되며, 받은 쪽은 하던 일을 멈추고 자원을 정리한다
  *   releasePhoto: (photo: object) => void,  photo의 자원(Object URL 등)을 정리한다. 여러 번 불려도 안전해야 한다
@@ -25,11 +25,15 @@ export const SessionState = Object.freeze({
  * }} options
  */
 export function createSession({
-  timing, takePhoto, releasePhoto,
+  timing: initialTiming, takePhoto, releasePhoto,
   cameraReady: initialCameraReady = false, pageVisible: initialPageVisible = true,
   timers = globalThis, now = () => performance.now(), log = errorLog,
 }) {
   const listeners = new Set();
+  // 시간 값 (10단계부터 운영자 E 시간 섹션에서 바꾼다). 회차가 시작될 때 roundTiming으로 복사해 그 회차 끝(쿨타임 포함)까지 쓴다:
+  // 카운트다운 도중 길이가 바뀌어 숫자·진행선·셔터가 어긋나거나, 결과·쿨타임이 반쯤 다른 값이 되지 않게 한다.
+  let timing = Object.freeze({ ...initialTiming });
+  let roundTiming = timing;
 
   let state = SessionState.IDLE;
   let round = 0; // 회차 식별자. 시작·강제 초기화마다 올린다. 늦게 끝난 사진 만들기 결과를 거른다
@@ -60,6 +64,8 @@ export function createSession({
   function makeSnapshot() {
     return Object.freeze({
       state, round, source, countdown, endsAt, photo, cameraReady, pageVisible,
+      // 이 회차의 카운트다운 길이 (대기면 다음 회차의 길이). 관람객 화면 진행선이 쓴다
+      countdownSeconds: (state === SessionState.IDLE ? timing : roundTiming).countdownSeconds,
       failures, retryAt, failureBackoff: retryAt !== null,
       lastEnd, lastIgnored, lastError, staleResults, completed,
     });
@@ -129,13 +135,14 @@ export function createSession({
     source = requestedBy;
     lastError = '';
     lastEnd = '';
-    if (timing.countdownSeconds <= 0) {
+    roundTiming = timing;
+    if (roundTiming.countdownSeconds <= 0) {
       capture();
       return { accepted: true, reason: requestedBy };
     }
     state = SessionState.COUNTDOWN;
     countdownStartedAt = now();
-    countdown = timing.countdownSeconds;
+    countdown = roundTiming.countdownSeconds;
     scheduleCountdownStep();
     notify();
     return { accepted: true, reason: requestedBy };
@@ -143,7 +150,7 @@ export function createSession({
 
   // 숫자는 시작 시각 기준 1초마다 바꾼다 (타이머가 늦어도 누적되지 않게).
   function scheduleCountdownStep() {
-    const step = timing.countdownSeconds - countdown + 1;
+    const step = roundTiming.countdownSeconds - countdown + 1;
     setTimer(countdownStartedAt + step * 1000 - now(), () => {
       countdown -= 1;
       if (countdown > 0) {
@@ -169,7 +176,8 @@ export function createSession({
     } catch (error) {
       pending = Promise.reject(error);
     }
-    setTimer(timing.captureTimeoutMs, () => fail(new Error(`capture timeout ${timing.captureTimeoutMs}ms`)));
+    const { captureTimeoutMs } = roundTiming;
+    setTimer(captureTimeoutMs, () => fail(new Error(`capture timeout ${captureTimeoutMs}ms`)));
     notify();
     pending.then(
       (result) => {
@@ -232,8 +240,8 @@ export function createSession({
   // 결과 종료 시계를 시작하는 유일한 지점.
   // 인쇄를 연동하면 결과 표시에 들어갈 때 대신 "출력 완료 확인" 시점에 이 함수를 부른다 (docs/SYSTEM.md 4절).
   function startResultClock() {
-    endsAt = now() + timing.resultMs;
-    setTimer(timing.resultMs, finishResult);
+    endsAt = now() + roundTiming.resultMs;
+    setTimer(roundTiming.resultMs, finishResult);
   }
 
   function finishResult() {
@@ -241,8 +249,8 @@ export function createSession({
     photo = null;
     completed += 1;
     state = SessionState.COOLDOWN;
-    endsAt = now() + timing.cooldownMs;
-    setTimer(timing.cooldownMs, () => {
+    endsAt = now() + roundTiming.cooldownMs;
+    setTimer(roundTiming.cooldownMs, () => {
       state = SessionState.IDLE;
       endsAt = null;
       lastEnd = 'completed';
@@ -296,6 +304,16 @@ export function createSession({
       if (!visible && state === SessionState.COUNTDOWN) goIdle('cancelled: page-hidden');
       else notify();
     },
+    /**
+     * 시간 값을 바꾼다 (운영자 E 시간 섹션, 10단계). 주지 않은 키는 그대로. 진행 중인 회차(카운트다운·촬영·결과·쿨타임)는
+     * 시작할 때의 값으로 끝까지 가고, 다음 회차부터 새 값이다. 실패 뒤 쉬는 시간도 다음 실패부터.
+     */
+    setTiming(next) {
+      timing = Object.freeze({ ...timing, ...next });
+      notify();
+    },
+    /** 다음 회차가 쓸 시간 값 (D 화면) */
+    getTiming: () => timing,
     getState: () => snapshot,
     /** 상태가 바뀔 때마다 호출한다. 등록 즉시 한 번 호출한다. 해제 함수를 돌려준다. */
     subscribe(listener) {
