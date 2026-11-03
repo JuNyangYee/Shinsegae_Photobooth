@@ -87,6 +87,20 @@ describe('isPointInRegion / classifyFaces', () => {
     assert.equal(isPointInRegion({ x: 0.5, y: 0.7501 }, criteria.region), false);
   });
 
+  it('폭이나 높이가 양수가 아닌 빈 영역은 그 선·점 위의 점도 담지 않는다 (사진 틀로 줄어든 영역, IMPRINT 검수 P2)', () => {
+    const point = { x: 0.5, y: 0.8125 };
+    assert.equal(isPointInRegion(point, { x: 0.1, y: 0.8125, width: 0.8, height: 0 }), false, '높이 0 (가로 선)');
+    assert.equal(isPointInRegion(point, { x: 0.5, y: 0.1, width: 0, height: 0.8 }), false, '폭 0 (세로 선)');
+    assert.equal(isPointInRegion(point, { x: 0.5, y: 0.8125, width: 0, height: 0 }), false, '점');
+    assert.equal(isPointInRegion(point, { x: 0.1, y: 0.9, width: 0.8, height: -0.1 }), false, '음수 높이');
+    assert.equal(isPointInRegion(point, { x: 0.1, y: 0.8125, width: 0.8, height: Number.NaN }), false, 'NaN');
+    // 양수 영역은 그대로 경계 포함
+    assert.equal(isPointInRegion(point, { x: 0.1, y: 0.8125, width: 0.8, height: 1e-6 }), true);
+    const [face] = classifyFaces([{ x: 0.4, y: 0.6875, width: 0.2, height: 0.25, score: 0.99 }], identity,
+      { ...criteria, region: { x: 0.1, y: 0.8125, width: 0.8, height: 0 } });
+    assert.deepEqual([face.inRegion, face.accepted], [false, false]);
+  });
+
   it('중심이 영역 안이면 박스가 영역 밖으로 나가도 인정', () => {
     const result = accepted(face(0.25, 0.5));
     assert.equal(result.inRegion, true);

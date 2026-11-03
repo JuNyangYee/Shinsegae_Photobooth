@@ -51,8 +51,12 @@ export function sameCriteria(a, b) {
     && a.minScore === b.minScore && a.presentHoldMs === b.presentHoldMs && a.absentGraceMs === b.absentGraceMs;
 }
 
-/** 경계를 포함한다. */
+/**
+ * 경계를 포함한다. 폭이나 높이가 양수가 아닌 빈 영역은 어떤 점도 담지 않는다: 사진 틀과 겹치지 않아 높이 0으로 줄어든 인식 영역
+ * (core/photo-frame.js clipRegionToFrame)의 선 위 얼굴을 인정하지 않게 (IMPRINT 독립 검수 P2)
+ */
 export function isPointInRegion(point, region) {
+  if (!(region.width > 0 && region.height > 0)) return false;
   return point.x >= region.x && point.x <= region.x + region.width
     && point.y >= region.y && point.y <= region.y + region.height;
 }
