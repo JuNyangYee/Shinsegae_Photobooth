@@ -19,7 +19,7 @@ export function captureSizeFor(view) {
  * 인코딩하고 print(인쇄 데이터)·dots(1비트 점 사진)를 사진에 붙인다.
  * signal이 abort되면(촬영 제한 시간 초과·강제 초기화) 하던 일을 멈춘다. 멈추지 않아도 캡처 쪽이 결과를 버리고 정리한다.
  * @param {HTMLCanvasElement} canvas
- * @param {{ signal?: AbortSignal }} [options]
+ * @param {{ signal?: AbortSignal, takenAt?: number }} [options] takenAt: 셔터 순간 시각 (Date.now() 기준, 인쇄 쪽 머리)
  */
 export async function applyPhotoEffect(canvas, { signal } = {}) {
   signal?.throwIfAborted();
@@ -35,13 +35,14 @@ function abortError(signal) {
  *   maxFrameAgeMs: number, getFrameInfo: () => { at: number | null, count: number },
  *   effect?: typeof applyPhotoEffect,
  *   createCanvas?: () => HTMLCanvasElement, urls?: { createObjectURL: Function, revokeObjectURL: Function },
- *   now?: () => number }} options
+ *   now?: () => number, clock?: () => number }} options
  *   frame: 카메라 처리 경로 (camera-frame.js, 셔터 순간의 설정으로 그린다). getFrameInfo: 카메라 감시가 받은 마지막 새 프레임 시각(now() 기준)과 누적 수
+ *   clock: 사람이 읽는 촬영 시각(Date.now() 기준). 프레임을 잡는 순간 재어 효과 단계(인쇄 쪽 머리)와 사진(takenAt, 관람객 화면)에 넘긴다
  */
 export function createCapture({
   video, frame, type, quality, maxFrameAgeMs, getFrameInfo,
   effect = applyPhotoEffect,
-  createCanvas = () => document.createElement('canvas'), urls = URL, now = () => performance.now(),
+  createCanvas = () => document.createElement('canvas'), urls = URL, now = () => performance.now(), clock = () => Date.now(),
 }) {
   const liveUrls = new Set(); // 아직 revoke하지 않은 결과 이미지
   const liveCanvases = new Set(); // 아직 비우지 않은 캡처 캔버스
@@ -92,7 +93,7 @@ export function createCapture({
       mirror: settings.mirror, rotation: view.rotation, zoom: view.zoom, autoZoom: view.autoZoom,
       color: frame.getFilter?.() !== undefined && frame.getFilter() !== 'none',
     });
-    return { canvas, view: used, mirror: settings.mirror, source: `${video.videoWidth}x${video.videoHeight}` };
+    return { canvas, view: used, mirror: settings.mirror, source: `${video.videoWidth}x${video.videoHeight}`, takenAt: clock() };
   }
 
   /**
@@ -141,12 +142,12 @@ export function createCapture({
   // 효과 단계 결과: 캔버스 하나, 또는 { canvas, type, quality, print }
   const outputCanvas = (result) => (result && typeof result === 'object' && 'canvas' in result ? result.canvas : result);
 
-  async function finish({ canvas, view, mirror, source }, grabMs, signal) {
+  async function finish({ canvas, view, mirror, source, takenAt }, grabMs, signal) {
     let output = canvas;
     try {
       // 캡처 이미지 → (사진 효과) → 결과 표시
       const produced = await untilAborted(
-        Promise.resolve().then(() => effect(canvas, { signal })),
+        Promise.resolve().then(() => effect(canvas, { signal, takenAt })),
         signal,
         (late) => { const lateCanvas = outputCanvas(late); if (lateCanvas && lateCanvas !== canvas) freeCanvas(lateCanvas); },
       );
@@ -170,7 +171,7 @@ export function createCapture({
         grabMs,
         encodeMs: now() - encodeStart,
       });
-      return Object.freeze({ url, width: last.width, height: last.height, print, dots: custom.dots === true });
+      return Object.freeze({ url, width: last.width, height: last.height, print, dots: custom.dots === true, takenAt });
     } finally {
       // 성공·실패·취소 모두 여기서 바로 비운다. toBlob은 호출할 때 픽셀을 복사하므로 인코딩 중에 비워도 된다.
       freeCanvas(canvas);

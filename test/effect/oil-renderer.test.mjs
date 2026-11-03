@@ -12,6 +12,9 @@ import { INPUT_LUMA } from '../../src/web/core/thermal.js';
 import { cameraColorMatrix, shaderColorUniforms } from '../../src/web/core/camera-view.js';
 import { createFakeWebGL2 } from '../fixtures/fake-webgl2.mjs';
 
+// 이 파일은 효과·인쇄 마스크 자체를 본다: 사진 틀 자르기·인쇄 쪽 글자(IMPRINT 시안)는 빼고 9:16 그대로 (그쪽은 test/effect/photo-effect.test.mjs)
+const NO_FRAME = Object.freeze({ frame: null, imprint: null });
+
 // 5단계 검수 테스트는 컬러 출력(outputMode off) 경로로 본다. 감열지 경로는 아래 6-1 테스트
 const settings = normalizeEffectSettings({ ...config.effect, outputMode: 'off' }, config.effect).settings;
 const small = { settings, width: 20, height: 36, seed: 3 };
@@ -157,7 +160,7 @@ describe('촬영 결과·미리보기 경로 (실제 미리보기·렌더러 + �
     const flushIdle = () => { for (let i = 0; i < idles.length; i += 1) { const fn = idles[i]; idles[i] = null; fn?.(); } };
     const run = (frames) => { for (let i = 0; i < frames; i += 1) { time += 1000 / 60; const fn = queued; queued = null; fn?.(); } };
     const canvas2d = () => ({ width: 0, height: 0, getContext: () => ({ putImageData() {}, drawImage() {}, set imageSmoothingQuality(v) {} }) });
-    const photo = createPhotoEffect({ preview, createCanvas: canvas2d, createImageData: (p, w, h) => ({ p, w, h }), log: { warn() {}, clear() {} } });
+    const photo = createPhotoEffect({ preview, createCanvas: canvas2d, createImageData: (p, w, h) => ({ p, w, h }), log: { warn() {}, clear() {} }, ...NO_FRAME });
     preview.start();
     run(3);
     assert.equal(preview.getState().status, EffectStatus.RUNNING);
@@ -416,7 +419,7 @@ describe('촬영 결과 감열지 경로 (실제 미리보기·렌더러·결과
     const flushIdle = () => { for (let i = 0; i < idles.length; i += 1) { const fn = idles[i]; idles[i] = null; fn?.(); } };
     const run = (frames) => { for (let i = 0; i < frames; i += 1) { time += 1000 / 60; const fn = queued; queued = null; fn?.(); } };
     const photo = createPhotoEffect({
-      preview, createCanvas: () => canvas2d(), createImageData: (p, w, h) => ({ p, w, h }), log: { warn() {}, clear() {} },
+      preview, createCanvas: () => canvas2d(), createImageData: (p, w, h) => ({ p, w, h }), log: { warn() {}, clear() {} }, ...NO_FRAME,
     });
     preview.start();
     run(3);
@@ -477,7 +480,7 @@ describe('촬영 결과 감열지 경로 (실제 미리보기·렌더러·결과
     const t = setup();
     const photo = createPhotoEffect({
       preview: t.preview, createCanvas: () => canvas2d(), createImageData: (p) => p,
-      deflate: async () => { throw new Error('no CompressionStream'); }, log: { warn() {}, clear() {} },
+      deflate: async () => { throw new Error('no CompressionStream'); }, log: { warn() {}, clear() {} }, ...NO_FRAME,
     });
     assert.equal(await photo.apply(t.raw), t.raw);
     const { last } = photo.getStats();
@@ -649,7 +652,7 @@ describe('촬영 결과 회색조 유화 경로 (실제 미리보기·렌더러�
     const warnings = [];
     const photo = createPhotoEffect({
       preview, createCanvas: () => canvas2d(), createImageData: (p, w, h) => ({ p, w, h }),
-      log: { warn: (k, m) => warnings.push(m), clear() {} }, ...photoOver,
+      log: { warn: (k, m) => warnings.push(m), clear() {} }, ...NO_FRAME, ...photoOver,
     });
     preview.start();
     run(3);

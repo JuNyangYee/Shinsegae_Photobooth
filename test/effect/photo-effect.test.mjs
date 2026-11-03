@@ -1,5 +1,7 @@
 // 실행: npm test  (또는 node --test test/effect/photo-effect.test.mjs)
-// 촬영 결과 효과 단계: 효과 사진, 실패 시 원본 사진(결과 크기), 효과 끔, 취소, 출력 모드(6-1). 캔버스·ImageData는 흉내 낸다.
+// 촬영 결과 효과 단계: 효과 사진, 실패 시 원본 사진(결과 크기), 효과 끔, 취소, 출력 모드(6-1), 사진 틀·인쇄 쪽(IMPRINT 시안).
+// 캔버스·ImageData는 흉내 낸다. 앞 묶음들은 효과·인쇄 마스크 자체를 보려고 사진 틀·인쇄 쪽 없이(frame·imprint null) 돌리고,
+// 마지막 묶음이 실제 기본값(config.photoFrame) 경로를 본다.
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { deflateSync, inflateSync } from 'node:zlib';
@@ -19,14 +21,14 @@ function fakeCanvas(width = 0, height = 0, { noContext = false, fill = 255 } = {
     width, height, ops,
     getContext: () => (noContext ? null : {
       putImageData: (image, x, y) => ops.push(['put', image, x, y]),
-      drawImage: (source, x, y, w, h) => ops.push(['draw', source, x, y, w, h]),
+      drawImage: (...args) => ops.push(['draw', ...args]),
       getImageData: (x, y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4).fill(fill) }),
       set imageSmoothingQuality(v) { ops.push(['quality', v]); },
     }),
   };
 }
 
-function setup({ still, enabled = true, canvasOptions, settings = colorSettings, deflate = async (raw) => deflateSync(raw) } = {}) {
+function setup({ still, enabled = true, canvasOptions, settings = colorSettings, deflate = async (raw) => deflateSync(raw), frame = null, imprint = null } = {}) {
   const created = [];
   const warnings = [];
   const cleared = [];
@@ -47,6 +49,8 @@ function setup({ still, enabled = true, canvasOptions, settings = colorSettings,
     createBlob: (bytes) => ({ size: bytes.length, bytes }),
     log: { warn: (category, message) => warnings.push([category, message]), clear: (category) => cleared.push(category) },
     now: () => 0,
+    frame,
+    imprint,
   });
   return { effect, created, warnings, cleared };
 }
@@ -191,5 +195,105 @@ describe('createPhotoEffect: 출력 모드 (6-1)', () => {
     release();
     await assert.rejects(result, /reset/);
     assert.equal(t.created.length, 0);
+  });
+});
+
+describe('createPhotoEffect: 사진 틀·인쇄 쪽 (IMPRINT 시안, 실제 기본값 config.photoFrame)', () => {
+  const frame = config.photoFrame;
+  const TAKEN_AT = new Date(2026, 10, 3, 18, 42, 7).getTime();
+  // 인쇄 해상도 16x64: 줄 번호를 담은 마스크 (짝수 줄 흰 종이, 홀수 줄 검정) → 틀 줄 7~52
+  const Pw = 16;
+  const Ph = 64;
+  const rowMask = Uint8Array.from({ length: Pw * Ph }, (_, i) => (Math.floor(i / Pw) % 2 === 0 ? 1 : 0));
+  const framedThermalSettings = normalizeEffectSettings({ ...thermalSettings, paperDots: 128 }, config.effect).settings;
+  const thermalStill = { mode: 'thermal', settings: framedThermalSettings, width: 1080, height: 1920, seed: 3, tick: 9, sameAsPreview: true, ms: 1,
+    mask: rowMask, printWidth: Pw, printHeight: Ph };
+  // 인쇄 쪽 흉내: 받은 사진 줄 위·아래에 흰 줄 10·6줄을 붙인다
+  function fakeImprint(calls, { fail = false } = {}) {
+    return {
+      render(input) {
+        calls.push(input);
+        if (fail) throw new Error('canvas text failed');
+        const mask = new Uint8Array(input.width * (input.photoHeight + 16)).fill(1);
+        mask.set(input.photoMask, 10 * input.width);
+        return { mask, height: input.photoHeight + 16, photoTop: 10, fontsReady: true };
+      },
+    };
+  }
+
+  it('효과 사진(9:16 1080x1920)을 틀 줄 210~1560만 남긴 1080x1350 새 캔버스로, 앞 캔버스는 비운다', async () => {
+    const t = setup({ still: goodStill, frame });
+    const out = await t.effect.apply(fakeCanvas(1080, 1920), { takenAt: TAKEN_AT });
+    assert.deepEqual([out.width, out.height], [1080, 1350]);
+    const source = t.created[0];
+    assert.deepEqual(out.ops.at(-1), ['draw', source, 0, 210, 1080, 1350, 0, 0, 1080, 1350]);
+    assert.deepEqual([source.width, source.height], [0, 0], '9:16 결과 캔버스는 비운다');
+    assert.equal(t.effect.getStats().last.frame, '1080x1350 rows 210-1560');
+    assert.equal(t.effect.getStats().last.width, 1920 / 1920 * 1080, 'photo-fx는 효과 그림(9:16) 크기 그대로');
+  });
+
+  it('효과를 끈 설정이면 원본 캔버스에서 자르고 원본은 비우지 않는다 (capture.js가 정리)', async () => {
+    const t = setup({ still: goodStill, enabled: false, frame });
+    const raw = fakeCanvas(2160, 3840);
+    const out = await t.effect.apply(raw);
+    assert.notEqual(out, raw);
+    assert.deepEqual([out.width, out.height], [2160, 2700]);
+    assert.deepEqual(out.ops.at(-1), ['draw', raw, 0, 420, 2160, 2700, 0, 0, 2160, 2700]);
+    assert.equal(raw.width, 2160);
+  });
+
+  it('감열지: 인쇄 데이터는 9:16 마스크의 틀 줄(7~52)을 인쇄 쪽 가운데에 넣은 한 장, 머리에 셔터 시각, 화면용 PNG도 같은 비율로 자른다', async () => {
+    const calls = [];
+    const t = setup({ still: thermalStill, settings: framedThermalSettings, frame, imprint: fakeImprint(calls) });
+    const out = await t.effect.apply(fakeCanvas(1080, 1920), { takenAt: TAKEN_AT });
+    assert.equal(calls.length, 1);
+    assert.deepEqual([calls[0].width, calls[0].photoHeight, calls[0].paper], [Pw, 45, '16 DOTS']);
+    assert.deepEqual(calls[0].stamp, { date: '2026.11.03', weekday: 'TUE', time: '18:42:07' });
+    assert.deepEqual([...calls[0].photoMask], [...rowMask.slice(7 * Pw, 52 * Pw)], '틀 줄 그대로');
+    const { print } = out;
+    assert.deepEqual([print.width, print.height, print.layout, print.takenAt], [Pw, 61, 'imprint', TAKEN_AT]);
+    assert.deepEqual(print.photo, { top: 10, height: 45, sourceTop: 7 });
+    assert.equal(print.bits.length, 2 * 61);
+    // 래스터 10번째 줄 = 원래 7번째 줄(홀수 → 검정, 비트 1) / 11번째 줄 = 8번째 줄(짝수 → 흰색)
+    assert.deepEqual([...print.bits.slice(10 * 2, 12 * 2)], [0xff, 0xff, 0, 0]);
+    assert.deepEqual([out.canvas.width, out.canvas.height], [1080, 1350]);
+    assert.equal(out.dots, true);
+    const { last } = t.effect.getStats();
+    assert.deepEqual([last.print.layout, last.print.photoTop, last.print.photoHeight, last.print.fontsReady], ['imprint', 10, 45, true]);
+  });
+
+  it('takenAt이 없으면 그때의 clock으로 찍는다', async () => {
+    const calls = [];
+    const effect = createPhotoEffect({
+      preview: { isEnabled: () => true, getSettings: () => framedThermalSettings, renderStill: () => thermalStill },
+      createCanvas: () => fakeCanvas(), createImageData: (pixels, w, h) => ({ pixels, w, h }), display: { paper: [250, 240, 230], ink: [10, 20, 30] },
+      deflate: async (raw) => deflateSync(raw), createBlob: (bytes) => ({ size: bytes.length, bytes }), log: { warn() {}, clear() {} },
+      now: () => 0, frame, imprint: fakeImprint(calls), clock: () => new Date(2026, 11, 24, 9, 5, 0).getTime(),
+    });
+    await effect.apply(fakeCanvas(1080, 1920));
+    assert.deepEqual(calls[0].stamp, { date: '2026.12.24', weekday: 'THU', time: '09:05:00' });
+  });
+
+  it('인쇄 쪽 글자를 못 짜면 인쇄 데이터는 틀 사진만(경고), 사진·흐름은 그대로', async () => {
+    const t = setup({ still: thermalStill, settings: framedThermalSettings, frame, imprint: fakeImprint([], { fail: true }) });
+    const out = await t.effect.apply(fakeCanvas(1080, 1920), { takenAt: TAKEN_AT });
+    assert.deepEqual([out.print.width, out.print.height, out.print.layout], [Pw, 45, 'photo']);
+    assert.match(out.print.imprintError, /canvas text failed/);
+    assert.ok(t.warnings.some(([category, message]) => category === 'effect-capture' && /imprint type not drawn/.test(message)));
+    assert.equal(t.effect.getStats().last.status, 'applied');
+  });
+
+  it('자르기 캔버스를 못 만들면 9:16 사진 그대로 (경고, 관람객 화면 CSS가 같은 줄을 보인다)', async () => {
+    let made = 0;
+    const warnings = [];
+    const effect = createPhotoEffect({
+      preview: { isEnabled: () => true, getSettings: () => colorSettings, renderStill: () => goodStill },
+      createCanvas: () => { made += 1; return fakeCanvas(0, 0, { noContext: made === 2 }); },
+      createImageData: (pixels, w, h) => ({ pixels, w, h }), log: { warn: (c, m) => warnings.push(m), clear() {} }, now: () => 0, frame, imprint: null,
+    });
+    const out = await effect.apply(fakeCanvas(1080, 1920));
+    assert.deepEqual([out.width, out.height], [1080, 1920]);
+    assert.match(warnings.join(' '), /photo frame crop failed/);
+    assert.equal(effect.getStats().last.frame, 'uncropped 1080x1920');
   });
 });

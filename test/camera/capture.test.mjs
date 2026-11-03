@@ -37,6 +37,9 @@ describe('captureSizeFor (화면 영역이 덮는 원본 화소 수)', () => {
 });
 
 
+// 사람이 읽는 촬영 시각 (Date.now() 기준, IMPRINT 시안: 인쇄 쪽 머리·관람객 화면 머리)
+const TAKEN_AT = Date.UTC(2026, 10, 3, 9, 42, 7);
+
 function setup({ videoWidth = 1920, videoHeight = 1080, mirror = true, camera = {}, context, blob, effect, frameAge = 10 } = {}) {
   const env = fakeEnvironment({ context, blob });
   const video = { videoWidth, videoHeight };
@@ -47,7 +50,7 @@ function setup({ videoWidth = 1920, videoHeight = 1080, mirror = true, camera = 
   const capture = createCapture({
     video, frame: cameraFrame, type: 'image/jpeg', quality: 0.92,
     maxFrameAgeMs: 500, getFrameInfo: () => frame,
-    effect, createCanvas: env.createCanvas, urls: env.urls, now: () => time,
+    effect, createCanvas: env.createCanvas, urls: env.urls, now: () => time, clock: () => TAKEN_AT,
   });
   return {
     env, video, capture, frame, cameraFrame, setTime: (t) => { time = t; },
@@ -66,7 +69,7 @@ describe('createCapture', () => {
   it('보이는 영역을 카메라 처리 경로(반전 포함)로 원본 해상도에 그리고, 캔버스는 인코딩 뒤 비운다', async () => {
     const { env, capture } = setup();
     const photo = await capture.take();
-    assert.deepEqual(photo, { url: 'blob:fake/1', width: 608, height: 1080, print: null, dots: false });
+    assert.deepEqual(photo, { url: 'blob:fake/1', width: 608, height: 1080, print: null, dots: false, takenAt: TAKEN_AT });
     const [canvas] = env.canvases;
     assert.deepEqual(canvas.calls, [...drawCalls(1920, 1080, { mirror: true }, 608, 1080), ['toBlob', 'image/jpeg', 0.92]]);
     // 반전: x가 뒤집히고 가운데 띠(656~1263.5)가 0~608로 간다
@@ -146,7 +149,7 @@ describe('createCapture', () => {
     };
     const { env, capture } = setup({ effect });
     const photo = await capture.take();
-    assert.deepEqual(photo, { url: 'blob:fake/1', width: 576, height: 1024, print, dots: true });
+    assert.deepEqual(photo, { url: 'blob:fake/1', width: 576, height: 1024, print, dots: true, takenAt: TAKEN_AT });
     assert.deepEqual(env2.canvases[0].calls.at(-1), ['toBlob', 'image/png', 0.92]);
     assert.equal(env.liveCanvasCount() + env2.liveCanvasCount(), 0); // 원본·화면용 캔버스 모두 비움
     assert.equal(capture.getStats().livePrints, 1);
@@ -167,7 +170,7 @@ describe('createCapture', () => {
     };
     const { env, capture } = setup({ effect });
     const photo = await capture.take();
-    assert.deepEqual(photo, { url: 'blob:fake/1', width: 1080, height: 1920, print, dots: false });
+    assert.deepEqual(photo, { url: 'blob:fake/1', width: 1080, height: 1920, print, dots: false, takenAt: TAKEN_AT });
     assert.deepEqual(env2.canvases[0].calls.at(-1), ['toBlob', 'image/jpeg', 0.92]);
     assert.equal(env.liveCanvasCount() + env2.liveCanvasCount(), 0);
     assert.equal(capture.getStats().livePrints, 1);
@@ -311,5 +314,15 @@ describe('createCapture: 정지 프레임 거부 (검수 C)', () => {
     const { capture, frame } = setup();
     frame.at = null;
     assert.throws(() => capture.take(), /stale frame/);
+  });
+});
+
+describe('createCapture: 촬영 시각 (IMPRINT 시안)', () => {
+  it('프레임을 잡는 순간의 clock 값을 효과 단계(인쇄 쪽 머리)와 사진(takenAt, 관람객 화면 머리)에 같은 값으로 넘긴다', async () => {
+    const seen = [];
+    const { capture } = setup({ effect: async (canvas, options) => { seen.push(options.takenAt); return canvas; } });
+    const photo = await capture.take();
+    assert.deepEqual(seen, [TAKEN_AT]);
+    assert.equal(photo.takenAt, TAKEN_AT);
   });
 });

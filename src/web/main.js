@@ -27,6 +27,8 @@ import { PanelSection, createOperatorPanel, showsPresenceEditing, showsRawWindow
 import { renderDevPanel } from './ui/dev-panel.js';
 import { guestText } from './config/guest-text.js';
 import { createGuestScreen } from './ui/guest-screen.js';
+import { clipRegionToFrame, photoFrameAspect, photoFrameRows } from './core/photo-frame.js';
+import { IMPRINT_FONTS } from './effect/imprint-page.js';
 
 const stage = document.getElementById('stage');
 const video = document.getElementById('preview');
@@ -43,9 +45,18 @@ const pauseBadge = document.getElementById('pause-badge');
 // S 수동 촬영 시작, X 강제 초기화, P 자동 촬영 일시정지
 const Keys = Object.freeze({ devInfo: 'KeyD', operatorPanel: 'KeyE', start: 'KeyS', reset: 'KeyX', pause: 'KeyP' });
 
-// 관람객 화면 표현 (6-2, 7-2 미니멀). 문구는 config/guest-text.js 한곳에 있고, 상태 상세는 D 키 개발용 정보에만 보인다.
+// 동작 줄이기: 시스템 설정(prefers-reduced-motion)을 :root[data-motion]으로 옮긴다. CSS와 관람객 화면(guest-screen.js)이 이 값 하나를 본다
+const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+const applyMotionPreference = () => { document.documentElement.dataset.motion = reducedMotionQuery.matches ? 'reduce' : 'full'; };
+applyMotionPreference();
+reducedMotionQuery.addEventListener('change', applyMotionPreference);
+
+// 관람객 화면 표현 (IMPRINT 시안, 채택 전). 문구는 config/guest-text.js 한곳에 있고, 상태 상세는 D 키 개발용 정보에만 보인다.
 // 카운트다운 진행선 길이는 회차마다 상태 기계 스냅숏(countdownSeconds)을 따른다
-const guest = createGuestScreen({ root: document, text: guestText, countdownSeconds: config.timing.countdownSeconds });
+const guest = createGuestScreen({
+  root: document, text: guestText, countdownSeconds: config.timing.countdownSeconds,
+  reducedMotion: () => document.documentElement.dataset.motion === 'reduce',
+});
 
 // 기다려도 스스로 풀리기 어려운 카메라 상태는 바로 직원 문의 문구를 보인다. 감지기는 장애(fault)가 그렇다.
 const staffNowStatuses = new Set([CameraStatus.UNSUPPORTED, CameraStatus.PERMISSION_DENIED]);
@@ -79,9 +90,14 @@ const cameraRequestFor = (settings) => ({
 let timingNow = normalizeTimingSettings(config.timing, config.timing).settings;
 // 인식 섹션의 판정값(영역·얼굴 크기·신뢰도). 감지 루프에는 시간 섹션의 반응 시간과 합쳐 넣는다 (presenceSettingsFor)
 let presenceCriteria = config.presence;
-const presenceSettingsFor = () => ({
-  ...presenceCriteria, presentHoldMs: timingNow.presentHoldMs, absentGraceMs: timingNow.absentGraceMs,
-});
+// 사진 틀 (IMPRINT 시안): 얼굴 중심이 사진 틀 밖이면 찍혀도 사진에 얼굴이 없으므로, 인식 영역을 틀 안으로 줄여 판정한다.
+// 저장하는 값(인식 섹션)은 운영자가 정한 영역 그대로이고, 감지 루프에 넣는 값만 줄인다 (D criteria 줄 = 줄인 영역)
+let presenceRegionClipped = false;
+const presenceSettingsFor = () => {
+  const { region, clipped } = clipRegionToFrame(presenceCriteria.region, config.photoFrame);
+  presenceRegionClipped = clipped;
+  return { ...presenceCriteria, region, presentHoldMs: timingNow.presentHoldMs, absentGraceMs: timingNow.absentGraceMs };
+};
 
 const camera = createCameraMonitor({
   video,
@@ -385,6 +401,8 @@ function applyLayout() {
   const { width, height } = config.aspectRatio;
   document.documentElement.style.setProperty('--stage-ratio-w', String(width));
   document.documentElement.style.setProperty('--stage-ratio-h', String(height));
+  document.documentElement.style.setProperty('--frame-top-frac', String(config.photoFrame.top));
+  document.documentElement.style.setProperty('--frame-height-frac', String(config.photoFrame.height));
   updateOperatorRoom();
 }
 
@@ -487,7 +505,8 @@ function presenceDevLines() {
     `faces      : ${d.faces.length} detected, ${accepted} accepted`
       + ` (same-frame skips ${d.skippedSameFrame}, criteria resets ${d.criteriaResets})`,
     `presence   : ${d.present ? 'PRESENT' : 'absent'} (raw ${d.raw ? 'present' : 'absent'}, ${progress})`,
-    `criteria   : region x${region.x} y${region.y} w${region.width} h${region.height},`
+    `criteria   : region x${region.x} y${+region.y.toFixed(4)} w${region.width} h${+region.height.toFixed(4)}`
+      + `${presenceRegionClipped ? ' (clipped to photo frame)' : ''},`
       + ` face ${minFaceHeight}~${maxFaceHeight}, min score ${minScore}, hold ${presentHoldMs}ms, grace ${absentGraceMs}ms`,
     `settings   : ${tuning ? tuning.describeSettingsSource() : 'loading'} (${config.settingsFile.url})`,
   );
@@ -540,10 +559,14 @@ function effectDevLines() {
   } else if (p.last) {
     photo = p.last.status;
   }
-  const photoLine = `photo-fx   : ${photo} (applied ${p.applied}, raw ${p.fellBack})`;
+  // 사진 틀 (IMPRINT 시안): 화면용 사진은 위 그림(9:16)을 틀 줄로 자른 것, 인쇄 데이터는 그 사진 + 머리·꼬리 글자 한 장
+  const photoLine = `photo-fx   : ${photo}${p.last?.frame ? `, frame ${p.last.frame}` : ''} (applied ${p.applied}, raw ${p.fellBack})`;
   const pr = p.last?.print;
+  const layout = pr?.layout === 'imprint'
+    ? ` (imprint: photo ${pr.width}x${pr.photoHeight} at row ${pr.photoTop}${pr.fontsReady === false ? ', FONTS NOT LOADED (system font)' : ''})`
+    : pr ? ` (photo only${pr.imprintError ? `, imprint failed: ${pr.imprintError}` : ''})` : '';
   const printLine = `print      : ${pr
-    ? `${pr.width}x${pr.height} 1-bit, raster ${pr.bytesPerRow}B/row ${pr.rasterBytes}B, png ${pr.pngBytes}B`
+    ? `${pr.width}x${pr.height} 1-bit${layout}, raster ${pr.bytesPerRow}B/row ${pr.rasterBytes}B, png ${pr.pngBytes}B`
       + ` (IHDR depth ${pr.pngBitDepth} color ${pr.pngColorType}), black ${(pr.blackRatio * 100).toFixed(1)}%`
       + `${p.last.printFallback ? `, from photo on CPU (GPU print failed: ${p.last.printFallback})` : ''}`
     : p.last?.printError ? `none (${p.last.printError})` : '-'}`;
@@ -580,6 +603,17 @@ function describeTiming() {
     + ` (${timingTuning ? timingTuning.describeSettingsSource() : 'loading'}, ${config.timingSettingsFile.url})`;
 }
 
+// 사진 틀 (IMPRINT 시안): 화면 높이 대비 줄, 결과 1920줄·인쇄 1024줄에서의 줄 (화면 폭 전체)
+function describePhotoFrame() {
+  const f = config.photoFrame;
+  const aspect = photoFrameAspect(stageAspect, f);
+  const result = photoFrameRows(1920, f);
+  const print = photoFrameRows(1024, f);
+  return `photo ${aspect === 0.8 ? '4:5' : aspect.toFixed(3)} = stage rows ${+f.top.toFixed(4)}-${+(f.top + f.height).toFixed(4)}`
+    + ` (result 1920 -> ${result.top}-${result.top + result.height}, print 1024 -> ${print.top}-${print.top + print.height}),`
+    + ` presence region ${presenceRegionClipped ? 'clipped to frame' : 'inside frame'}`;
+}
+
 function sessionDevLines() {
   const s = session.getState();
   const left = s.endsAt === null ? '' : ` ${Math.max(0, (s.endsAt - performance.now()) / 1000).toFixed(1)}s left`;
@@ -594,6 +628,7 @@ function sessionDevLines() {
     `failures   : ${s.failures} in a row${s.retryAt === null ? '' : `, auto start waits ${Math.max(0, (s.retryAt - performance.now()) / 1000).toFixed(1)}s`}`,
     `ignored    : ${s.lastIgnored || '-'}`,
     `timing     : ${describeTiming()}`,
+    `frame      : ${describePhotoFrame()}`,
     last
       ? `capture    : ${last.width}x${last.height} from video ${last.source}`
         + ` (rotate ${last.view.rotation} zoom ${last.view.zoom.toFixed(2)}${last.view.autoZoom ? ' auto' : ''}`
@@ -612,6 +647,7 @@ const OVERLAY = Object.freeze({
   minGuide: '#8fb6d6', // 최소 얼굴 크기 가이드 (파란색)
   accepted: '#7fcf9c', // 인정된 얼굴
   rejected: '#ff7a6e', // 제외된 얼굴
+  frame: '#d6c08a', // 사진 틀 (IMPRINT 시안: 실제로 찍히는 줄. 인식 영역은 이 안으로 줄여 판정한다)
   outline: 'rgba(16, 16, 16, 0.85)',
 });
 
@@ -632,6 +668,11 @@ function drawPresenceOverlay(ctx, width, height, { guides, scores = true }) {
   };
 
   const { region } = d.settings;
+  // 사진 틀 위·아래 줄 (화면 폭 전체). 감지 박스와 같은 화면 좌표라 원본 창에도 같은 자리
+  ctx.setLineDash([line * 1.5, line * 2.5]);
+  for (const y of [config.photoFrame.top, config.photoFrame.top + config.photoFrame.height]) {
+    strokeBox(0, Math.round(y * height), width, 0, OVERLAY.frame);
+  }
   ctx.setLineDash([line * 4, line * 3]);
   if (guides) {
     // 얼굴 박스는 거의 정사각형이므로 한 변 = 기준 높이 x 9:16 영역 높이(px)인 정사각형으로 보인다.
@@ -832,6 +873,9 @@ window.addEventListener('keydown', (event) => {
 });
 
 applyLayout();
+// 인쇄 쪽 글자(IMPRINT 시안, effect/imprint-page.js)는 캔버스에 그리므로 서체가 미리 불려 있어야 한다 (관람객 화면에는 아직 안 쓰인 크기도)
+Promise.all([IMPRINT_FONTS.sans(22), IMPRINT_FONTS.serif(30)].map((font) => document.fonts.load(font, '0123456789.:AMSTUWDHNOEFRI')))
+  .catch((error) => console.warn('[imprint] print fonts not loaded; print type uses system fonts', error));
 window.addEventListener('resize', updateOperatorRoom);
 camera.subscribe(() => {
   session.setCameraReady(camera.isReady());
