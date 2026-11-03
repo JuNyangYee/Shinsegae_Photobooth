@@ -234,20 +234,38 @@ function connect(url) {
 // ---------- 앱 조작 ----------
 
 function createApp(cdp, origin) {
-  const events = { external: [], csp: [], cspExpected: 0, exceptions: [], console: { error: 0, warning: 0, info: 0, log: 0, other: 0 } };
+  // tail: 실패 진단용 최근 기록 (콘솔·로그 항목·조절값 API 요청과 응답 상태, 시각은 도구 시작 기준). 내용은 글자만이고 영상은 없다
+  const events = { external: [], csp: [], cspExpected: 0, exceptions: [], console: { error: 0, warning: 0, info: 0, log: 0, other: 0 }, tail: [] };
+  const TAIL_MAX = 80;
+  const note = (line) => {
+    events.tail.push(`${elapsed()} ${line}`.slice(0, 400));
+    if (events.tail.length > TAIL_MAX) events.tail.shift();
+  };
+  const apiRequests = new Map(); // requestId → 'METHOD /local-api/...'
   let modelBlocked = false;
 
   cdp.on((data) => {
     if (data.method === 'Network.requestWillBeSent') {
       const url = data.params.request.url;
       if (!url.startsWith(`${origin}/`) && !url.startsWith('blob:') && !url.startsWith('data:')) events.external.push(url);
+      if (url.includes('/local-api/')) apiRequests.set(data.params.requestId, `${data.params.request.method} ${new URL(url).pathname}`);
+      if (data.params.type === 'Document') note(`navigate ${url}`);
+    } else if (data.method === 'Network.responseReceived' && apiRequests.has(data.params.requestId)) {
+      note(`api ${apiRequests.get(data.params.requestId)} -> ${data.params.response.status}`);
+      apiRequests.delete(data.params.requestId);
+    } else if (data.method === 'Network.loadingFailed' && apiRequests.has(data.params.requestId)) {
+      note(`api ${apiRequests.get(data.params.requestId)} -> failed ${data.params.errorText}`);
+      apiRequests.delete(data.params.requestId);
     } else if (data.method === 'Runtime.exceptionThrown') {
       events.exceptions.push(data.params.exceptionDetails.exception?.description ?? data.params.exceptionDetails.text);
+      note(`exception ${events.exceptions.at(-1)}`);
     } else if (data.method === 'Runtime.consoleAPICalled') {
       const type = data.params.type === 'warn' ? 'warning' : data.params.type;
       events.console[type in events.console ? type : 'other'] += 1;
+      note(`console.${data.params.type} ${data.params.args.map((a) => a.value ?? a.description ?? a.type).join(' ')}`);
     } else if (data.method === 'Log.entryAdded') {
       const { text, level } = data.params.entry;
+      if (level === 'error' || level === 'warning') note(`log.${level} ${text}`);
       if (/Content Security Policy/i.test(text)) {
         if (text.includes(EXPECTED_CSP_HOST)) events.cspExpected += 1;
         else events.csp.push(text);
@@ -294,11 +312,21 @@ function createApp(cdp, origin) {
       await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1080, height: 1920, deviceScaleFactor: 1, mobile: false });
     },
     async open() {
+      // 이전 문서에 표시를 남기고, 표시가 없는 새 문서가 다 불러와질 때까지 기다린다. readyState만 보면 새 문서가 자리 잡기 전에
+      // 이전 문서에서 조건이 맞아 D 키·D 글자를 이전 문서에서 다룰 수 있다(10단계: 원인 미확인 실패 한 번의 후보, 로그 2026-11-03-01)
+      const token = `open-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      await evaluate(`window.__photoboothOpen = '${token}'; true`).catch(() => {});
       await cdp.send('Page.navigate', { url: `${origin}/` });
-      await app.waitFor('page loaded', () => evaluate("document.readyState === 'complete' && !!document.getElementById('dev-info')"), 15000);
-      // D 화면(개발용 정보)을 켠다. 새로 열 때마다 꺼진 상태로 시작한다.
-      await app.key('KeyD');
-      await app.waitFor('dev info', async () => (await app.dev()).has('session'), 5000);
+      let previousSeen = false;
+      await app.waitFor('page loaded', async () => {
+        const s = await evaluate(`({ previous: window.__photoboothOpen === '${token}', ready: document.readyState === 'complete' && !!document.getElementById('dev-info') })`);
+        if (s.previous) previousSeen = s.ready; // 이전 문서가 아직 "다 불러온" 상태로 보였다
+        return !s.previous && s.ready;
+      }, 15000);
+      if (previousSeen) log('NOTE open(): previous document still looked loaded right after Page.navigate (waited for the new one)');
+      // D 화면(개발용 정보)을 켠다. 새로 열 때마다 꺼진 상태로 시작한다(켜져 있으면 누르지 않는다)
+      if (await evaluate("document.getElementById('dev-info').hidden")) await app.key('KeyD');
+      await app.waitFor('dev info', async () => !(await evaluate("document.getElementById('dev-info').hidden")) && (await app.dev()).has('session'), 5000);
     },
     async key(code) {
       const key = code.replace(/^Key/, '').toLowerCase();
@@ -773,6 +801,7 @@ const facesXY = (text) => text.split('\n').filter((l) => /^ {2}face \d+/.test(l)
 // ---------- 시나리오 ----------
 
 const results = [];
+let diagApp = null; // 실패 진단용 (runScenarios가 정한다)
 async function scenario(name, run) {
   if (options.only.length > 0 && results.length > 0 && !options.only.some((text) => name.includes(text))) return;
   const started = Date.now();
@@ -783,7 +812,22 @@ async function scenario(name, run) {
   } catch (error) {
     results.push({ name, ok: false, detail: error.message, ms: Date.now() - started });
     log('FAIL', name, '--', error.message);
+    await logDiagnostics();
   }
+}
+
+// 실패하면 그 순간의 D 화면 글자 전체, 관람객 안내, 최근 콘솔·조절값 API 기록을 남긴다 (사진·영상은 남기지 않는다)
+async function logDiagnostics() {
+  if (!diagApp || diagApp.cdp.closed()) return;
+  try {
+    const state = await diagApp.evaluate(`({ url: location.href, ready: document.readyState, devHidden: document.getElementById('dev-info').hidden,
+      panel: !document.getElementById('operator-panel').hidden, status: document.getElementById('status').hidden ? '' : document.getElementById('status').textContent })`);
+    log('DIAG page', JSON.stringify(state));
+    log(`DIAG D screen\n${await diagApp.devText()}`);
+  } catch (error) {
+    log('DIAG page unreadable:', error.message);
+  }
+  log(`DIAG recent events (${diagApp.events.tail.length})\n${diagApp.events.tail.join('\n')}`);
 }
 
 function expect(condition, message) {
@@ -798,6 +842,7 @@ async function waitReady(app) {
 }
 
 async function runScenarios(app, origin) {
+  diagApp = app;
   await scenario('페이지 로드, 카메라 ready, 감지기 ok', async () => {
     await app.setCameraPermission('granted');
     await app.open();
@@ -1637,7 +1682,12 @@ async function runScenarios(app, origin) {
         const file = await getJson(TIMING_SETTINGS_API);
         expect(file.version === 1 && file.settings.countdownSeconds === 5 && file.settings.resultMs === 4000 && file.settings.cooldownMs === 1000
           && file.settings.absentGraceMs === 300 && file.settings.cameraRecovery.retryIntervalMs === 4000, `timing file ${JSON.stringify(file)}`);
-        const tab = await app.evaluate(`document.querySelector('#operator-panel [data-section="timing"]').dataset.save`);
+        // 섹션 버튼의 점은 패널이 300ms마다 섹션의 data-save를 옮겨 그린다(operator-panel.js TAB_REFRESH_MS). 저장 직후 한 번만 읽으면
+        // 이전 값(defaults)을 볼 수 있어 기다린다 (10단계: 원인 확인된 간헐 실패 "timing tab defaults", 로그 2026-11-03-01)
+        const tab = await app.waitFor('timing tab dot saved', async () => {
+          const value = await app.evaluate(`document.querySelector('#operator-panel [data-section="timing"]').dataset.save`);
+          return value === 'saved' ? value : null;
+        }, 1500);
         expect(tab === 'saved', `timing tab ${tab}`);
         details.push(`live: criteria "${live.split(', ').at(-1)}" before saving; saved -> timing.local.json`);
         await app.closePanel();
