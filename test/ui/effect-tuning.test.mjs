@@ -6,7 +6,7 @@ import { afterEach, describe, it } from 'node:test';
 import { config } from '../../src/web/config/config.js';
 import { normalizeEffectSettings } from '../../src/web/config/effect-settings.js';
 import { SettingsSource } from '../../src/web/config/settings-file.js';
-import { createEffectTuning } from '../../src/web/ui/effect-tuning.js';
+import { createEffectTuning, describeComboKo, isUnusedTunable } from '../../src/web/ui/effect-tuning.js';
 import { flush } from '../helpers.mjs';
 
 const defaults = config.effect;
@@ -27,7 +27,11 @@ function setup({ initialSettings = normalizeEffectSettings(defaults, defaults).s
     if (!elements.has(selector)) elements.set(selector, fakeElement());
     return elements.get(selector);
   };
-  const panel = { ...fakeElement(), querySelector: element };
+  const comboButtons = [[false, false], [false, true], [true, false], [true, true]].map(([oil, mono]) => ({
+    dataset: { action: 'combo', oil: String(oil), mono: String(mono) }, attributes: {},
+    setAttribute(name, value) { this.attributes[name] = value; },
+  }));
+  const panel = { ...fakeElement(), querySelector: element, querySelectorAll: () => comboButtons };
   const applied = []; // 미리보기에 넣은 값 (실행 중인 값)
   const preview = {
     setSettings: (settings) => applied.push(settings),
@@ -44,8 +48,18 @@ function setup({ initialSettings = normalizeEffectSettings(defaults, defaults).s
   });
   const saveButton = { dataset: { action: 'save' }, disabled: false };
   const click = (action) => panel.fire('click', { target: { closest: () => (action === 'save' ? saveButton : { dataset: { action } }) } });
+  const pressCombo = (oil, mono) => {
+    const button = comboButtons.find((b) => b.dataset.oil === String(oil) && b.dataset.mono === String(mono));
+    panel.fire('click', { target: { closest: () => button } });
+  };
+  const flip = (key, checked) => {
+    const input = element(`input[data-key="${key}"]`);
+    input.checked = checked;
+    input.fire('change');
+  };
   return {
-    tuning, saves, saveButton, opens, panel,
+    tuning, saves, saveButton, opens, panel, comboButtons, pressCombo, flip,
+    comboInfo: () => element('[data-combo-info]').textContent,
     running: () => applied.at(-1),
     message: () => element('[data-message]').textContent,
     output: (key) => element(`output[data-key="${key}"]`).textContent,
@@ -274,5 +288,84 @@ describe('effect-tuning: 패널이 닫히는 순간 되돌리기 (9단계 검수
     assert.equal(t.tuning.isDirty(), true);
     t.tuning.discardUnsaved();
     assert.deepEqual([t.tuning.isDirty(), t.running().boil], [false, 0.05]);
+  });
+});
+
+describe('effect-tuning 시험 조합 (WISHFUL 시안)', () => {
+  // 현장 저장값과 같은 내용 (유화 켬, 흑백 gray)
+  const site = normalizeEffectSettings({
+    ...defaults, strength: 0.05, size: 0.7, boil: 0, fps: 12, refine: [3.5, 3, 10, 0.6, 0.09], previewScale: 1, outputMode: 'gray',
+    brightness: 0.03, contrast: 1.4, gamma: 1.2,
+  }, defaults).settings;
+
+  it('네 조합 버튼·스위치가 바로 미리보기에 들어가고, 유화 수치·레벨은 그대로이며 눌린 버튼이 표시된다', () => {
+    const t = current = setup({ initialSettings: site });
+    t.tuning.toggle();
+    assert.equal(t.input('oil').checked, true);
+    assert.equal(t.input('mono').checked, true);
+    assert.deepEqual(t.comboButtons.map((b) => b.attributes['aria-pressed']), ['false', 'false', 'false', 'true']);
+    for (const [oil, mono] of [[false, false], [false, true], [true, false], [true, true]]) {
+      t.pressCombo(oil, mono);
+      const r = t.running();
+      assert.deepEqual([r.oil, r.outputMode, r.monoMode], [oil, mono ? 'gray' : 'off', 'gray'], `${oil} ${mono}`);
+      assert.deepEqual([r.strength, r.size, r.boil, r.fps, r.refine[4], r.previewScale, r.brightness, r.contrast, r.gamma],
+        [0.05, 0.7, 0, 12, 0.09, 1, 0.03, 1.4, 1.2]);
+      assert.equal(t.output('oil'), oil ? '켬' : '끔');
+      assert.equal(t.comboButtons.filter((b) => b.attributes['aria-pressed'] === 'true').length, 1);
+    }
+  });
+
+  it('유화를 끄면 유화 수치·흑백 스타일 슬라이더를 막고(값은 그대로), 다시 켜면 풀린다', () => {
+    const t = current = setup({ initialSettings: site });
+    t.tuning.toggle();
+    t.flip('oil', false);
+    assert.equal(t.running().oil, false);
+    for (const key of ['strength', 'size', 'boil', 'grade', 'refineThreshold', 'fps']) {
+      assert.equal(t.input(key).disabled, true, key);
+    }
+    assert.equal(t.output('strength'), '0.05', '값은 보인다');
+    assert.equal(t.input('brightness').disabled, false, '레벨은 흑백에 계속 쓴다');
+    t.flip('oil', true);
+    assert.equal(t.input('strength').disabled, false);
+    assert.equal(t.running().strength, 0.05);
+  });
+
+  it('흑백 스위치를 끄면 컬러(off), 다시 켜면 그 전 흑백 방식. 저장하지 않고 닫으면 저장된 조합으로 되돌린다', () => {
+    const t = current = setup({ initialSettings: site });
+    t.tuning.toggle();
+    t.flip('mono', false);
+    assert.deepEqual([t.running().outputMode, t.running().monoMode], ['off', 'gray']);
+    assert.match(t.comboInfo(), /화면 시험용 컬러\. 인쇄 데이터를 만들지 않는다/);
+    t.flip('mono', true);
+    assert.equal(t.running().outputMode, 'gray');
+    t.pressCombo(false, false);
+    t.tuning.close();
+    assert.deepEqual([t.running().oil, t.running().outputMode], [true, 'gray'], '저장 안 한 조합은 닫으면 취소');
+  });
+
+  it('조합을 저장하면 파일 값에 oil·monoMode가 들어가고, 취소는 저장된 조합·기본값은 유화 흑백(회색조 유화)', async () => {
+    const t = current = setup({ initialSettings: site });
+    t.tuning.toggle();
+    t.pressCombo(false, true);
+    t.click('save');
+    assert.deepEqual([t.saves[0].settings.oil, t.saves[0].settings.outputMode], [false, 'gray']);
+    t.saves[0].resolve();
+    await flush();
+    t.pressCombo(true, false);
+    t.click('revert');
+    assert.deepEqual([t.running().oil, t.running().outputMode], [false, 'gray']);
+    t.click('defaults');
+    assert.deepEqual([t.running().oil, t.running().outputMode, t.running().strength], [true, 'gray-oil', 0.3]);
+  });
+
+  it('안내 문구: 인쇄 데이터는 회색조 유화·감열지만 만든다', () => {
+    const v = (over) => normalizeEffectSettings({ ...defaults, ...over }, defaults).settings;
+    assert.match(describeComboKo(v({})), /^유화 · 흑백 \(입력 흑백 \+ 인쇄 데이터\) — 촬영 때 인쇄 데이터/);
+    assert.match(describeComboKo(v({ oil: false, outputMode: 'thermal' })), /^원본 · 흑백 \(감열지 1비트 점\)/);
+    assert.match(describeComboKo(v({ outputMode: 'gray' })), /인쇄 데이터 없음/);
+    assert.match(describeComboKo(v({ outputMode: 'off', monoMode: 'gray' })), /^유화 · 컬러 — 화면 시험용 컬러.*흑백을 켜면 회색조\)$/);
+    // 유화 끔 감열지: 붓 결 선이 저장돼 있어도 점 방식은 쓴다 (톤 점)
+    assert.equal(isUnusedTunable('dither', v({ oil: false, outputMode: 'thermal', bwStyle: 'stroke' })), false);
+    assert.equal(isUnusedTunable('dither', v({ oil: true, outputMode: 'thermal', bwStyle: 'stroke' })), true);
   });
 });

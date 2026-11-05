@@ -338,8 +338,29 @@
     <section id="effect-panel" class="op-section" data-section-panel="effect" data-save="saved" aria-label="필터" hidden>
       <p class="op-live" data-live></p>
       <div class="op-body">
+        <!-- 시험 조합 (WISHFUL HOLIDAY 시안, 운영자용): 유화·흑백을 따로 켜고 끈다. 미리보기와 촬영 결과에 같이 적용되고, 저장해야 남는다 -->
+        <fieldset class="op-group op-combo">
+          <legend>시험 조합 <small>미리보기·촬영 결과에 같이 적용 · 저장해야 남는다</small></legend>
+          <div class="op-combo-grid" role="group" aria-label="유화·흑백 네 조합">
+            <button type="button" data-action="combo" data-oil="false" data-mono="false" aria-pressed="false"><b>원본</b><small>컬러</small></button>
+            <button type="button" data-action="combo" data-oil="false" data-mono="true" aria-pressed="false"><b>원본</b><small>흑백</small></button>
+            <button type="button" data-action="combo" data-oil="true" data-mono="false" aria-pressed="false"><b>유화</b><small>컬러</small></button>
+            <button type="button" data-action="combo" data-oil="true" data-mono="true" aria-pressed="false"><b>유화</b><small>흑백</small></button>
+          </div>
+          <label class="op-row op-switch-row">
+            <span class="op-label">유화 필터<small>끄면 아래 유화 수치는 그대로 두고(다시 켜면 그 값) 카메라 그림에 출력 단계만</small></span>
+            <input type="checkbox" class="op-switch" role="switch" data-key="oil">
+            <span class="op-value"><output data-key="oil"></output></span>
+          </label>
+          <label class="op-row op-switch-row">
+            <span class="op-label">흑백<small>끄면 컬러(화면 시험용, 인쇄 데이터 없음). 켜면 출력 모드의 흑백 방식으로 돌아온다</small></span>
+            <input type="checkbox" class="op-switch" role="switch" data-key="mono">
+            <span class="op-value"><output data-key="mono"></output></span>
+          </label>
+          <p class="op-readout op-combo-info" data-combo-info></p>
+        </fieldset>
         <fieldset class="op-group">
-          <legend>효과 <small>유화 · 획</small></legend>
+          <legend>효과 <small>유화 · 획 (유화 필터를 끄면 쓰지 않음)</small></legend>
           <label class="op-row">
             <span class="op-label">강도<small>요철·광택·캔버스 결의 세기</small></span>
             <input type="range" data-key="strength">
@@ -369,12 +390,12 @@
         <fieldset class="op-group">
           <legend>출력 단계 <small>화면 표시와 인쇄용 1비트</small></legend>
           <label class="op-row">
-            <span class="op-label">출력 모드<small>회색조 유화 = 흑백 위에 유화(인쇄 1비트는 촬영 때 따로). 감열지 = 화면도 1비트 점</small></span>
+            <span class="op-label">출력 모드 (흑백 방식)<small>회색조 유화 = 입력을 흑백으로(인쇄 1비트는 촬영 때 따로). 감열지 = 화면도 1비트 점. 컬러 = 흑백 끔</small></span>
             <select data-key="outputMode">
-              <option value="gray-oil">회색조 유화 (흑백 → 유화)</option>
-              <option value="thermal">감열지 (1비트 점)</option>
-              <option value="gray">회색조 (컬러 유화를 회색으로)</option>
-              <option value="off">끔 (컬러 유화)</option>
+              <option value="gray-oil">회색조 유화 (입력 흑백 · 인쇄 데이터)</option>
+              <option value="thermal">감열지 (1비트 점 · 인쇄 데이터)</option>
+              <option value="gray">회색조 (컬러를 회색으로 · 인쇄 데이터 없음)</option>
+              <option value="off">컬러 (흑백 끔 · 화면 시험용)</option>
             </select>
             <span class="op-value"><output data-key="outputMode"></output></span>
           </label>

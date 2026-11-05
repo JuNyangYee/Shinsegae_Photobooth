@@ -6,10 +6,16 @@
 // 흑백 스타일(7-1): 스타일은 선택 상자, 질감 세기·선 간격은 슬라이더. 감열지에서만 쓰고, 스타일에 따라 쓰지 않는 항목을 막는다.
 // 회색조 유화(8단계 기본 모드): 흑백 스타일 항목은 막고, 점 방식·용지 폭은 결과의 인쇄용 1비트 데이터에 쓰므로 연다.
 // 좌우 반전(2026-10-26 ~ 9-1에는 여기 "카메라" 묶음)은 카메라 섹션으로 옮겼다 (camera-tuning.js, config/camera-settings.js).
+// 시험 조합 (WISHFUL HOLIDAY 시안, 검토 중): 섹션 맨 위에 "유화 필터"·"흑백" 스위치와 네 조합 버튼(원본·유화 × 컬러·흑백).
+// 다른 값과 똑같이 즉시 미리보기에 반영되고(셔터 결과도 같은 값), 저장해야 파일에 남으며, 닫으면 저장하지 않은 조합은 되돌린다.
+// 유화를 꺼도 유화 수치는 지우지 않고 막아 둘 뿐이고(다시 켜면 그 값), 흑백을 끄면 지금 흑백 방식(출력 모드)을 기억했다가 켤 때 돌려준다.
+// 컬러는 화면 시험용이다: 인쇄 데이터는 흑백 방식이 회색조 유화·감열지일 때만 만든다(회색조도 만들지 않는다, 예전 그대로).
 // Node 테스트: test/ui/effect-tuning.test.mjs
 
 import {
   applyEffectTunables,
+  comboTunables,
+  effectCombo,
   effectLimits,
   effectTunables,
   normalizeEffectSettings,
@@ -45,6 +51,8 @@ const LEVEL_KEYS = new Set(['brightness', 'contrast', 'gamma']); // 회색조 �
 const PRINT_KEYS = new Set(['dither', 'paperDots']); // 1비트를 만드는 감열지·회색조 유화(결과의 인쇄 데이터, 8단계)에서 쓴다
 const BW_STYLE_KEYS = new Set(['bwStyle', 'bwTexture', 'lineSpacing']); // 감열지에서만 쓴다
 const LINE_STYLES = new Set(['flow', 'stroke']); // 점 방식 대신 선으로 점을 정하는 흑백 스타일 (7-1)
+// 유화를 끄면 쓰지 않는 값 (시험 조합). 값은 그대로 남는다. 초당 그림도 유화 끔에서는 30장으로 고정이라 쓰지 않는다
+const OIL_KEYS = new Set(['strength', 'size', 'boil', 'grade', 'refineThreshold', 'fps']);
 
 /**
  * 이 값들에서 쓰지 않는 항목인지 (막는다): 감열지가 아니면 흑백 스타일 항목, 회색조·끔이면 점 방식·용지 폭도.
@@ -52,14 +60,27 @@ const LINE_STYLES = new Set(['flow', 'stroke']); // 점 방식 대신 선으로 
  */
 export function isUnusedTunable(key, values) {
   const mode = values.outputMode;
+  const oil = values.oil !== false;
+  if (!oil && (OIL_KEYS.has(key) || BW_STYLE_KEYS.has(key))) return true; // 유화 끔: 획이 없어 흑백 스타일도 톤 점
   if (BW_STYLE_KEYS.has(key) && mode !== 'thermal') return true;
   if (PRINT_KEYS.has(key) && mode !== 'thermal' && mode !== 'gray-oil') return true;
   if (key === 'bwTexture') return values.bwStyle === 'tone';
   if (key === 'lineSpacing') return !LINE_STYLES.has(values.bwStyle);
-  if (key === 'dither') return mode === 'thermal' && LINE_STYLES.has(values.bwStyle);
+  if (key === 'dither') return mode === 'thermal' && oil && LINE_STYLES.has(values.bwStyle);
   return false;
 }
 const OUTPUT_LABELS = Object.freeze({ 'gray-oil': '회색조 유화', thermal: '감열지', gray: '회색조', off: '컬러' });
+// 흑백 방식 이름 (시험 조합 안내). 회색조 유화는 "입력 흑백 → (유화) → 회색"이라 유화를 끄면 "입력 흑백"
+const MONO_LABELS = Object.freeze({ 'gray-oil': '입력 흑백 + 인쇄 데이터', thermal: '감열지 1비트 점', gray: '회색조 (인쇄 데이터 없음)' });
+
+/** 시험 조합 한 줄 안내 (운영자용): 지금 조합, 흑백 방식, 인쇄 데이터를 만드는지 */
+export function describeComboKo(values) {
+  const { oil, mono } = effectCombo(values);
+  const look = `${oil ? '유화' : '원본'} · ${mono ? '흑백' : '컬러'}`;
+  if (!mono) return `${look} — 화면 시험용 컬러. 인쇄 데이터를 만들지 않는다 (흑백을 켜면 ${OUTPUT_LABELS[values.monoMode]})`;
+  const print = values.outputMode === 'gray' ? '인쇄 데이터 없음 (회색조는 예전부터 만들지 않는다)' : '촬영 때 인쇄 데이터(감열지 1비트)를 만든다';
+  return `${look} (${MONO_LABELS[values.outputMode]}) — ${print}`;
+}
 const DITHER_LABELS = Object.freeze({
   'blue-noise': '블루 노이즈', bayer: 'Bayer', atkinson: 'Atkinson', 'floyd-steinberg': 'Floyd–Steinberg',
 });
@@ -85,6 +106,12 @@ export function createEffectTuning({ panel, preview, defaults, initial, saveSett
   const selects = new Map(SELECTS.map(([key, parse]) => [key, {
     select: panel.querySelector(`select[data-key="${key}"]`), output: panel.querySelector(`output[data-key="${key}"]`), parse,
   }]));
+  // 시험 조합 스위치 둘(체크 상자)과 네 조합 버튼, 안내 한 줄
+  const switches = new Map(['oil', 'mono'].map((key) => [key, {
+    input: panel.querySelector(`input[data-key="${key}"]`), output: panel.querySelector(`output[data-key="${key}"]`),
+  }]));
+  const comboButtons = [...(panel.querySelectorAll?.('button[data-action="combo"]') ?? [])];
+  const comboInfo = panel.querySelector('[data-combo-info]');
 
   const baseDefaults = normalizeEffectSettings(defaults, defaults).settings;
   const loaded = initial;
@@ -132,6 +159,16 @@ export function createEffectTuning({ panel, preview, defaults, initial, saveSett
       select.disabled = isUnusedTunable(key, values);
       if (output) output.textContent = key === 'paperDots' ? `${values.paperDots}점` : '';
     }
+    const combo = effectCombo(values);
+    for (const [key, { input, output }] of switches) {
+      if (input) input.checked = combo[key];
+      if (output) output.textContent = combo[key] ? '켬' : '끔';
+    }
+    for (const button of comboButtons) {
+      const pressed = String(combo.oil) === button.dataset.oil && String(combo.mono) === button.dataset.mono;
+      button.setAttribute('aria-pressed', String(pressed));
+    }
+    if (comboInfo) comboInfo.textContent = describeComboKo(values);
     renderSaveState();
   }
 
@@ -139,7 +176,7 @@ export function createEffectTuning({ panel, preview, defaults, initial, saveSett
     const e = preview.getState();
     const ms = e.cpuAvgMs === null ? '-' : `${e.cpuAvgMs.toFixed(1)}ms`;
     const fmt = (value) => (value === null || value === undefined ? '-' : `${value.toFixed(1)}ms`);
-    let output = ` · ${OUTPUT_LABELS[e.outputMode] ?? ''}`;
+    let output = ` · ${e.oil === false ? '유화 끔 · ' : ''}${OUTPUT_LABELS[e.outputMode] ?? ''}`;
     if (e.outputMode === 'thermal' && e.printWidth) {
       output = ` · 감열지 ${e.printWidth}x${e.printHeight} ${e.screen ?? e.dither}${e.readMs === null ? '' : ` (읽기 ${fmt(e.readMs)}, 디더 ${fmt(e.ditherMs)})`}`;
     } else if (e.outputMode === 'gray-oil') {
@@ -197,6 +234,15 @@ export function createEffectTuning({ panel, preview, defaults, initial, saveSett
     });
   }
 
+  function setCombo(combo) {
+    apply(applyEffectTunables(current, comboTunables(current, combo), defaults).settings);
+    showMessage('');
+  }
+
+  for (const [key, { input }] of switches) {
+    input?.addEventListener('change', () => setCombo({ [key]: input.checked === true }));
+  }
+
   for (const [key, { select, parse }] of selects) {
     select.addEventListener('change', () => {
       apply(applyEffectTunables(current, { [key]: parse(select.value) }, defaults).settings);
@@ -207,6 +253,11 @@ export function createEffectTuning({ panel, preview, defaults, initial, saveSett
   panel.addEventListener('click', async (event) => {
     const action = event.target.closest('button[data-action]')?.dataset.action;
     if (!action) return;
+    if (action === 'combo') {
+      const { oil, mono } = event.target.closest('button[data-action]').dataset;
+      setCombo({ oil: oil === 'true', mono: mono === 'true' });
+      return;
+    }
     if (action === 'save') {
       if (saving) return;
       saving = true;
