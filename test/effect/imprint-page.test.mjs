@@ -6,7 +6,7 @@ import { describe, it } from 'node:test';
 
 import { guestText } from '../../src/web/config/guest-text.js';
 import { imprintLayout } from '../../src/web/core/imprint.js';
-import { IMPRINT_FONTS, createImprintPage } from '../../src/web/effect/imprint-page.js';
+import { IMPRINT_FONTS, createImprintPage, imprintTypeSizes } from '../../src/web/effect/imprint-page.js';
 
 // fillText마다 글자 자리 한 화소(기준선 바로 위)를 검게 칠하는 흉내 2D 캔버스
 function fakeTextCanvas(log) {
@@ -30,7 +30,7 @@ function fakeTextCanvas(log) {
 const stamp = { date: '2026.11.03', weekday: 'TUE', time: '18:42:07' };
 
 describe('createImprintPage', () => {
-  it('머리(날짜·요일 왼쪽, 시각 오른쪽) → 사진 줄 → 꼬리(세리프 문장 왼쪽, 용지 폭 오른쪽)를 한 장의 1비트로 짠다', () => {
+  it('머리(표제 왼쪽, 날짜 오른쪽) → 사진 줄 → 꼬리(필기체 왼쪽, 시각·용지 폭 오른쪽)를 한 장의 1비트로 짠다 (WISHFUL 시안)', () => {
     const log = [];
     const canvases = [];
     const page = createImprintPage({
@@ -51,10 +51,11 @@ describe('createImprintPage', () => {
     assert.equal(out.mask[(layout.footer.baseline - 1) * 576 + layout.marginX], 0, '꼬리 왼쪽 글자 자리');
     const texts = log.filter((op) => op[0] === 'fillText');
     assert.deepEqual(texts.map((op) => [op[1], op[5]]), [
-      ['2026.11.03  TUE', 'left'], ['18:42:07', 'right'], [guestText.print.line, 'left'], ['80 MM', 'right'],
+      ['A WISHFUL HOLIDAY', 'left'], ['2026.11.03', 'right'], ['Puuvilla Story Begins', 'left'], ['18:42:07  ·  80 MM', 'right'],
     ]);
+    assert.deepEqual(imprintTypeSizes(layout), { title: 24, date: 20, script: 34, time: 16 });
     assert.deepEqual(texts.map((op) => op[4]), [
-      IMPRINT_FONTS.sans(22), IMPRINT_FONTS.sans(22), IMPRINT_FONTS.serif(30), IMPRINT_FONTS.sans(16),
+      IMPRINT_FONTS.display(24), IMPRINT_FONTS.sans(20), IMPRINT_FONTS.script(34), IMPRINT_FONTS.sans(16),
     ]);
     assert.deepEqual(log[0], ['fillRect', 0, 0, 576, 912, '#ffffff']);
     assert.deepEqual([canvases[0].width, canvases[0].height], [0, 0], '캔버스는 비운다');

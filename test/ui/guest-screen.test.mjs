@@ -194,7 +194,7 @@ describe('guest-screen: 3·2·1', () => {
     assert.equal(t.el('countdown').hidden, false);
     assert.equal(t.el('countdown-number').textContent, '3');
     assert.equal(t.el('countdown-caption').textContent, guestText.countdown.ko.replace('\n', '') + guestText.countdown.en);
-    assert.deepEqual(t.el('countdown-caption').children.map((c) => c.className), ['line is-ko', 'line is-ko', 'line is-en']);
+    assert.deepEqual(t.el('countdown-caption').children.map((c) => c.className), ['line is-ko', 'line is-en'], 'WISHFUL: 안내 한 줄 + 영어 줄 (숫자는 위 띠)');
     const progress = t.el('countdown-progress-fill').animations;
     assert.equal(progress.length, 1);
     assert.equal(progress[0].options.duration, 3000);

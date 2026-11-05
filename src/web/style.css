@@ -1,6 +1,7 @@
-/* 서체 (7-2). 저장소 안 파일만 쓴다 (CSP, 오프라인). 라이선스: SIL Open Font License 1.1 (assets/fonts/OFL-*.txt)
-   본문: Pretendard 1.3.9 공식 부분 집합(한글 2,780자 + 영숫자·기호). 그 밖의 글자는 시스템 서체로 보인다.
-   제목·숫자: Noto Serif KR 2.003 Light를 관람객 문구(config/guest-text.js)의 글자 + 영숫자로 줄인 것 (docs/SYSTEM.md 3절) */
+/* 서체. 저장소 안 파일만 쓴다 (CSP, 오프라인). 라이선스: SIL Open Font License 1.1 (assets/fonts/OFL-*.txt)
+   본문(한국어): Pretendard 1.3.9 공식 부분 집합(한글 2,780자 + 영숫자·기호). 그 밖의 글자는 시스템 서체로 보인다.
+   준비 중 제목: Noto Serif KR 2.003 Light 부분 집합 (IMPRINT 때 줄인 것 그대로).
+   WISHFUL HOLIDAY 시안(검토 중): 표제·영어 줄·숫자 Cinzel 400·600, 필기체 Pinyon Script 400 — @fontsource 5.3.0의 latin 부분 집합 woff2 그대로 (docs/SYSTEM.md 3절) */
 @font-face {
   font-family: 'Pretendard';
   src: url('assets/fonts/Pretendard-Regular.subset.woff2') format('woff2');
@@ -25,20 +26,55 @@
   font-display: swap;
 }
 
+@font-face {
+  font-family: 'Cinzel';
+  src: url('assets/fonts/Cinzel-Regular.latin.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Cinzel';
+  src: url('assets/fonts/Cinzel-SemiBold.latin.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Pinyon Script';
+  src: url('assets/fonts/PinyonScript-Regular.latin.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* 화면 비율·사진 틀은 main.js가 config.js 값으로 덮어쓴다. */
 :root {
   --stage-ratio-w: 9;
   --stage-ratio-h: 16;
-  /* 사진 틀 (IMPRINT 시안): 화면 높이 대비 위끝·높이 = config.photoFrame (7/64, 45/64) */
-  --frame-top-frac: 0.109375;
+  /* 사진 틀 (WISHFUL 시안): 화면 높이 대비 위끝·높이 = config.photoFrame (10/64, 45/64) */
+  --frame-top-frac: 0.15625;
   --frame-height-frac: 0.703125;
-  /* 관람객 화면 (IMPRINT 시안, 가안): 흑백 사진·감열지에 맞춘 무채색. 강조색은 쓰지 않는다 */
+  /* 관람객 화면 (WISHFUL HOLIDAY 시안, 가안): 키비주얼의 크리스마스 레드 · 금박 · 눈 */
+  --font-display: 'Cinzel', 'Times New Roman', serif;
+  --font-script: 'Pinyon Script', cursive;
   --font-serif: 'Noto Serif KR', serif;
   --font-sans: 'Pretendard', system-ui, sans-serif;
-  --white: #f4f2ee; /* 오프화이트: 영상 위 글자·선 */
-  --paper: #efede8; /* 결과 화면 종이 */
-  --ink: #151515; /* 종이 위 글자·선 */
-  --charcoal: #1a1a1a; /* 화면 바탕, 운영자 표시 */
+  --red-deep: #4e050c; /* 카드 가장자리·창 바탕 */
+  --red-dark: #840b15;
+  --red: #b3121c; /* 카드 가운데 */
+  --red-glow: #dc2f2c; /* 표제 뒤 은은한 빛 */
+  --gold-hi: #fdf0c8;
+  --gold: #e6c47a; /* 금박 대표색: 가는 선·작은 글자 */
+  --gold-lo: #a6772c;
+  --gold-foil: linear-gradient(178deg, #fff6d8 0%, #f3d995 26%, #d8ad5a 48%, #b9893a 53%, #e3c27a 74%, #fbecbf 100%);
+  --cream: #fbf3e6; /* 붉은 카드 위 한국어 글자 */
+  --snow: #fffdf9; /* 결과의 눈 쌓인 띠 */
+  --ink-red: #7a0b14; /* 눈 띠 위 글자 */
+  --charcoal: #1a1a1a; /* 운영자 표시 */
+  --white: #f4f2ee; /* 운영자 표시·조절 영역 선 */
   --hairline: 0.0926cqw; /* 1080 폭에서 1px */
   --ease-set: cubic-bezier(0.16, 1, 0.3, 1); /* 글자를 짜 넣는 움직임: 빠르게 들어와 천천히 자리 잡는다 */
 }
@@ -64,7 +100,7 @@ body {
   width: min(100vw, 100vh * var(--stage-ratio-w) / var(--stage-ratio-h));
   aspect-ratio: var(--stage-ratio-w) / var(--stage-ratio-h);
   overflow: hidden;
-  background: var(--charcoal);
+  background: var(--red-deep);
   container-type: inline-size;
 }
 
@@ -95,11 +131,11 @@ body {
   display: none;
 }
 
-/* ---- 관람객 화면 (IMPRINT, 사용자 채택 2026-11-03, ui/guest-screen.js). 화면을 활자로 짠 한 쪽으로 다룬다.
-   9:16 화면 안의 사진 틀(4:5, --frame-*)이 실제로 찍히는 곳이고, 틀 밖 위·아래 여백은 영상을 어둡게 눌러 글자 자리로 쓴다.
-   글자·숫자는 여백에만 있어 촬영 중 얼굴·몸을 가리지 않는다. 무채색, 장식 없음, 가는 선과 서체(한국어 Pretendard,
-   영어·숫자 Noto Serif KR Light의 라틴 글자)만. 움직임은 transform·opacity만 쓰고, 동작 줄이기(:root[data-motion="reduce"])에서는
-   위치 움직임 없이 짧은 투명도만 남긴다. ---- */
+/* ---- 관람객 화면 (WISHFUL HOLIDAY 시안, 검토 중 — ui/guest-screen.js). 키비주얼 "A WISHFUL HOLIDAY / Puuvilla Story Begins".
+   화면 = 붉은 크리스마스 카드 한 장. 가운데 사진 창(4:5, --frame-*)이 실제로 찍히는 곳이고, 창 위 띠에 필기체 + 금박 세리프 표제
+   (카운트다운 동안은 큰 3·2·1), 창 아래 띠에 한국어 안내 + 작은 대문자 영어 줄 + 날짜·시각. 창 안에는 글자·눈송이·장식을 두지 않는다
+   (보이는 그대로 찍힌다). 눈송이는 띠 안에서만 내린다. 솜송이(흰 털뭉치)는 창 윗선에 앉아 인식·셔터·결과·준비 중에 반응한다.
+   움직임은 transform·opacity만(결과 때 표제 금박 위로 한 번 지나가는 빛만 예외), 동작 줄이기(:root[data-motion="reduce"])에서는 늘 도는 움직임을 멈춘다. ---- */
 
 .stage {
   /* 틀 위치 (화면 폭 기준 cqw). --frame-top-frac·--frame-height-frac는 main.js가 config.photoFrame으로 덮어쓴다 */
@@ -107,8 +143,8 @@ body {
   --frame-top: calc(var(--stage-h) * var(--frame-top-frac));
   --frame-h: calc(var(--stage-h) * var(--frame-height-frac));
   --frame-bottom: calc(var(--frame-top) + var(--frame-h));
-  --pad: 6.6667cqw; /* 1080 폭 72px: 글자 왼쪽·오른쪽 여백 */
-  --gap: 4.6296cqw; /* 1080 폭 50px: 틀 선과 글자 사이 */
+  --pad: 6.6667cqw; /* 1080 폭 72px */
+  --gap: 3.7037cqw; /* 1080 폭 40px: 창 금선과 글자 사이 */
   --rule: calc(var(--hairline) * 2);
 }
 
@@ -123,12 +159,19 @@ body {
   transition: opacity 0.5s ease;
 }
 
-/* 틀 밖 여백: 영상은 그대로 비치되 어둡게 (어디까지 찍히는지 보이고, 흰 글자가 읽힌다) */
+/* 카드 띠: 위·아래가 한 장의 카드처럼 이어지게 같은 배경을 화면 크기로 깔고 자리만 옮긴다. 금가루는 고정, 눈은 아래 .snow */
 .frame-margin {
   left: 0;
   right: 0;
-  background: rgba(10, 10, 10, 0.74);
-  transition: opacity 0.8s ease, background-color 0.8s ease;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 31% 37%, rgba(255, 228, 165, 0.85) 0 0.09cqw, transparent 0.17cqw),
+    radial-gradient(circle at 73% 71%, rgba(255, 228, 165, 0.6) 0 0.07cqw, transparent 0.14cqw),
+    radial-gradient(circle at 12% 84%, rgba(255, 244, 214, 0.45) 0 0.06cqw, transparent 0.12cqw),
+    radial-gradient(64% 22% at 50% 7%, rgba(220, 47, 44, 0.75), transparent 72%),
+    radial-gradient(130% 70% at 50% 46%, var(--red) 0%, var(--red-dark) 58%, var(--red-deep) 100%);
+  background-size: 11cqw 9cqw, 17cqw 13cqw, 23cqw 19cqw, 100cqw var(--stage-h), 100cqw var(--stage-h);
+  background-repeat: repeat, repeat, repeat, no-repeat, no-repeat;
 }
 
 .frame-margin.is-top {
@@ -139,24 +182,71 @@ body {
 .frame-margin.is-bottom {
   top: var(--frame-bottom);
   bottom: 0;
+  background-position: 0 0, 0 0, 0 0, 0 calc(-1 * var(--frame-bottom)), 0 calc(-1 * var(--frame-bottom));
 }
 
-.stage[data-phase="countdown"] .frame-margin,
-.stage[data-phase="capturing"] .frame-margin {
-  background: rgba(10, 10, 10, 0.86);
+/* 눈송이 두 겹 (띠 안에서만). 무늬 한 칸(--tile)만큼 내려가면 처음과 같은 그림이라 끊김 없이 되풀이한다 */
+.snow {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(-1 * var(--tile));
+  bottom: 0;
+  background-size: var(--tile) var(--tile);
+  animation: snow-fall var(--fall) linear infinite;
+  will-change: transform;
 }
 
-/* 위·아래 틀 선. 아래 선은 카운트다운·쿨타임 진행선을 겸한다 (#countdown-progress-fill·#cooldown-progress-fill, 왼쪽에서 차오른다) */
+.snow.is-far {
+  --tile: 19cqw;
+  --fall: 15s;
+  opacity: 0.55;
+  background-image:
+    radial-gradient(circle at 18% 22%, #fff 0 0.2cqw, transparent 0.32cqw),
+    radial-gradient(circle at 64% 9%, #fff 0 0.16cqw, transparent 0.28cqw),
+    radial-gradient(circle at 83% 58%, #fff 0 0.22cqw, transparent 0.34cqw),
+    radial-gradient(circle at 38% 71%, #fff 0 0.15cqw, transparent 0.26cqw),
+    radial-gradient(circle at 6% 93%, #fff 0 0.18cqw, transparent 0.3cqw);
+}
+
+.snow.is-near {
+  --tile: 31cqw;
+  --fall: 10s;
+  opacity: 0.72;
+  background-image:
+    radial-gradient(circle at 27% 15%, rgba(255, 255, 255, 0.95) 0 0.42cqw, transparent 0.7cqw),
+    radial-gradient(circle at 76% 44%, rgba(255, 255, 255, 0.9) 0 0.34cqw, transparent 0.62cqw),
+    radial-gradient(circle at 51% 86%, rgba(255, 255, 255, 0.8) 0 0.5cqw, transparent 0.85cqw);
+}
+
+@keyframes snow-fall {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(0, var(--tile), 0); }
+}
+
+/* 창 위·아래 금선. 위는 두 줄(카드의 이중 괘선), 아래 선은 카운트다운·쿨타임 진행선을 겸한다 (왼쪽에서 차오른다) */
 .frame-rule {
   left: 0;
   right: 0;
   height: var(--rule);
   overflow: hidden;
-  background: rgba(244, 242, 238, 0.26);
+  background: rgba(230, 196, 122, 0.5);
 }
 
 .frame-rule.is-top {
   top: calc(var(--frame-top) - var(--rule));
+  overflow: visible;
+  background: var(--gold);
+}
+
+.frame-rule.is-top::before {
+  content: '';
+  position: absolute;
+  left: var(--pad);
+  right: var(--pad);
+  top: -0.8333cqw;
+  height: var(--hairline);
+  background: linear-gradient(90deg, transparent, rgba(230, 196, 122, 0.75) 12%, rgba(230, 196, 122, 0.75) 88%, transparent);
 }
 
 .frame-rule.is-bottom {
@@ -166,26 +256,26 @@ body {
 .frame-rule .rule-fill {
   position: absolute;
   inset: 0;
-  background: var(--white);
+  background: linear-gradient(90deg, var(--gold-lo), var(--gold-hi) 70%, var(--gold));
   transform: scaleX(0);
   transform-origin: left center;
 }
 
-/* 네 모서리 표시 (틀 안쪽 L자). 인식되면 또렷해지며 조금 안으로 모이고, 셔터 순간 제자리로 튄다 */
+/* 창 네 모서리 금 표시 (창 안쪽 L자). 인식되면 또렷해지며 조금 안으로 모이고, 셔터 순간 제자리로 튄다 */
 .frame-corner {
-  width: 5.5556cqw;
-  height: 5.5556cqw;
-  border: 0 solid var(--white);
-  opacity: 0.38;
+  width: 4.6296cqw;
+  height: 4.6296cqw;
+  border: 0 solid var(--gold);
+  opacity: 0.5;
   transition: transform 0.7s var(--ease-set), opacity 0.6s ease;
 }
 
-.frame-corner.is-tl { left: 3.7037cqw; top: calc(var(--frame-top) + 3.7037cqw); border-width: 0.2778cqw 0 0 0.2778cqw; }
-.frame-corner.is-tr { right: 3.7037cqw; top: calc(var(--frame-top) + 3.7037cqw); border-width: 0.2778cqw 0.2778cqw 0 0; }
-.frame-corner.is-bl { left: 3.7037cqw; top: calc(var(--frame-bottom) - 9.2593cqw); border-width: 0 0 0.2778cqw 0.2778cqw; }
-.frame-corner.is-br { right: 3.7037cqw; top: calc(var(--frame-bottom) - 9.2593cqw); border-width: 0 0.2778cqw 0.2778cqw 0; }
+.frame-corner.is-tl { left: 3.2407cqw; top: calc(var(--frame-top) + 3.2407cqw); border-width: 0.2778cqw 0 0 0.2778cqw; }
+.frame-corner.is-tr { right: 3.2407cqw; top: calc(var(--frame-top) + 3.2407cqw); border-width: 0.2778cqw 0.2778cqw 0 0; }
+.frame-corner.is-bl { left: 3.2407cqw; top: calc(var(--frame-bottom) - 7.8704cqw); border-width: 0 0 0.2778cqw 0.2778cqw; }
+.frame-corner.is-br { right: 3.2407cqw; top: calc(var(--frame-bottom) - 7.8704cqw); border-width: 0 0.2778cqw 0.2778cqw 0; }
 
-.stage.is-present .frame-corner { opacity: 1; }
+.stage.is-present .frame-corner { opacity: 1; border-color: var(--gold-hi); }
 .stage.is-present .frame-corner.is-tl { transform: translate(1.2963cqw, 1.2963cqw); }
 .stage.is-present .frame-corner.is-tr { transform: translate(-1.2963cqw, 1.2963cqw); }
 .stage.is-present .frame-corner.is-bl { transform: translate(1.2963cqw, -1.2963cqw); }
@@ -196,30 +286,173 @@ body {
   transition-duration: 0.14s, 0.3s;
 }
 
-/* 준비 중·직원 문의: 틀을 숨긴다 (바탕 막 위에는 머리와 안내만) */
+/* 준비 중·직원 문의: 카드 창을 숨긴다 (바탕 막 위에는 표제·솜송이·날짜와 안내만) */
 .stage:has(#status-veil:not([hidden])) .frame {
   opacity: 0;
 }
 
-/* 머리: 위 여백 아래쪽에 날짜·요일(왼쪽)과 시각(오른쪽). 틀 선과의 간격이 아래 글자와 같다 */
+/* ---- 표제: 필기체 한 줄 + 금박 세리프 두 줄 (위 띠). 금박은 줄마다 같은 그라데이션을 글자로 오린다 ---- */
+.title {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: var(--frame-top);
+  box-sizing: border-box;
+  padding-bottom: 2.7778cqw;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  pointer-events: none;
+  transition: opacity 0.45s ease, transform 0.8s var(--ease-set);
+}
+
+.title p {
+  margin: 0;
+}
+
+.title .title-script {
+  position: relative;
+  z-index: 1;
+  margin-bottom: -0.6481cqw;
+  padding: 0 1.2cqw;
+  color: var(--gold-hi);
+  font: 400 6.1111cqw / 1.2 var(--font-script);
+  white-space: nowrap;
+  text-shadow: 0 0.2cqw 0.6cqw rgba(60, 0, 6, 0.55);
+}
+
+.title-main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font: 600 8.7963cqw / 0.98 var(--font-display);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  filter: drop-shadow(0 0.28cqw 0.32cqw rgba(48, 0, 5, 0.5));
+}
+
+.title-line {
+  display: block;
+  padding: 0 0.1em;
+  white-space: nowrap;
+  color: transparent;
+  background-image: linear-gradient(105deg, transparent 38%, rgba(255, 255, 255, 0.95) 50%, transparent 62%), var(--gold-foil);
+  background-size: 260% 100%, 100% 100%;
+  background-position: 130% 0, 0 0;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+/* 카운트다운·셔터: 표제가 위로 물러나 3·2·1에 자리를 내준다 */
+.stage[data-phase="countdown"] .title,
+.stage[data-phase="capturing"] .title {
+  opacity: 0;
+  transform: translateY(-2.5cqw);
+}
+
+/* 결과: 금박 위로 빛이 한 번 지나간다 (사진이 완성됐다는 신호) */
+.stage[data-phase="result"]:not([data-leaving]) .title-line {
+  animation: foil-sweep 1.8s 0.35s ease-in-out both;
+}
+
+.stage[data-phase="result"]:not([data-leaving]) .title-line + .title-line {
+  animation-delay: 0.5s;
+}
+
+@keyframes foil-sweep {
+  from { background-position: 130% 0, 0 0; }
+  to { background-position: -30% 0, 0 0; }
+}
+
+/* ---- 솜송이: 창 윗선 오른쪽에 앉은 흰 털뭉치 (SVG, 장식) ---- */
+.puff {
+  position: absolute;
+  right: 4.6296cqw;
+  top: calc(var(--frame-top) - 16.6667cqw); /* 상자 아래끝 = 창 윗선 (장식이 창 안으로 들어가지 않게) */
+  width: 16.6667cqw;
+  height: 16.6667cqw;
+  overflow: visible;
+  pointer-events: none;
+  filter: drop-shadow(0 0.7cqw 0.7cqw rgba(48, 0, 6, 0.38));
+}
+
+.puff * {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.puff-bob {
+  animation: puff-float 4.6s ease-in-out infinite alternate;
+}
+
+@keyframes puff-float {
+  from { transform: translateY(0); }
+  to { transform: translateY(-4px); }
+}
+
+.puff .puff-squish {
+  transform-origin: 50% 100%;
+  transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.puff-face {
+  transition: transform 0.7s var(--ease-set);
+}
+
+.puff-eyes-open {
+  animation: puff-blink 5.2s infinite;
+}
+
+@keyframes puff-blink {
+  0%, 94%, 100% { transform: scaleY(1); }
+  96% { transform: scaleY(0.12); }
+}
+
+.puff-eyes-happy,
+.puff-eyes-sleep {
+  opacity: 0;
+}
+
+/* 사람이 서면 창 쪽(왼쪽 아래)을 내려다본다 */
+.stage.is-present .puff-face {
+  transform: translate(-5px, 4px);
+}
+
+/* 셔터: 움찔 */
+.stage[data-phase="capturing"] .puff-squish {
+  transform: scale(1.1, 0.88);
+}
+
+/* 결과: 눈웃음 */
+.stage[data-phase="result"]:not([data-leaving]) .puff-eyes-open { opacity: 0; animation: none; }
+.stage[data-phase="result"]:not([data-leaving]) .puff-eyes-happy { opacity: 1; }
+
+/* 준비 중·직원 문의: 잠든다 (천천히 숨 쉰다) */
+.stage:has(#status-veil:not([hidden])) .puff-eyes-open { opacity: 0; animation: none; }
+.stage:has(#status-veil:not([hidden])) .puff-eyes-sleep { opacity: 1; }
+.stage:has(#status-veil:not([hidden])) .puff-bob { animation-duration: 3.2s; }
+.stage:has(#status-veil:not([hidden])) .puff-face { transform: none; }
+
+/* ---- 날짜·시각: 아래 띠 맨 아래 한 줄 (왼쪽 날짜·요일, 오른쪽 시각) ---- */
 .masthead {
   position: absolute;
-  top: 0;
   left: var(--pad);
   right: var(--pad);
-  height: calc(var(--frame-top) - var(--gap));
+  bottom: 2.7778cqw;
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  color: rgba(244, 242, 238, 0.8);
-  font: 500 2.037cqw / 1 var(--font-sans);
-  letter-spacing: 0.16em;
+  color: rgba(230, 196, 122, 0.82);
+  font: 500 1.8519cqw / 1 var(--font-sans);
+  letter-spacing: 0.2em;
   font-variant-numeric: tabular-nums;
   pointer-events: none;
   transition: color 0.8s ease;
 }
 
-/* 두 쪽 모두 아래를 같은 만큼 넓혀(시각은 글자 창) 기준선이 맞는다 */
 .masthead p {
   display: flex;
   margin: 0 0 -0.1em;
@@ -229,7 +462,7 @@ body {
 
 .masthead-day {
   margin-left: 1.1em;
-  opacity: 0.6;
+  opacity: 0.7;
 }
 
 /* 시각은 한 글자씩: 바뀐 숫자만 아래에서 올라온다 (ui/guest-screen.js) */
@@ -241,19 +474,20 @@ body {
   display: inline-block;
 }
 
-/* 결과 동안 머리는 종이 위 먹색. 결과가 걷히기 시작하면(data-leaving) 종이와 함께 다시 흰색으로 */
+/* 결과 동안은 눈 쌓인 띠 위라 붉은 먹색. 걷히기 시작하면(data-leaving) 다시 금색으로 */
 .stage[data-phase="result"]:not([data-leaving]) .masthead {
-  color: var(--ink);
+  color: rgba(122, 11, 20, 0.72);
 }
 
-/* 아래 여백의 글자 묶음 (대기·카운트다운·쿨타임·결과 문구). 같은 자리에서 바뀐다 */
+/* ---- 아래 띠의 글자 묶음 (대기·카운트다운 안내·쿨타임·결과 문구). 가운데 맞춤, 같은 자리에서 바뀐다 ---- */
 .band {
   position: absolute;
   left: var(--pad);
   right: var(--pad);
   top: calc(var(--frame-bottom) + var(--rule) + var(--gap));
   margin: 0;
-  color: var(--white);
+  color: var(--cream);
+  text-align: center;
   pointer-events: none;
 }
 
@@ -271,38 +505,39 @@ body {
 }
 
 .line.is-ko {
-  font: 400 6.2963cqw / 1.22 var(--font-sans);
-  letter-spacing: -0.025em;
+  font: 400 5.7407cqw / 1.24 var(--font-sans);
+  letter-spacing: -0.02em;
   word-break: keep-all;
 }
 
+/* 영어 줄: Cinzel의 소문자는 작은 대문자라 문장이 금박 각인처럼 보인다 */
 .line.is-en {
-  margin-top: 1.4815cqw;
-  color: rgba(244, 242, 238, 0.6);
-  font: 300 3.8889cqw / 1.3 var(--font-serif);
-  letter-spacing: 0.005em;
+  margin-top: 1.2963cqw;
+  color: var(--gold);
+  font: 400 2.5926cqw / 1.4 var(--font-display);
+  letter-spacing: 0.22em;
 }
 
 .line.is-ko + .line.is-en {
-  margin-top: 1.8519cqw;
+  margin-top: 1.6667cqw;
 }
 
-/* 대기: 오른쪽에 바닥(발자국 매트) 쪽을 가리키는 가는 선이 천천히 흘러내린다 */
+/* 대기: 오른쪽에 바닥(발자국 매트) 쪽을 가리키는 금선, 그 안에서 빛이 천천히 흘러내린다 */
 .floor-cue {
   position: absolute;
   top: 0.9259cqw;
-  right: 0;
+  right: -2.7778cqw;
   width: var(--rule);
-  height: 14.8148cqw;
+  height: 13.8889cqw;
   overflow: hidden;
-  background: rgba(244, 242, 238, 0.18);
+  background: rgba(230, 196, 122, 0.22);
 }
 
 .floor-cue::before {
   content: '';
   position: absolute;
   inset: 0;
-  background: var(--white);
+  background: linear-gradient(transparent, var(--gold-hi));
   transform: translateY(-100%);
   animation: floor-drip 2.8s cubic-bezier(0.65, 0, 0.35, 1) infinite;
 }
@@ -315,78 +550,92 @@ body {
 
 /* 쿨타임: 조용한 한 단계 작은 줄 */
 .notice .line.is-ko {
-  color: rgba(244, 242, 238, 0.82);
-  font-size: 4.8148cqw;
+  color: rgba(251, 243, 230, 0.86);
+  font-size: 4.6296cqw;
 }
 
 .notice .line.is-en {
-  font-size: 3.3333cqw;
+  font-size: 2.3148cqw;
 }
 
-/* 3·2·1: 큰 세리프 숫자 하나가 한 칸 창 안에서 위로 넘어간다(앞 숫자는 위로 빠지고 새 숫자가 아래에서). 옆에 안내 두 줄 */
-.countdown {
-  display: flex;
-  align-items: flex-start;
-  gap: 5.5556cqw;
-  top: calc(var(--frame-bottom) + var(--rule) + 1.4815cqw);
+/* ---- 3·2·1: 큰 금박 숫자는 위 띠 가운데(카메라 가까이, 시선이 위로), 안내 줄은 아래 띠. 숫자는 한 칸 창 안에서 위로 넘어간다 ---- */
+.band.countdown {
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
 }
 
 .countdown-digit {
-  position: relative;
-  flex: none;
-  min-width: 0.62em;
-  height: 0.96em;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--frame-top) / 2 - 0.47em);
+  height: 0.94em;
   margin: 0;
   overflow: hidden;
-  color: var(--white);
-  font: 300 27.7778cqw / 0.96 var(--font-serif);
+  font: 400 24.0741cqw / 0.94 var(--font-display);
   font-variant-numeric: lining-nums tabular-nums;
-  letter-spacing: -0.04em;
+  text-align: center;
+  filter: drop-shadow(0 0.4cqw 0.5cqw rgba(48, 0, 5, 0.55));
 }
 
 .countdown-glyph {
   display: block;
+  color: transparent;
+  background: var(--gold-foil);
+  -webkit-background-clip: text;
+  background-clip: text;
 }
 
 .countdown-glyph.is-ghost {
   position: absolute;
   left: 0;
+  right: 0;
   top: 0;
 }
 
 .countdown-caption {
-  padding-top: 4.0741cqw;
+  position: absolute;
+  left: var(--pad);
+  right: var(--pad);
+  top: calc(var(--frame-bottom) + var(--rule) + var(--gap));
 }
 
-.countdown-caption .line.is-ko {
-  font-size: 5.5556cqw;
-}
-
-/* 촬영 순간: 사진 틀 안에만 짧은 흰 빛. ui/guest-screen.js가 투명도를 짧게 움직인다 */
+/* 촬영 순간: 사진 창 안에만 짧은 따뜻한 빛. ui/guest-screen.js가 투명도를 짧게 움직인다 */
 .flash {
   position: absolute;
   left: 0;
   right: 0;
   top: var(--frame-top);
   height: var(--frame-h);
-  background: #fff;
+  background: #fff8ec;
   opacity: 0;
   pointer-events: none;
 }
 
-/* 결과: 화면 전체가 종이, 사진은 틀 자리 그대로 (화면 폭 = 사진 폭. 1080 화면 1:1, 4K 2:1 정수 배율이라 다시 보간되지 않는다).
-   사진은 틀로 자른 1080x1350이다. 자르지 못한 9:16 사진이 와도 object-position이 같은 줄을 보이게 한다 (7/64 ÷ (1 − 45/64)).
-   사진 틀(.frame)은 이 아래에 그대로 있어, 결과가 걷히면 어두운 여백·선이 바로 드러난다 */
+/* ---- 결과: 사진은 창 자리 그대로 (화면 폭 = 사진 폭. 1080 화면 1:1, 4K 2:1 정수 배율), 아래 띠가 눈 쌓인 카드 끝으로 덮인다.
+   사진은 틀로 자른 1080x1350이다. 자르지 못한 9:16 사진이 와도 object-position이 같은 줄을 보이게 한다 (top ÷ (1 − height)).
+   카드 창(.frame)은 이 아래에 그대로 있어, 결과가 걷히면 붉은 띠·금선이 바로 드러난다 ---- */
 .result-view {
   position: absolute;
   inset: 0;
-  color: var(--ink);
+  color: var(--ink-red);
 }
 
 .result-paper {
   position: absolute;
-  inset: 0;
-  background: var(--paper);
+  left: 0;
+  right: 0;
+  top: var(--frame-bottom);
+  bottom: 0;
+  background:
+    radial-gradient(circle at 22% 30%, rgba(201, 164, 98, 0.5) 0 0.08cqw, transparent 0.15cqw),
+    radial-gradient(circle at 71% 64%, rgba(201, 164, 98, 0.4) 0 0.07cqw, transparent 0.13cqw),
+    radial-gradient(55% 90% at 18% 0%, #ffffff, transparent 70%),
+    radial-gradient(55% 90% at 82% 6%, #ffffff, transparent 70%),
+    linear-gradient(180deg, var(--snow), #f1e8dc);
+  background-size: 13cqw 11cqw, 19cqw 15cqw, auto, auto, auto;
 }
 
 .result-card {
@@ -400,7 +649,7 @@ body {
 .result-photo {
   width: 100%;
   height: 100%;
-  background: var(--paper);
+  background: var(--red-deep);
 }
 
 .result {
@@ -412,54 +661,57 @@ body {
 }
 
 .result-note {
-  color: var(--ink);
+  color: var(--ink-red);
 }
 
 .result-note .line.is-en {
-  color: rgba(20, 20, 20, 0.58);
+  color: var(--gold-lo);
 }
 
-/* 남은 시간: 사진 바로 아래 선이 오른쪽에서 줄어든다 (카운트다운 진행선과 같은 자리) */
+/* 남은 시간: 창 바로 아래 금선이 오른쪽에서 줄어든다 (카운트다운 진행선과 같은 자리) */
 .result-timer {
   position: absolute;
   left: 0;
   right: 0;
   top: var(--frame-bottom);
-  height: var(--rule);
+  height: calc(var(--rule) * 1.5);
   overflow: hidden;
-  background: rgba(20, 20, 20, 0.1);
+  background: rgba(166, 119, 44, 0.2);
 }
 
 .result-timer-fill {
   display: block;
   height: 100%;
-  background: var(--ink);
+  background: linear-gradient(90deg, var(--gold-lo), var(--gold) 60%, var(--gold-hi));
   transform-origin: left center;
 }
 
-/* 준비 중·직원 문의: 어두운 막 위, 아래 여백 자리에 세리프 첫 줄과 산세리프 둘째 줄. 위 가는 선이 준비 중이면 숨 쉬고,
-   직원 문의면 멈춰 있다 (기다려도 풀리지 않는다는 뜻). 머리(날짜·시각)는 막 위에 그대로 보인다 */
+/* ---- 준비 중·직원 문의: 깊은 붉은 막 위, 창 자리 가운데에 세리프 첫 줄과 산세리프 둘째 줄. 위 금선 장식이 준비 중이면 숨 쉬고,
+   직원 문의면 멈춰 있다 (기다려도 풀리지 않는다는 뜻). 표제·솜송이(잠듦)·날짜는 막 위에 그대로 ---- */
 .status-veil {
   position: absolute;
   inset: 0;
-  background: rgba(14, 14, 14, 0.96);
+  background:
+    radial-gradient(64% 22% at 50% 7%, rgba(220, 47, 44, 0.55), transparent 72%),
+    radial-gradient(120% 75% at 50% 45%, #8e0d17 0%, #5a0710 65%, #33030a 100%);
 }
 
 .status {
   position: absolute;
   left: var(--pad);
   right: var(--pad);
-  top: calc(var(--frame-bottom) + var(--rule) + var(--gap));
+  top: calc(var(--frame-top) + var(--frame-h) * 0.4);
   margin: 0;
-  color: rgba(244, 242, 238, 0.6);
-  font: 400 3.7037cqw / 1.75 var(--font-sans);
+  color: rgba(230, 196, 122, 0.88);
+  font: 400 3.5185cqw / 1.75 var(--font-sans);
   letter-spacing: 0.01em;
+  text-align: center;
   white-space: pre-line;
   word-break: keep-all;
 }
 
 .status::first-line {
-  color: var(--white);
+  color: var(--cream);
   font: 300 7.4074cqw / 1.4 var(--font-serif);
   letter-spacing: -0.01em;
 }
@@ -467,12 +719,13 @@ body {
 .status::before {
   content: '';
   position: absolute;
-  left: 0;
-  right: 0;
+  left: 50%;
   top: calc(-1 * var(--gap) - var(--rule));
+  width: 18.5185cqw;
   height: var(--rule);
-  background: var(--white);
-  opacity: 0.5;
+  margin-left: -9.2593cqw;
+  background: linear-gradient(90deg, transparent, var(--gold), transparent);
+  opacity: 0.6;
   animation: status-breathe 2.4s ease-in-out infinite alternate;
 }
 
@@ -481,24 +734,40 @@ body {
 }
 
 @keyframes status-breathe {
-  from { opacity: 0.12; }
-  to { opacity: 0.6; }
+  from { opacity: 0.15; }
+  to { opacity: 0.85; }
 }
 
 /* 동작 줄이기 (main.js가 prefers-reduced-motion을 :root[data-motion]으로 옮긴다. 데모는 검토용으로 바꿀 수 있다):
-   늘 도는 움직임과 위치 전환을 멈춘다. 정보가 되는 진행선(카운트다운·결과·쿨타임)은 그대로 둔다 */
+   늘 도는 움직임(눈·솜송이·바닥 쪽 선·준비 중 선)과 위치 전환을 멈춘다. 정보가 되는 진행선(카운트다운·결과·쿨타임)은 그대로 둔다 */
+:root[data-motion="reduce"] .snow,
+:root[data-motion="reduce"] .puff-bob,
+:root[data-motion="reduce"] .puff-eyes-open,
+:root[data-motion="reduce"] .status::before {
+  animation: none;
+}
+
 :root[data-motion="reduce"] .floor-cue::before {
   animation: none;
   transform: none;
   opacity: 0.6;
 }
 
-:root[data-motion="reduce"] .status::before {
+:root[data-motion="reduce"] .stage .title-line {
   animation: none;
 }
 
 :root[data-motion="reduce"] .frame-corner,
-:root[data-motion="reduce"] .stage.is-present .frame-corner {
+:root[data-motion="reduce"] .stage.is-present .frame-corner,
+:root[data-motion="reduce"] .puff-face,
+:root[data-motion="reduce"] .stage.is-present .puff-face,
+:root[data-motion="reduce"] .puff .puff-squish,
+:root[data-motion="reduce"] .stage[data-phase="capturing"] .puff-squish {
+  transform: none;
+  transition: opacity 0.3s ease;
+}
+
+:root[data-motion="reduce"] .stage .title {
   transform: none;
   transition: opacity 0.3s ease;
 }
@@ -519,15 +788,17 @@ body {
   --op-size: clamp(13px, 1.45vmin, 34px);
   --op-dev-size: clamp(11px, 1.12vmin, 26px);
   --op-mono: Consolas, 'Cascadia Mono', monospace;
-  --op-bg: rgba(22, 22, 22, 0.965); /* 뒤 글자가 비치지 않을 만큼만 투명 */
-  --op-text: #ecebe7;
-  --op-muted: rgba(236, 235, 231, 0.55);
-  --op-line: rgba(236, 235, 231, 0.12);
-  --op-field: rgba(255, 255, 255, 0.06);
-  /* 상태 색은 작은 점·글자에만 (채도를 낮춘 초록·호박·빨강) */
+  /* WISHFUL 시안: 관람객 화면의 레드·금박에 맞춘 아주 짙은 버건디 바탕 + 금색 강조(선택한 섹션·주 버튼·켠 스위치). 상태 색은 그대로 작게 */
+  --op-bg: rgba(27, 12, 14, 0.965); /* 뒤 글자가 비치지 않을 만큼만 투명 */
+  --op-text: #f1e9dd;
+  --op-muted: rgba(241, 233, 221, 0.56);
+  --op-line: rgba(230, 196, 122, 0.16);
+  --op-field: rgba(255, 240, 220, 0.06);
+  --op-accent: #e6c47a; /* 금색 강조 */
+  /* 상태 색은 작은 점·글자에만 (채도를 낮춘 초록·주황·빨강, 금색 강조와 겹치지 않게 주황) */
   --op-ok: #93c4a5;
-  --op-warn: #d9b673;
-  --op-error: #e58b80;
+  --op-warn: #eda15f;
+  --op-error: #ec8a80;
   /* 가로 화면에서 9:16 영역 옆에 남는 폭 (패널이 미리보기를 가리지 않게 옆으로 비킨다) */
   --op-side: calc((100vw - 100vh * var(--stage-ratio-w) / var(--stage-ratio-h)) / 2);
 }
@@ -550,7 +821,7 @@ body {
   color: var(--op-text);
   font: 400 var(--op-dev-size) / 1.4 var(--op-mono);
   color-scheme: dark;
-  scrollbar-color: rgba(236, 235, 231, 0.25) transparent;
+  scrollbar-color: rgba(230, 196, 122, 0.3) transparent;
   scrollbar-width: thin;
 }
 
@@ -599,7 +870,7 @@ body:has(#operator-panel:not([hidden]) #tuning-panel:not([hidden])) .dev-info {
 .pause-badge {
   position: absolute;
   top: 2.7778cqw;
-  right: var(--pad);
+  left: 3.7037cqw; /* WISHFUL: 오른쪽 위는 표제·솜송이 자리라 왼쪽 위 */
   display: flex;
   align-items: center;
   gap: 0.6em;
@@ -608,7 +879,7 @@ body:has(#operator-panel:not([hidden]) #tuning-panel:not([hidden])) .dev-info {
   border-radius: 0.25em;
   background: rgba(16, 16, 16, 0.55);
   color: var(--white);
-  font: 400 1.7cqw / 1.2 var(--font-sans);
+  font: 400 1.5cqw / 1.2 var(--font-sans);
   letter-spacing: 0.04em;
   pointer-events: none;
 }
@@ -796,7 +1067,7 @@ body:has(#operator-panel:not([hidden]) #tuning-panel:not([hidden])) .dev-info {
 }
 
 .op-panel .op-tabs button.is-active {
-  border-bottom-color: var(--op-text);
+  border-bottom-color: var(--op-accent);
   color: var(--op-text);
   font-weight: 500;
 }
@@ -1061,17 +1332,17 @@ body:has(#operator-panel:not([hidden]) #tuning-panel:not([hidden])) .dev-info {
   font-size: 0.8em;
 }
 
-/* 주 버튼(저장): 오프화이트 바탕 */
+/* 주 버튼(저장): 금색 바탕 */
 .op-panel button.is-primary {
-  border-color: var(--op-text);
-  background: var(--op-text);
-  color: #161616;
+  border-color: var(--op-accent);
+  background: var(--op-accent);
+  color: #2a1013;
   font-weight: 500;
 }
 
 /* 저장할 것이 없으면 저장 버튼을 차분하게 (누를 수는 있다) */
 [data-save="saved"] button.is-primary {
-  border-color: rgba(236, 235, 231, 0.22);
+  border-color: rgba(230, 196, 122, 0.3);
   background: transparent;
   color: var(--op-text);
 }
@@ -1180,4 +1451,97 @@ body:has(#operator-panel[data-dock="top"]) .raw-window {
   color: var(--op-text);
   font: inherit;
   cursor: pointer;
+}
+
+/* ---- 시험 조합 (WISHFUL 시안, E 필터 섹션 맨 위): 네 조합 버튼(2×2)과 유화·흑백 스위치, 안내 한 줄 ---- */
+.op-combo {
+  border: 1px solid rgba(230, 196, 122, 0.28) !important;
+  border-radius: 0.4em;
+  padding: 0.7em 0.9em 0.6em !important;
+  background: rgba(230, 196, 122, 0.05);
+}
+
+.op-combo-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.45em;
+  margin: 0.35em 0 0.6em;
+}
+
+.op-panel .op-combo-grid button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15em;
+  padding: 0.55em 0.4em 0.5em;
+  border: 1px solid var(--op-line);
+  border-radius: 0.35em;
+  background: var(--op-field);
+  color: var(--op-muted);
+  line-height: 1.2;
+}
+
+.op-combo-grid b {
+  font-weight: 500;
+  color: var(--op-text);
+  font-size: 1em;
+}
+
+.op-combo-grid small {
+  font-size: 0.82em;
+  letter-spacing: 0.04em;
+}
+
+.op-panel .op-combo-grid button[aria-pressed="true"] {
+  border-color: var(--op-accent);
+  background: rgba(230, 196, 122, 0.16);
+  color: var(--op-accent);
+}
+
+/* 스위치: 체크 상자를 알약 모양으로 (켜면 금색) */
+.op-switch {
+  appearance: none;
+  justify-self: start;
+  position: relative;
+  width: 2.6em;
+  height: 1.4em;
+  margin: 0;
+  border: 1px solid rgba(241, 233, 221, 0.3);
+  border-radius: 1em;
+  background: var(--op-field);
+  cursor: pointer;
+}
+
+.op-switch::after {
+  content: '';
+  position: absolute;
+  top: 0.15em;
+  left: 0.15em;
+  width: 1em;
+  height: 1em;
+  border-radius: 50%;
+  background: var(--op-muted);
+}
+
+.op-switch:checked {
+  border-color: var(--op-accent);
+  background: rgba(230, 196, 122, 0.3);
+}
+
+.op-switch:checked::after {
+  left: auto;
+  right: 0.15em;
+  background: var(--op-accent);
+}
+
+.op-switch:focus-visible {
+  outline: 2px solid var(--op-accent);
+  outline-offset: 2px;
+}
+
+.op-combo-info {
+  margin-top: 0.4em !important;
+  color: var(--op-accent) !important;
+  font: 400 0.92em / 1.5 var(--font-sans) !important;
+  letter-spacing: 0 !important;
 }

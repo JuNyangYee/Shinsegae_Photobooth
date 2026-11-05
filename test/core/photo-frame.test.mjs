@@ -8,25 +8,27 @@ import { clipRegionToFrame, cropRows, isFullFrame, photoFrameAspect, photoFrameR
 import { STAGE_MAPPING, classifyFaces, initialPresenceState, stepPresence } from '../../src/web/core/presence.js';
 
 const frame = config.photoFrame;
+// 판정 로직 테스트(반올림·빈 영역·검수 P2 재현)는 IMPRINT 틀 값을 명시해 둔다 (기본값이 WISHFUL 시안에서 10/64로 바뀌어도 같은 재현)
+const IMPRINT_FRAME = Object.freeze({ top: 7 / 64, height: 45 / 64 });
 
 describe('photo-frame: 줄 범위', () => {
-  it('기본 틀(7/64 ~ 52/64)은 9:16 화면에서 4:5이고 결과·인쇄·4K·감지 입력에서 모두 정수 줄이다', () => {
+  it('기본 틀(WISHFUL 10/64 ~ 55/64)은 9:16 화면에서 4:5이고 결과·인쇄·4K·감지 입력에서 모두 정수 줄이다', () => {
     assert.equal(photoFrameAspect(9 / 16, frame), 0.8);
-    assert.deepEqual(photoFrameRows(1920, frame), { top: 210, height: 1350 });
-    assert.deepEqual(photoFrameRows(1024, frame), { top: 112, height: 720 });
-    assert.deepEqual(photoFrameRows(3840, frame), { top: 420, height: 2700 });
-    assert.deepEqual(photoFrameRows(640, frame), { top: 70, height: 450 });
+    assert.deepEqual(photoFrameRows(1920, frame), { top: 300, height: 1350 });
+    assert.deepEqual(photoFrameRows(1024, frame), { top: 160, height: 720 });
+    assert.deepEqual(photoFrameRows(3840, frame), { top: 600, height: 2700 });
+    assert.deepEqual(photoFrameRows(640, frame), { top: 100, height: 450 });
     for (const H of [1920, 1024, 3840, 640]) {
       assert.ok(Number.isInteger(H * frame.top) && Number.isInteger(H * (frame.top + frame.height)), `${H}`);
     }
     // 결과 줄과 인쇄 줄이 같은 화면 줄을 덮는다 (1080 → 576은 1.875배)
-    assert.equal(210 / 1920, 112 / 1024);
+    assert.equal(300 / 1920, 160 / 1024);
     assert.equal(1350 / 1920, 720 / 1024);
   });
 
   it('정수로 안 떨어지는 높이(58mm 384점 → 683줄)는 위·아래 끝을 각각 반올림한다', () => {
-    assert.deepEqual(photoFrameRows(683, frame), { top: 75, height: 480 });
-    assert.deepEqual(photoFrameRows(2160, frame), { top: 236, height: 1519 });
+    assert.deepEqual(photoFrameRows(683, IMPRINT_FRAME), { top: 75, height: 480 });
+    assert.deepEqual(photoFrameRows(2160, IMPRINT_FRAME), { top: 236, height: 1519 });
   });
 
   it('틀이 없거나 화면 전체면 자르지 않는다', () => {
@@ -42,7 +44,7 @@ describe('photo-frame: 인식 영역을 틀 안으로', () => {
   it('기본 인식 영역(0.1~0.9)은 틀 위·아래 끝에 맞춰 줄어든다 (가로는 그대로)', () => {
     const { region, clipped } = clipRegionToFrame({ x: 0.1, y: 0.1, width: 0.8, height: 0.8 }, frame);
     assert.equal(clipped, true);
-    assert.deepEqual(region, { x: 0.1, y: 7 / 64, width: 0.8, height: 45 / 64 });
+    assert.deepEqual(region, { x: 0.1, y: 10 / 64, width: 0.8, height: 45 / 64 });
   });
 
   it('이미 틀 안이면 그대로 (같은 객체, 줄이지 않음)', () => {
@@ -53,10 +55,10 @@ describe('photo-frame: 인식 영역을 틀 안으로', () => {
   });
 
   it('틀과 겹치지 않으면 높이 0 (아무 얼굴도 인정하지 않는다)', () => {
-    const below = clipRegionToFrame({ x: 0, y: 0.85, width: 1, height: 0.1 }, frame);
+    const below = clipRegionToFrame({ x: 0, y: 0.85, width: 1, height: 0.1 }, IMPRINT_FRAME);
     assert.equal(below.clipped, true);
     assert.equal(below.region.height, 0);
-    const above = clipRegionToFrame({ x: 0, y: 0, width: 1, height: 0.05 }, frame);
+    const above = clipRegionToFrame({ x: 0, y: 0, width: 1, height: 0.05 }, IMPRINT_FRAME);
     assert.equal(above.region.height, 0);
   });
 
@@ -80,7 +82,7 @@ describe('photo-frame: 줄 자르기', () => {
 // 실제 경로(틀 교차 → 얼굴 분류 → 시간 판정)로 감지 15fps 흉내 1초 동안 같은 얼굴을 넣어 본다
 describe('photo-frame + presence: 틀 교차 → 얼굴 분류 → 시간 판정 (검수 P2)', () => {
   const timing = { presentHoldMs: 250, absentGraceMs: 250 };
-  const criteriaFor = (stored) => ({ region: clipRegionToFrame(stored, frame).region, minFaceHeight: 0.185, maxFaceHeight: 0.47, minScore: 0.65 });
+  const criteriaFor = (stored) => ({ region: clipRegionToFrame(stored, IMPRINT_FRAME).region, minFaceHeight: 0.185, maxFaceHeight: 0.47, minScore: 0.65 });
   // 얼굴 박스: 중심 (cx, cy), 높이 0.25 (최소·최대 얼굴 크기 안), 점수 0.99
   const faceAt = (cx, cy) => ({ x: cx - 0.1, y: cy - 0.125, width: 0.2, height: 0.25, score: 0.99 });
   function run(stored, face) {

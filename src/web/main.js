@@ -28,7 +28,7 @@ import { renderDevPanel } from './ui/dev-panel.js';
 import { guestText } from './config/guest-text.js';
 import { createGuestScreen } from './ui/guest-screen.js';
 import { clipRegionToFrame, photoFrameAspect, photoFrameRows } from './core/photo-frame.js';
-import { IMPRINT_FONTS } from './effect/imprint-page.js';
+import { IMPRINT_FONT_LOADS } from './effect/imprint-page.js';
 
 const stage = document.getElementById('stage');
 const video = document.getElementById('preview');
@@ -884,7 +884,7 @@ window.addEventListener('keydown', (event) => {
 
 applyLayout();
 // 인쇄 쪽 글자(IMPRINT 시안, effect/imprint-page.js)는 캔버스에 그리므로 서체가 미리 불려 있어야 한다 (관람객 화면에는 아직 안 쓰인 크기도)
-Promise.all([IMPRINT_FONTS.sans(22), IMPRINT_FONTS.serif(30)].map((font) => document.fonts.load(font, '0123456789.:AMSTUWDHNOEFRI')))
+Promise.all(IMPRINT_FONT_LOADS.map(([font, sample]) => document.fonts.load(font, sample)))
   .catch((error) => console.warn('[imprint] print fonts not loaded; print type uses system fonts', error));
 window.addEventListener('resize', updateOperatorRoom);
 camera.subscribe(() => {

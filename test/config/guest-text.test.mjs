@@ -1,7 +1,7 @@
 // 실행: npm test
-// 관람객 문구(guest-text.js)와 두 서체(IMPRINT 시안): 세리프 Noto Serif KR 부분 집합은 영어 줄·숫자와 준비 중 첫 줄의 한글만 담고,
-// 한국어 줄은 Pretendard(KS X 1001 부분 집합)로 보인다. 문구를 바꾸고
-// 서체를 다시 줄이지 않으면 여기서 실패한다. WOFF(zlib) 표에서 cmap만 읽는다 (서체 도구 의존성 없음).
+// 관람객 문구(guest-text.js)와 서체 (WISHFUL HOLIDAY 시안): 영어 줄·숫자·인쇄 표제는 Cinzel(latin 부분 집합), 표제·인쇄 꼬리 필기체는
+// Pinyon Script, 준비 중 첫 줄은 Noto Serif KR 부분 집합, 한국어 줄은 Pretendard(KS X 1001 부분 집합)로 보인다. 문구를 바꾸고
+// 서체를 다시 줄이지 않으면 여기서 실패한다. WOFF(zlib)·WOFF2(Brotli) 표에서 cmap만 읽는다 (서체 도구 의존성 없음).
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
@@ -10,6 +10,9 @@ import { brotliDecompressSync, inflateSync } from 'node:zlib';
 import { guestText } from '../../src/web/config/guest-text.js';
 
 const SERIF = new URL('../../src/web/assets/fonts/NotoSerifKR-Light.subset.woff', import.meta.url);
+const FONT = (name) => new URL(`../../src/web/assets/fonts/${name}`, import.meta.url);
+const DISPLAY = ['Cinzel-Regular.latin.woff2', 'Cinzel-SemiBold.latin.woff2'].map(FONT);
+const SCRIPT = FONT('PinyonScript-Regular.latin.woff2');
 const SANS = ['Regular', 'Medium'].map((w) => new URL(`../../src/web/assets/fonts/Pretendard-${w}.subset.woff2`, import.meta.url));
 
 function woffTable(bytes, wanted) {
@@ -107,25 +110,38 @@ function woff2Table(bytes, wanted) {
   throw new Error(`no ${wanted} table`);
 }
 
-// 세리프로 보이는 글자: 영어 줄(en), 인쇄 쪽 꼬리 문장, 숫자(3·2·1), 준비 중·직원 문의 첫 줄(::first-line)
+// Noto Serif KR로 보이는 글자: 준비 중·직원 문의 첫 줄(::first-line)
 const firstLine = (t) => t.split('\n')[0];
-const serifText = [
+const serifText = [firstLine(guestText.preparing), firstLine(guestText.staff)].join('');
+// Cinzel로 보이는 글자: 영어 줄(en), 3·2·1, 화면 표제, 인쇄 쪽 표제
+const displayText = [
   ...Object.values(guestText).filter((v) => typeof v === 'object' && 'en' in v).map((v) => v.en),
-  guestText.print.line, firstLine(guestText.preparing), firstLine(guestText.staff), '0123456789',
+  '0123456789', 'A Wishful Holiday', guestText.print.title,
 ].join('');
-// Pretendard로 보이는 글자: 한국어 줄(ko), 준비 중 둘째 줄, 운영자 표시, 머리·인쇄 쪽 날짜·시각·요일·용지 폭(라틴 대문자·숫자·기호)
+// Pinyon Script로 보이는 글자: 화면 표제 필기체·인쇄 쪽 꼬리
+const scriptText = ['Puuvilla Story Begins', guestText.print.script].join('');
+// Pretendard로 보이는 글자: 한국어 줄(ko), 준비 중 둘째 줄, 운영자 표시, 날짜·시각·요일·용지 폭(라틴 대문자·숫자·기호)
 const sansText = [
   ...Object.values(guestText).filter((v) => typeof v === 'object' && 'ko' in v).map((v) => v.ko),
-  guestText.preparing, guestText.staff, guestText.paused, '0123456789.:ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+  guestText.preparing, guestText.staff, guestText.paused, '0123456789.:·ABCDEFGHIJKLMNOPQRSTUVWXYZ',
 ].join('');
 const needed = (t) => [...new Set([...t].filter((c) => !/\s/.test(c)))];
 
 describe('guest-text와 서체 부분 집합', () => {
-  it('Noto Serif KR 부분 집합이 세리프로 보이는 글자(영어 줄·숫자·준비 중 첫 줄)를 모두 담는다', () => {
+  it('Noto Serif KR 부분 집합이 준비 중 첫 줄의 글자를 모두 담는다', () => {
     const covered = coveredCodePoints(woffTable(readFileSync(SERIF), 'cmap'));
     const missing = needed(serifText).filter((c) => !covered.has(c.codePointAt(0)));
-    assert.deepEqual(missing, [], '세리프 문구를 바꿨으면 세리프 서체를 다시 줄인다 (docs/SYSTEM.md 3절 "관람객 화면 → 서체")');
+    assert.deepEqual(missing, [], '준비 중 문구를 바꿨으면 세리프 서체를 다시 줄인다 (docs/SYSTEM.md 3절 "서체")');
     assert.ok(covered.size < 400, `부분 집합이 아닌 것 같다: ${covered.size}자`);
+  });
+
+  it('Cinzel 400·600이 영어 줄·숫자·표제를, Pinyon Script가 필기체 줄을 모두 담는다 (WISHFUL 시안)', () => {
+    for (const file of DISPLAY) {
+      const covered = coveredCodePoints(woff2Table(readFileSync(file), 'cmap'));
+      assert.deepEqual(needed(displayText).filter((c) => !covered.has(c.codePointAt(0))), [], `${file}`);
+    }
+    const script = coveredCodePoints(woff2Table(readFileSync(SCRIPT), 'cmap'));
+    assert.deepEqual(needed(scriptText).filter((c) => !script.has(c.codePointAt(0))), []);
   });
 
   it('Pretendard 400·500 부분 집합이 한국어 줄과 머리·인쇄 쪽 글자를 모두 담는다 (시스템 서체로 떨어지지 않게)', () => {
@@ -137,10 +153,11 @@ describe('guest-text와 서체 부분 집합', () => {
     }
   });
 
-  it('영어 줄은 세리프 부분 집합(U+0020–007E)만 쓴다 (세리프 한글 없이)', () => {
+  it('영어 줄·인쇄 쪽 글자는 latin 기본 글자(U+0020–007E)만 쓴다 (부분 집합 밖 글자 없이)', () => {
     for (const value of Object.values(guestText)) {
       if (typeof value === 'object' && 'en' in value) assert.match(value.en, /^[\x20-\x7e]+$/, value.en);
     }
-    assert.match(guestText.print.line, /^[\x20-\x7e]+$/);
+    assert.match(guestText.print.title, /^[\x20-\x7e]+$/);
+    assert.match(guestText.print.script, /^[\x20-\x7e]+$/);
   });
 });
