@@ -7,7 +7,8 @@ import { config } from '../../src/web/config/config.js';
 import { createCameraFrame } from '../../src/web/camera/camera-frame.js';
 import { captureSizeFor } from '../../src/web/camera/capture.js';
 import { cameraColorMatrix, computeCameraView } from '../../src/web/core/camera-view.js';
-import { EffectStatus, computeEffectView, createEffectPreview } from '../../src/web/effect/effect-preview.js';
+import { EffectStatus, OIL_OFF_FPS, computeEffectView, createEffectPreview } from '../../src/web/effect/effect-preview.js';
+import { applyEffectTunables, comboTunables } from '../../src/web/config/effect-settings.js';
 import { EffectError, EffectFault } from '../../src/web/effect/oil-renderer.js';
 
 const STAGE = 9 / 16;
@@ -529,5 +530,69 @@ describe('결과 사진 준비 (첫 촬영 멈춤 수정, 로그 2026-10-19-07)'
     t.run(200);
     t.preview.stop();
     assert.equal(t.pendingIdle(), 0);
+  });
+});
+
+describe('시험 조합 4가지 (WISHFUL 시안): 미리보기 = 셔터 결과', () => {
+  const COMBOS = [
+    ['원본 컬러', { oil: false, mono: false }, 'off', 'pixels'],
+    ['원본 흑백', { oil: false, mono: true }, 'gray-oil', 'pixels'],
+    ['유화 컬러', { oil: true, mono: false }, 'off', 'pixels'],
+    ['유화 흑백', { oil: true, mono: true }, 'gray-oil', 'pixels'],
+  ];
+
+  it('조합마다 미리보기 그림과 결과 사진이 같은 설정(조합)·프레임·좌표·seed이고, 결과 형식이 조합의 출력 모드를 따른다', () => {
+    const t = setup({ camera: { zoom: 1.4, panX: 0.05 } });
+    t.preview.start();
+    t.run(200);
+    for (const [label, combo, mode, output] of COMBOS) {
+      const now = t.preview.getSettings();
+      t.preview.setSettings(applyEffectTunables(now, comboTunables(now, combo), config.effect).settings);
+      t.run(200);
+      const shown = t.renderer.calls.at(-1);
+      assert.deepEqual([shown.settings.oil, shown.settings.outputMode], [combo.oil, mode], label);
+      const still = t.preview.renderStill();
+      const call = t.renderer.calls.at(-1);
+      assert.equal(call.source, null, `${label}: 같은 프레임 (소스를 다시 올리지 않음)`);
+      assert.equal(call.settings, shown.settings, `${label}: 같은 설정 객체 (조합)`);
+      assert.deepEqual([call.sourceAffine, call.sourceColor, call.seed], [shown.sourceAffine, shown.sourceColor, shown.seed], label);
+      assert.deepEqual([call.output, still.mode, still.sameAsPreview, still.settings.oil], [output, mode, true, combo.oil], label);
+    }
+  });
+
+  it('유화를 끄면 초당 30장(유화 초당 그림 값은 그대로 남고 다시 켜면 그 빈도), D용 상태에 oil', () => {
+    const t = setup();
+    t.preview.start();
+    t.run(500);
+    const now = t.preview.getSettings();
+    t.preview.setSettings(applyEffectTunables(now, comboTunables(now, { oil: false }), config.effect).settings);
+    let before = t.renderer.calls.length;
+    t.run(2000);
+    const off = t.renderer.calls.length - before;
+    assert.ok(off >= 58 && off <= 61, `${off}`);
+    assert.deepEqual([t.preview.getState().fps, t.preview.getState().oil, t.preview.getSettings().fps], [OIL_OFF_FPS, false, 12]);
+    const back = t.preview.getSettings();
+    t.preview.setSettings(applyEffectTunables(back, comboTunables(back, { oil: true }), config.effect).settings);
+    before = t.renderer.calls.length;
+    t.run(2000);
+    const on = t.renderer.calls.length - before;
+    assert.ok(on >= 23 && on <= 26, `${on}`);
+    assert.deepEqual([t.preview.getState().fps, t.preview.getState().oil], [12, true]);
+  });
+
+  it('유화 켬/끔이 바뀌면 결과 사진 준비를 다시 한다 (패스가 다르다)', () => {
+    const t = setup();
+    t.preview.start();
+    t.run(200);
+    t.flushIdle();
+    assert.equal(t.preview.getState().resultPrepare, 'ready');
+    const now = t.preview.getSettings();
+    t.preview.setSettings(applyEffectTunables(now, comboTunables(now, { oil: false }), config.effect).settings);
+    t.run(100);
+    assert.equal(t.preview.getState().resultPrepare, 'pending');
+    t.flushIdle();
+    assert.equal(t.preview.getState().resultPrepare, 'ready');
+    assert.equal(t.renderer.calls.at(-1).output, 'warm');
+    assert.equal(t.renderer.calls.at(-1).settings.oil, false);
   });
 });

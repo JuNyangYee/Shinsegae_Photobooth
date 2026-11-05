@@ -12,6 +12,9 @@
 //   'flow'·'stroke'는 회색은 'texture'와 같고 문턱을 인쇄 해상도 전체로 만든다(FS_THERMAL_SCREEN: 흐름장 LIC 또는 획 가로 삼각파).
 // 회색조 유화 (8단계, outputMode 'gray-oil'): 입력 회색조(FS_INPUT_GRAY, Rec.709) → 유화 패스 그대로 → 출력 단계 회색조·레벨(FS_OUTPUT).
 //   결과 사진(output 'pixels')이면 같은 합성 그림에서 인쇄용 1비트(6-1 톤 점 경로: 회색조·레벨 → 면적 평균 → 점 방식)도 만들어 돌려준다.
+// 유화 끔 (시험 조합 settings.oil false, WISHFUL 시안): 유화 패스(구조 텐서·흐름장·밑칠·붓 층·보완 층·합성)를 건너뛰고, 같은 카메라 처리 경로 입력
+//   (회색조 유화면 입력 회색조, 아니면 FS_GRADE uAmt 0 = 카메라 그림 그대로)을 합성 그림 자리(composed)에 그려 출력 단계를 그대로 입힌다.
+//   감열지 흑백 스타일은 톤 점(bwStyleOf), 회색조 유화의 인쇄 데이터도 같은 경로. 획 수는 0이다.
 // 이미지·프레임을 밖으로 내보내거나 저장하지 않는다. 캔버스에 그리거나 결과 사진용 화소를 돌려주기만 한다.
 //
 // GPU 자원은 만드는 즉시 owned에 넣는다. 만들다 실패하면(텍스처·프레임버퍼·셰이더) 그때까지 만든 것을 지우고,
@@ -146,7 +149,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
   const queries = []; // GPU 시간 측정 중인 질의 (결과가 나오면 꺼낸다)
   const stats = {
     draws: 0, cpuMs: 0, gpuMs: null, strokes: 0, width: 0, height: 0, pxScale: 0, timer: Boolean(timer),
-    outputMode: 'off', dither: '', bwStyle: '', screen: '', printWidth: 0, printHeight: 0, readMs: null, ditherMs: null,
+    outputMode: 'off', oil: true, dither: '', bwStyle: '', screen: '', printWidth: 0, printHeight: 0, readMs: null, ditherMs: null,
   };
 
   function track(set, object) {
@@ -642,7 +645,14 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
     try {
       clearGlErrors();
       if (source !== null) upload(source);
-      if (mode === 'gray-oil') {
+      if (settings.oil === false) {
+        // 유화 끔: 카메라 처리 경로 입력을 합성 그림 자리에 그대로 (색 보정 grade·획 없음). 출력 단계는 아래 유화와 같은 코드
+        if (mode === 'gray-oil') {
+          pass(PR.inputGray, T.composed, { uSrc: srcTex }, { uLuma: INPUT_LUMA, ...cameraUniforms(sourceAffine, sourceColor) });
+        } else {
+          pass(PR.grade, T.composed, { uSrc: srcTex }, { uAmt: 0, ...cameraUniforms(sourceAffine, sourceColor) });
+        }
+      } else if (mode === 'gray-oil') {
         // 회색조 유화 (8단계): 입력을 먼저 회색 한 장으로. 색 보정 이후는 원본 그대로이고, 회색 그림을 크롭·반전 없이 읽는다
         if (!T.inputGray) T.inputGray = tex(width, height);
         pass(PR.inputGray, T.inputGray, { uSrc: srcTex }, { uLuma: INPUT_LUMA, ...cameraUniforms(sourceAffine, sourceColor) });
@@ -650,13 +660,15 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
       } else {
         pass(PR.grade, T.grade, { uSrc: srcTex }, { uAmt: D.grade, ...cameraUniforms(sourceAffine, sourceColor) });
       }
-      pass(PR.sst, T.sst, { uTex: T.grade });
-      pass(PR.blur, T.sst2, { uTex: T.sst }, { uDir: [1 / T.sst.w, 0], uSigma: D.flowSigma });
-      pass(PR.blur, T.sst, { uTex: T.sst2 }, { uDir: [0, 1 / T.sst.h], uSigma: D.flowSigma });
-      pass(PR.tfm, T.tfm, { uTex: T.sst });
-      // 붓 결 선 주기: 선 간격(인쇄 점) × 인쇄 점 하나의 그리는 해상도 px (감열지가 아니어도 같은 식, 색에는 영향 없음)
-      count = paintStrokes(D, seed, (settings.lineSpacing ?? 3) * (width / (settings.paperDots ?? 576)));
-      pass(PR.compose, T.composed, { uPaint: T.paint, uHgt: T.hgt }, { uStr: D.strength, uRelief: D.relief, uPxScale: D.pxScale });
+      if (settings.oil !== false) {
+        pass(PR.sst, T.sst, { uTex: T.grade });
+        pass(PR.blur, T.sst2, { uTex: T.sst }, { uDir: [1 / T.sst.w, 0], uSigma: D.flowSigma });
+        pass(PR.blur, T.sst, { uTex: T.sst2 }, { uDir: [0, 1 / T.sst.h], uSigma: D.flowSigma });
+        pass(PR.tfm, T.tfm, { uTex: T.sst });
+        // 붓 결 선 주기: 선 간격(인쇄 점) × 인쇄 점 하나의 그리는 해상도 px (감열지가 아니어도 같은 식, 색에는 영향 없음)
+        count = paintStrokes(D, seed, (settings.lineSpacing ?? 3) * (width / (settings.paperDots ?? 576)));
+        pass(PR.compose, T.composed, { uPaint: T.paint, uHgt: T.hgt }, { uStr: D.strength, uRelief: D.relief, uPxScale: D.pxScale });
+      }
       if (mode === 'gray-oil' && output === 'canvas') warmGrayOilPrint(settings, D);
       // 회색조·회색조 유화는 회색조·레벨. 회색조 유화는 이것으로 색 보정·획 색 흔들림의 색을 없앤다(무채색, 8단계)
       const outputUniforms = { uGray: mode === 'gray' || mode === 'gray-oil' ? 1 : 0, ...levelUniforms(settings) };
@@ -704,7 +716,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
     const cpuMs = performance.now() - t0;
     if (output === 'canvas') {
       Object.assign(stats, {
-        draws: stats.draws + 1, cpuMs, strokes: count, width, height, pxScale: D.pxScale, outputMode: mode,
+        draws: stats.draws + 1, cpuMs, strokes: count, width, height, pxScale: D.pxScale, outputMode: mode, oil: settings.oil !== false,
         dither: mode === 'thermal' ? settings.dither : '', bwStyle: mode === 'thermal' ? bwStyleOf(settings) : '',
         screen: mode === 'thermal' ? screenOf(settings) : '', printWidth: thermal?.printWidth ?? 0, printHeight: thermal?.printHeight ?? 0,
         readMs: thermal?.readMs ?? null, ditherMs: thermal?.ditherMs ?? null,

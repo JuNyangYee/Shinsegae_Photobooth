@@ -733,3 +733,81 @@ describe('촬영 결과 회색조 유화 경로 (실제 미리보기·렌더러�
     assert.match(last.reason, /context-lost/);
   });
 });
+
+describe('oil-renderer: 시험 조합 유화 끔 (WISHFUL 시안, 가짜 WebGL2)', () => {
+  const withOil = (oil, over = {}) => normalizeEffectSettings({ ...config.effect, paperDots: 128, oil, ...over }, config.effect).settings;
+  const P = { w: 128, h: 230 };
+
+  function record(fake) {
+    const passes = [];
+    const use = fake.gl.useProgram;
+    fake.gl.useProgram = (p) => { passes.push({ uniforms: new Map(), instanced: 0, target: null }); return use(p); };
+    const bind = fake.gl.bindFramebuffer;
+    fake.gl.bindFramebuffer = (kind, fb) => { if (passes.at(-1)) passes.at(-1).target = fb; return bind(kind, fb); };
+    for (const name of ['uniform1f', 'uniform2fv', 'uniform3fv']) {
+      const original = fake.gl[name];
+      fake.gl[name] = (loc, ...v) => { passes.at(-1)?.uniforms.set(loc?.name, v.length === 1 ? v[0] : v); return original(loc, ...v); };
+    }
+    const instanced = fake.gl.drawArraysInstanced;
+    fake.gl.drawArraysInstanced = (...args) => { if (passes.at(-1)) passes.at(-1).instanced += 1; return instanced(...args); };
+    return passes;
+  }
+
+  it('유화를 끄면 획·흐름장·합성 패스 없이 카메라 처리 경로 입력(같은 아핀·색 보정)에 출력 단계만 입힌다. 획 0개', () => {
+    const color = shaderColorUniforms(cameraColorMatrix({ ...config.camera, brightness: 0.1 }));
+    const camera = { sourceAffine: { x: [-0.8, 0, 0.9], y: [0, 1, 0] }, sourceColor: color };
+    for (const [outputMode, inputUniform, gray] of [['off', 'uAmt', 0], ['gray', 'uAmt', 1], ['gray-oil', 'uLuma', 1]]) {
+      const fake = createFakeWebGL2();
+      const passes = record(fake);
+      const renderer = createOilRenderer({ canvas: fake.canvas });
+      const out = renderer.render({}, { ...small, ...camera, settings: withOil(false, { outputMode }) });
+      assert.equal(out.strokes, 0, outputMode);
+      // 회색조 유화는 처음 그릴 때 인쇄 경로 준비(축소·디더 2패스)가 한 번 더 돈다 (8단계 그대로)
+      assert.equal(passes.length, outputMode === 'gray-oil' ? 4 : 2, `${outputMode}: 입력 1 + 출력 1 (+ 인쇄 준비)`);
+      assert.ok(passes[0].uniforms.has(inputUniform), outputMode);
+      if (inputUniform === 'uAmt') assert.equal(passes[0].uniforms.get('uAmt'), 0, '색 보정(grade) 없이 카메라 그림 그대로');
+      assert.deepEqual([passes[0].uniforms.get('uSrcX'), passes[0].uniforms.get('uCamB')], [[-0.8, 0, 0.9], [0.1, 0.1, 0.1]], outputMode);
+      assert.ok(!passes.some((p) => p.instanced > 0 || p.uniforms.has('uStr') || p.uniforms.has('uSigma')), `${outputMode}: 획·합성·흐름장 없음`);
+      assert.equal(passes.at(-1).uniforms.get('uGray'), gray, outputMode);
+      assert.deepEqual([renderer.getStats().strokes, renderer.getStats().oil], [0, false]);
+      // 다시 켜면 유화 패스가 돌아온다 (같은 렌더러)
+      passes.length = 0;
+      assert.ok(renderer.render({}, { ...small, ...camera, settings: withOil(true, { outputMode }) }).strokes > 0, outputMode);
+      assert.ok(passes.some((p) => p.uniforms.has('uStr')));
+      renderer.dispose();
+      assert.deepEqual(fake.liveCount(), ZERO);
+    }
+  });
+
+  it('유화 끔 결과(pixels): 회색조 유화면 같은 그림에서 인쇄용 회색·점을 만들고, 컬러·회색조는 인쇄 데이터가 없다', () => {
+    const fake = createFakeWebGL2();
+    const renderer = createOilRenderer({ canvas: fake.canvas });
+    const reads = [];
+    fake.onReadPixels((f, [, , w, h]) => { reads.push([w, h]); });
+    const grayOil = renderer.render({}, { ...small, settings: withOil(false, { outputMode: 'gray-oil' }), output: 'pixels' });
+    assert.deepEqual(reads, [[20, 36], [P.w / 4, P.h], [P.w / 4, P.h]]);
+    assert.deepEqual([grayOil.printWidth, grayOil.printHeight, grayOil.strokes], [P.w, P.h, 0]);
+    for (const outputMode of ['off', 'gray']) {
+      const plain = renderer.render(null, { ...small, settings: withOil(false, { outputMode }), output: 'pixels' });
+      assert.deepEqual([plain.mask, plain.gray, plain.strokes], [undefined, undefined, 0], outputMode);
+    }
+    renderer.dispose();
+    assert.deepEqual(fake.liveCount(), ZERO);
+  });
+
+  it('유화 끔 감열지: 저장한 흑백 스타일(붓 결 선)이 있어도 톤 점(획·흐름장이 없다). 결과는 인쇄 회색·GPU 점만 읽는다', () => {
+    const fake = createFakeWebGL2();
+    const renderer = createOilRenderer({ canvas: fake.canvas });
+    const s = withOil(false, { outputMode: 'thermal', bwStyle: 'stroke', dither: 'blue-noise' });
+    assert.equal(s.bwStyle, 'stroke', '저장값은 그대로');
+    renderer.render({}, { ...small, settings: s, displayWidth: 40, displayHeight: 72 });
+    assert.deepEqual([renderer.getStats().bwStyle, renderer.getStats().screen], ['tone', 'blue-noise']);
+    const reads = [];
+    fake.onReadPixels((f, [, , w, h]) => { reads.push([w, h]); });
+    const out = renderer.render(null, { ...small, settings: s, output: 'print' });
+    assert.deepEqual(reads, [[P.w / 4, P.h], [P.w / 4, P.h]], '점별 문턱(thr)은 읽지 않는다');
+    assert.equal(out.thr, null);
+    renderer.dispose();
+    assert.deepEqual(fake.liveCount(), ZERO);
+  });
+});

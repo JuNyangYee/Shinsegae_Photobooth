@@ -18,7 +18,7 @@ import {
 } from './config/settings-file.js';
 import { normalizeTimingSettings, serializeTimingSettings } from './config/timing-settings.js';
 import { createTimingTuning } from './ui/timing-tuning.js';
-import { effectTunables, serializeEffectSettings } from './config/effect-settings.js';
+import { effectCombo, effectTunables, serializeEffectSettings } from './config/effect-settings.js';
 import { EffectStatus, createEffectPreview } from './effect/effect-preview.js';
 import { createPhotoEffect } from './effect/photo-effect.js';
 import { createEffectTuning } from './ui/effect-tuning.js';
@@ -548,7 +548,8 @@ function effectDevLines() {
   }
   const p = photoEffect.getStats();
   let photo = '-';
-  const mode = p.last?.mode && p.last.mode !== 'off' ? `${p.last.mode} ` : '';
+  // 시험 조합 (WISHFUL 시안): 유화를 끈 그림이면 모드 뒤에 [no oil]
+  const mode = `${p.last?.mode && p.last.mode !== 'off' ? `${p.last.mode} ` : ''}${p.last?.oil === false ? '[no oil] ' : ''}`;
   if (p.last?.status === 'applied') {
     photo = `applied ${mode}${p.last.width}x${p.last.height}${p.last.dither ? ` ${p.last.dither}` : ''}`
       + ` seed ${p.last.seed} tick ${p.last.tick}`
@@ -580,10 +581,19 @@ function effectDevLines() {
     `  time     : cpu ${ms(e.cpuMs)} (avg ${ms(e.cpuAvgMs)}), gpu ${e.gpuTimer ? ms(e.gpuMs) : 'n/a'},`
       + ` strokes ${e.strokes}, ${e.renderer || '-'}, result ${prepare}`,
     `  output   : ${output}`,
+    `  combo    : ${describeCombo(effect.getSettings())}`,
     values,
     photoLine,
     printLine,
   ];
+}
+
+// 시험 조합 (WISHFUL 시안): 유화·흑백 켬/끔, 흑백 방식, 인쇄 데이터를 만드는지 (회색조 유화·감열지만 만든다)
+function describeCombo(settings) {
+  const { oil, mono } = effectCombo(settings);
+  const print = settings.outputMode === 'gray-oil' || settings.outputMode === 'thermal';
+  return `oil ${oil ? 'on' : 'off'}, mono ${mono ? `on (${settings.outputMode})` : `off (color, mono mode ${settings.monoMode})`},`
+    + ` print data ${print ? 'yes' : `no (${mono ? 'gray makes none' : 'color is a screen test'})`}`;
 }
 
 function describeAuto(record) {

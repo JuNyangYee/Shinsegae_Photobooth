@@ -68,7 +68,7 @@ describe('createPhotoEffect', () => {
     assert.equal(out.ops[0][0], 'put');
     assert.equal(out.ops[0][1].pixels, pixels);
     assert.deepEqual(t.effect.getStats(), {
-      last: { status: 'applied', mode: 'off', width: 1080, height: 1920, seed: 7, tick: 1234, sameAsPreview: true, renderMs: 9, ms: 0 },
+      last: { status: 'applied', mode: 'off', width: 1080, height: 1920, seed: 7, tick: 1234, sameAsPreview: true, renderMs: 9, ms: 0, oil: true },
       applied: 1, fellBack: 0,
     });
     assert.deepEqual(t.cleared, ['effect-capture']);

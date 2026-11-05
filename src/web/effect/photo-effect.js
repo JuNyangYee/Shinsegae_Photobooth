@@ -69,6 +69,7 @@ export function createPhotoEffect({
   clock = () => Date.now(),
 }) {
   let last = null;
+  let lastOil = true;
   let applied = 0;
   let fellBack = 0;
 
@@ -284,8 +285,10 @@ export function createPhotoEffect({
     try {
       still = preview.renderStill(); // 동기 (셔터 순간 화면의 그림)
     } catch (error) {
+      lastOil = preview.getSettings().oil !== false;
       return rawResult(canvas, preview.getSettings(), error?.message ?? String(error), t0, signal, takenAt);
     }
+    lastOil = still.settings.oil !== false; // 시험 조합 (WISHFUL 시안): 그 그림이 유화를 썼는지 (D photo-fx)
     const base = { seed: still.seed, tick: still.tick, sameAsPreview: still.sameAsPreview, renderMs: still.ms }; // renderMs: 동기 구간(셔터 순간)
     if (still.mode !== 'thermal') {
       let output;
@@ -414,6 +417,6 @@ export function createPhotoEffect({
   return {
     apply,
     /** D 화면용: 마지막 결과의 효과 상태와 누적 수 */
-    getStats: () => ({ last, applied, fellBack }),
+    getStats: () => ({ last: last && last.status !== 'disabled' ? { ...last, oil: lastOil } : last, applied, fellBack }),
   };
 }

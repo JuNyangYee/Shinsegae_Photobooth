@@ -177,6 +177,11 @@ export const config = Object.freeze({
     bwStyle: 'stroke',
     bwTexture: 1, // 질감 세기: 획 볼록 조명·국소 대비 (0~2, 톤 점에서는 쓰지 않는다)
     lineSpacing: 4, // 선 간격: 흐름 선·붓 결 선의 주기 (인쇄 점, 2~8)
+    // ---- 시험 조합 (WISHFUL HOLIDAY 시안, 검토 중. 운영자 E 필터 섹션) ----
+    // 유화 켬/끔: 끄면 유화 패스(획·합성)를 건너뛰고 카메라 그림에 출력 단계(회색조·레벨·감열지 점)만 입힌다. 유화 수치는 그대로 둔다
+    oil: true,
+    // 흑백 방식: "흑백 켬"일 때의 출력 모드 (gray-oil·thermal·gray). 흑백을 끄면 outputMode가 'off'(컬러)가 되고 다시 켜면 이 값
+    monoMode: 'gray-oil',
   }),
 
   // 감열지 화면 표시 색 (6-1). 화면에서만 쓴다. 인쇄 데이터는 순수 1비트(검은 점·흰 바탕)다. [R, G, B] 0~255

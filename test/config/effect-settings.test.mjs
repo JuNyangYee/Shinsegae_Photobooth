@@ -8,7 +8,10 @@ import {
   DITHER_METHODS,
   EFFECT_TUNABLE_KEYS,
   OUTPUT_MODES,
+  MONO_MODES,
   applyEffectTunables,
+  comboTunables,
+  effectCombo,
   effectLimits,
   effectTunables,
   normalizeEffectSettings,
@@ -100,12 +103,13 @@ describe('normalizeEffectSettings', () => {
 describe('효과 조절값 (E 화면·파일, 5-2)', () => {
   const base = normalizeEffectSettings(defaults, defaults).settings;
 
-  it('조절값은 16개(5-2의 7개 + 출력 단계 6개 + 흑백 스타일 3개, 좌우 반전은 9-1에 카메라 설정으로), 보완 층 문턱은 refine[4]', () => {
+  it('조절값은 18개(5-2의 7개 + 출력 단계 6개 + 흑백 스타일 3개 + 시험 조합 2개(WISHFUL), 좌우 반전은 9-1에 카메라 설정으로), 보완 층 문턱은 refine[4]', () => {
     assert.deepEqual(Object.keys(effectTunables(base)), [...EFFECT_TUNABLE_KEYS]);
     assert.deepEqual(effectTunables(base), {
       strength: 0.3, size: 1.3, boil: 0.05, fps: 12, grade: 1, refineThreshold: 0.3, previewScale: 0.5,
       outputMode: 'gray-oil', dither: defaults.dither, brightness: -0.05, contrast: 1.5, gamma: 1.3, paperDots: 576,
       bwStyle: defaults.bwStyle, bwTexture: defaults.bwTexture, lineSpacing: defaults.lineSpacing,
+      oil: true, monoMode: 'gray-oil',
     });
   });
 
@@ -260,5 +264,80 @@ describe('좌우 반전은 효과 설정이 아니다 (9-1에 카메라 설정�
     assert.equal(r.settings.fps, 18);
     assert.ok(!('mirror' in JSON.parse(serializeEffectSettings(r.settings)).settings));
     assert.ok(sameEffectSettings(r.settings, applyEffectTunables(base, { fps: 18 }, defaults).settings));
+  });
+});
+
+describe('시험 조합: 유화 켬/끔 · 흑백 켬/끔 (WISHFUL 시안)', () => {
+  const base = normalizeEffectSettings(defaults, defaults).settings;
+  // 현장 PC의 effect.local.json과 같은 내용 (2026-11-05 읽기 전용 대조, 예전 16개 키)
+  const SITE = {
+    strength: 0.05, size: 0.7, boil: 0, fps: 12, grade: 1, refineThreshold: 0.09, previewScale: 1, outputMode: 'gray',
+    dither: 'blue-noise', brightness: 0.03, contrast: 1.4, gamma: 1.2, paperDots: 576, bwStyle: 'stroke', bwTexture: 1, lineSpacing: 4,
+  };
+  const siteText = JSON.stringify({ version: 1, settings: SITE }, null, 2);
+  const toggle = (settings, combo) => applyEffectTunables(settings, comboTunables(settings, combo), defaults).settings;
+
+  it('기본값은 유화 켬·흑백 켬(회색조 유화)이고 흑백 방식은 출력 모드의 흑백 셋', () => {
+    assert.deepEqual(effectCombo(base), { oil: true, mono: true });
+    assert.equal(base.monoMode, 'gray-oil');
+    assert.deepEqual([...MONO_MODES], ['gray-oil', 'thermal', 'gray']);
+  });
+
+  it('예전 16개 키 파일(현장 저장값)은 알림 없이 같은 값으로 읽힌다: 유화 켬, 흑백 켬(gray), 흑백 방식 gray', () => {
+    const r = parseStoredEffectSettings(siteText, defaults);
+    assert.equal(r.source, 'stored');
+    assert.deepEqual(r.issues, [], '선택 키(oil·monoMode)가 없다고 알리지 않는다 (저장 상태가 "고쳐 씀"이 되지 않게)');
+    const t = effectTunables(r.settings);
+    for (const [key, value] of Object.entries(SITE)) assert.equal(t[key], value, key);
+    assert.equal(r.settings.oil, true);
+    assert.equal(r.settings.monoMode, 'gray');
+    assert.deepEqual(effectCombo(r.settings), { oil: true, mono: true });
+  });
+
+  it('네 조합을 오가도 유화 수치·흑백 방식·레벨이 그대로이고, 다시 켜면 원래 출력 모드로 돌아온다', () => {
+    const site = parseStoredEffectSettings(siteText, defaults).settings;
+    const combos = [{ oil: false, mono: true }, { oil: false, mono: false }, { oil: true, mono: false }, { oil: true, mono: true }];
+    let s = site;
+    for (const combo of combos) {
+      s = toggle(s, combo);
+      assert.deepEqual(effectCombo(s), combo);
+      assert.equal(s.outputMode, combo.mono ? 'gray' : 'off');
+      assert.equal(s.monoMode, 'gray');
+      for (const key of ['strength', 'size', 'boil', 'fps', 'grade', 'previewScale', 'brightness', 'contrast', 'gamma', 'bwStyle', 'dither']) {
+        assert.equal(s[key], site[key], `${JSON.stringify(combo)} ${key}`);
+      }
+      assert.deepEqual(s.refine, site.refine);
+    }
+    assert.ok(sameEffectSettings(s, site), '한 바퀴 돌면 처음과 같다');
+  });
+
+  it('흑백을 끈 채 저장 → 읽기: outputMode는 예전 뜻 그대로 off(컬러), 흑백 방식은 따로 남는다', () => {
+    const site = parseStoredEffectSettings(siteText, defaults).settings;
+    const color = toggle(site, { oil: false, mono: false });
+    const saved = JSON.parse(serializeEffectSettings(color));
+    assert.equal(saved.version, 1);
+    assert.deepEqual([saved.settings.outputMode, saved.settings.monoMode, saved.settings.oil], ['off', 'gray', false]);
+    const back = parseStoredEffectSettings(serializeEffectSettings(color), defaults);
+    assert.deepEqual(back.issues, []);
+    assert.ok(sameEffectSettings(back.settings, color));
+    assert.equal(toggle(back.settings, { mono: true }).outputMode, 'gray', '다시 켜면 저장해 둔 흑백 방식');
+  });
+
+  it('출력 모드를 직접 고르면 흑백 방식이 따라가고, off로 고르면 그 전 흑백 방식이 남는다', () => {
+    const thermal = applyEffectTunables(base, { outputMode: 'thermal' }, defaults).settings;
+    assert.equal(thermal.monoMode, 'thermal');
+    const off = applyEffectTunables(thermal, { outputMode: 'off' }, defaults).settings;
+    assert.deepEqual([off.outputMode, off.monoMode], ['off', 'thermal']);
+    assert.equal(toggle(off, { mono: true }).outputMode, 'thermal');
+  });
+
+  it('출력 모드가 흑백이면 파일의 흑백 방식과 달라도 출력 모드가 기준 (알리지 않음), 틀린 값은 알린다', () => {
+    const r = parseStoredEffectSettings(JSON.stringify({ version: 1, settings: { ...SITE, monoMode: 'thermal', oil: false } }), defaults);
+    assert.deepEqual(r.issues, []);
+    assert.deepEqual([r.settings.outputMode, r.settings.monoMode, r.settings.oil], ['gray', 'gray', false]);
+    const bad = parseStoredEffectSettings(JSON.stringify({ version: 1, settings: { ...SITE, outputMode: 'off', monoMode: 'off', oil: 'no' } }), defaults);
+    assert.equal(bad.settings.monoMode, 'gray-oil');
+    assert.equal(bad.settings.oil, true);
+    assert.ok(bad.issues.includes('monoMode: "off" -> default') && bad.issues.includes('oil: "no" -> default'), bad.issues.join('; '));
   });
 });

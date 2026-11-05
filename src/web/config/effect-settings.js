@@ -14,6 +14,13 @@
 // 읽으면 없는 값은 기본값으로 채운다. 8단계는 출력 모드에 값 'gray-oil'만 더했다(키·버전 그대로). 파일에 저장된 모드가 있으면 그 값을 쓴다.
 // 좌우 반전(mirror)은 2026-10-26부터 이 파일에 있었고 9-1에서 카메라 설정(config/camera-settings.js, camera.local.json)으로 옮겼다.
 // 파일에 남은 mirror 키는 여기서 읽지 않는다(카메라 파일이 없을 때 settings-file.js가 한 번 옮기고 이 파일에서 그 키를 뺀다).
+//
+// 시험 조합 (WISHFUL HOLIDAY 시안, 검토 중): 유화 켬/끔(oil)과 흑백 켬/끔을 따로 바꿔 네 조합(원본 컬러·원본 흑백·유화 컬러·유화 흑백)을
+// 실제 영상 처리로 시험한다. 키 두 개만 더했다(버전 1 그대로, 선택 키라 없으면 알리지 않고 채운다 — 예전 16개 키 파일은 바뀌지 않고 같은 값):
+//   oil      유화 패스를 쓸지. false면 카메라 그림에 출력 단계만 입힌다. 강도·붓 크기 등 유화 수치는 지우지 않고 그대로 둔다(다시 켜면 그 값).
+//   monoMode 흑백일 때의 출력 모드(흑백 방식: gray-oil·thermal·gray). "흑백"은 outputMode가 'off'(컬러)가 아닌 것이고,
+//            흑백을 끄면 outputMode = 'off', 다시 켜면 outputMode = monoMode로 돌아온다. outputMode가 흑백이면 monoMode는 늘 같은 값이다.
+// outputMode는 예전과 같은 뜻 그대로 저장한다(예전 앱이 이 파일을 읽어도 컬러·흑백은 맞다. 예전 앱은 oil을 모르므로 유화로 보인다).
 
 export const effectLimits = Object.freeze({
   strength: Object.freeze({ min: 0, max: 1.6, step: 0.05 }), // 강도: 요철·광택·색 흔들림
@@ -46,6 +53,10 @@ export const DITHER_METHODS = Object.freeze(['blue-noise', 'bayer', 'atkinson', 
  * 흐름 선(흐름장을 따라 번진 결, GPU) / 붓 결 선(획마다 획 방향 선, GPU). 흐름 선·붓 결 선은 점 방식을 쓰지 않는다
  */
 export const BW_STYLES = Object.freeze(['tone', 'texture', 'flow', 'stroke']);
+/** 흑백 방식 (시험 조합의 "흑백 켬"이 쓰는 출력 모드). 'off'(컬러)를 뺀 출력 모드 */
+export const MONO_MODES = Object.freeze(['gray-oil', 'thermal', 'gray']);
+/** 파일에 없어도 알리지 않는 선택 키 (시험 조합). 없으면 기본값·outputMode에서 채운다 */
+export const EFFECT_OPTIONAL_KEYS = Object.freeze(['oil', 'monoMode']);
 
 const isFiniteNumber = (value) => typeof value === 'number' && Number.isFinite(value);
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
@@ -103,6 +114,17 @@ export function normalizeEffectSettings(input, defaults) {
     refine = [...source.refine.slice(0, 4), threshold];
   }
 
+  // 시험 조합: 유화 켬/끔. 없으면 기본값(알리지 않음), 참·거짓이 아니면 기본값(알림)
+  let oil = defaults.oil ?? true;
+  if (typeof source.oil === 'boolean') oil = source.oil;
+  else if (source.oil !== undefined) issues.push(`oil: ${JSON.stringify(source.oil)} -> default`);
+  const outputMode = oneOf('outputMode', OUTPUT_MODES);
+  // 흑백 방식: 출력 모드가 흑백이면 늘 그 값(파일에 다른 값이 있어도 출력 모드가 기준). 컬러('off')면 기억해 둔 값, 없거나 틀리면 기본값
+  let monoMode = MONO_MODES.includes(defaults.monoMode) ? defaults.monoMode : 'gray-oil';
+  if (outputMode !== 'off') monoMode = outputMode;
+  else if (MONO_MODES.includes(source.monoMode)) monoMode = source.monoMode;
+  else if (source.monoMode !== undefined) issues.push(`monoMode: ${JSON.stringify(source.monoMode)} -> default`);
+
   const settings = Object.freeze({
     strength: number('strength', effectLimits.strength),
     size: number('size', effectLimits.size),
@@ -112,7 +134,7 @@ export function normalizeEffectSettings(input, defaults) {
     layers: Object.freeze(layers.map((layer) => Object.freeze([...layer]))),
     refine: refine === null ? null : Object.freeze([...refine]),
     previewScale: number('previewScale', effectLimits.previewScale),
-    outputMode: oneOf('outputMode', OUTPUT_MODES),
+    outputMode,
     dither: oneOf('dither', DITHER_METHODS),
     brightness: number('brightness', effectLimits.brightness),
     contrast: number('contrast', effectLimits.contrast),
@@ -121,6 +143,8 @@ export function normalizeEffectSettings(input, defaults) {
     bwStyle: oneOf('bwStyle', BW_STYLES),
     bwTexture: number('bwTexture', effectLimits.bwTexture),
     lineSpacing: number('lineSpacing', effectLimits.lineSpacing),
+    oil,
+    monoMode,
   });
   return { settings, issues };
 }
@@ -133,7 +157,7 @@ export const EFFECT_SETTINGS_VERSION = 1;
 export const EFFECT_TUNABLE_KEYS = Object.freeze([
   'strength', 'size', 'boil', 'fps', 'grade', 'refineThreshold', 'previewScale',
   'outputMode', 'dither', 'brightness', 'contrast', 'gamma', 'paperDots',
-  'bwStyle', 'bwTexture', 'lineSpacing',
+  'bwStyle', 'bwTexture', 'lineSpacing', 'oil', 'monoMode',
 ]);
 
 /** 정규화된 설정에서 조절값만 꺼낸다. 보완 층이 없으면 refineThreshold는 null */
@@ -155,7 +179,25 @@ export function effectTunables(settings) {
     bwStyle: settings.bwStyle,
     bwTexture: settings.bwTexture,
     lineSpacing: settings.lineSpacing,
+    oil: settings.oil,
+    monoMode: settings.monoMode,
   };
+}
+
+/** 시험 조합 (WISHFUL 시안): 유화 켬/끔, 흑백 켬/끔(출력 모드가 컬러 'off'가 아님) */
+export function effectCombo(settings) {
+  return { oil: settings.oil !== false, mono: settings.outputMode !== 'off' };
+}
+
+/**
+ * 시험 조합을 바꾸는 조절값 조각 (applyEffectTunables에 넘긴다). 주지 않은 쪽은 지금 값 그대로.
+ * 흑백을 끄면 지금 흑백 방식을 monoMode에 남기고 outputMode = 'off', 켜면 outputMode = monoMode. 유화 수치는 건드리지 않는다
+ */
+export function comboTunables(settings, { oil, mono } = {}) {
+  const now = effectCombo(settings);
+  const monoMode = settings.outputMode !== 'off' ? settings.outputMode : settings.monoMode;
+  const nextMono = mono ?? now.mono;
+  return { oil: oil ?? now.oil, monoMode, outputMode: nextMono ? monoMode : 'off' };
 }
 
 /**
@@ -195,7 +237,7 @@ export function parseStoredEffectSettings(text, defaults) {
     return fallback(`stored version ${JSON.stringify(parsed.version)} != ${EFFECT_SETTINGS_VERSION} -> defaults`);
   }
   const stored = parsed.settings !== null && typeof parsed.settings === 'object' ? parsed.settings : {};
-  const missing = EFFECT_TUNABLE_KEYS.filter((key) => !(key in stored))
+  const missing = EFFECT_TUNABLE_KEYS.filter((key) => !(key in stored) && !EFFECT_OPTIONAL_KEYS.includes(key))
     .map((key) => `${key}: missing -> default`);
   const { settings, issues } = applyEffectTunables(base, stored, defaults);
   return { settings, issues: [...missing, ...issues], source: 'stored' };

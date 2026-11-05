@@ -342,8 +342,11 @@ export const isGpuDither = (method) => method === 'bayer' || method === 'blue-no
 
 // ---------- 흑백 스타일 (7-1) ----------
 
-/** 흑백 스타일: 'tone' 톤 점(6-1) / 'texture' 질감 강조 점 / 'flow' 흐름 선 / 'stroke' 붓 결 선. 없으면 'tone' */
-export const bwStyleOf = (settings) => settings.bwStyle ?? 'tone';
+/**
+ * 흑백 스타일: 'tone' 톤 점(6-1) / 'texture' 질감 강조 점 / 'flow' 흐름 선 / 'stroke' 붓 결 선. 없으면 'tone'.
+ * 유화를 끄면(시험 조합 oil false, WISHFUL 시안) 획·흐름장·획 볼록이 없으므로 늘 'tone'이다 (저장한 bwStyle은 그대로 둔다)
+ */
+export const bwStyleOf = (settings) => (settings.oil === false ? 'tone' : settings.bwStyle ?? 'tone');
 
 /**
  * 점을 무엇으로 정하는지(D 화면·결과 표시용): 톤 점·질감 강조 점은 점 방식(dither) 그대로,

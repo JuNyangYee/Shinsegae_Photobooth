@@ -28,6 +28,11 @@ import { EffectError, EffectFault, createOilRenderer } from './oil-renderer.js';
 
 // 결과 사진 준비를 브라우저가 한가할 때까지 기다리는 최대 시간 (가안). 넘으면 바로 한다
 const PREPARE_TIMEOUT_MS = 2000;
+// 유화를 끈 시험 조합(WISHFUL 시안)의 초당 그림 (가안): 획이 없어 스톱모션으로 둘 이유가 없고 패스가 둘뿐이라 영상처럼 30장.
+// 유화 초당 그림(fps) 값은 그대로 두고 쓰지 않는다 (다시 켜면 그 값)
+export const OIL_OFF_FPS = 30;
+/** 이 설정으로 그림을 새로 그리는 초당 횟수 */
+export const drawFpsOf = (settings) => (settings.oil === false ? OIL_OFF_FPS : settings.fps);
 
 export const EffectStatus = Object.freeze({
   DISABLED: 'disabled', // 설정으로 끔 (원본 미리보기)
@@ -133,7 +138,7 @@ export function createEffectPreview({
    */
   function prepareKeyOf({ view: v, settings: s }) {
     if (v.width === v.resultWidth && v.height === v.resultHeight) return '';
-    return [`${v.resultWidth}x${v.resultHeight}`, `${v.width}x${v.height}`, s.outputMode, s.paperDots, s.dither, s.bwStyle, s.size, s.boil]
+    return [`${v.resultWidth}x${v.resultHeight}`, `${v.width}x${v.height}`, s.outputMode, s.oil !== false, s.paperDots, s.dither, s.bwStyle, s.size, s.boil]
       .join(' ');
   }
 
@@ -229,7 +234,7 @@ export function createEffectPreview({
     });
     const sizeChanged = !view || !sameView(next, view);
     const t = now();
-    const tick = drawingTick(t, settings.fps);
+    const tick = drawingTick(t, drawFpsOf(settings));
     if (!dirty && !sizeChanged && tick === lastTick && status === EffectStatus.RUNNING) return;
     view = next;
     const seed = seedForTick(tick);
@@ -293,7 +298,7 @@ export function createEffectPreview({
         cameraView: cameraFrame.getView(video.videoWidth, video.videoHeight), color: cameraFrame.getColor(), previewScale: settings.previewScale,
       });
       if (v === null) throw new EffectError(EffectFault.RENDER_FAILED, 'video has no frame');
-      const tick = drawingTick(t0, settings.fps);
+      const tick = drawingTick(t0, drawFpsOf(settings));
       drawing = { tick, seed: seedForTick(tick), settings, view: v };
     }
     const { view: v } = drawing;
@@ -371,7 +376,8 @@ export function createEffectPreview({
         height: view?.height ?? 0,
         pxScale: s?.pxScale ?? 0,
         previewScale: settings.previewScale,
-        fps: settings.fps,
+        fps: drawFpsOf(settings), // 실제로 쓰는 초당 그림 (유화 끔이면 OIL_OFF_FPS)
+        oil: settings.oil !== false, // 시험 조합 (WISHFUL 시안)
         boil: settings.boil,
         drawingsPerSecond: drawTimes.filter((at) => t - at < 1000).length,
         seed: lastSeed,
