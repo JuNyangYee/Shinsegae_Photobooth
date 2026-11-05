@@ -1,4 +1,4 @@
-/* IMPRINT 시안 데모 (검토용, 관람객 화면 아님). 관람객 화면 모양은 ../style.css 그대로이고, 여기는 9:16 영역 옆 조작 패널 배치만. */
+/* WISHFUL HOLIDAY 시안 데모 (검토용, 관람객 화면 아님, IMPRINT 데모를 이어받음). 관람객 화면 모양은 ../style.css 그대로이고, 여기는 9:16 영역 옆 조작 패널 배치만. */
 
 body.demo {
   --demo-panel: 24rem;
@@ -20,16 +20,18 @@ body.demo .stage {
   overflow-y: auto;
   padding: 1.6rem 1.4rem 2rem;
   border-left: 1px solid rgba(236, 235, 231, 0.12);
-  background: #161616;
-  color: #ecebe7;
+  background: #1b0c0e;
+  color: #f1e9dd;
   font: 400 0.86rem / 1.55 var(--font-sans);
   color-scheme: dark;
 }
 
 .demo-panel h1 {
   margin: 0.2rem 0 0.6rem;
-  font: 300 2.4rem / 1 var(--font-serif);
-  letter-spacing: 0.02em;
+  color: #e6c47a;
+  font: 600 1.9rem / 1.05 var(--font-display);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .demo-panel h2 {
@@ -76,9 +78,68 @@ body.demo .stage {
 }
 
 .demo-buttons button[aria-pressed="true"] {
-  border-color: #ecebe7;
-  background: #ecebe7;
-  color: #161616;
+  border-color: #e6c47a;
+  background: #e6c47a;
+  color: #2a1013;
+}
+
+.demo-buttons + .demo-buttons,
+.demo-field + .demo-buttons {
+  margin-top: 0.6rem;
+}
+
+.demo-field {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+  color: rgba(241, 233, 221, 0.7);
+}
+
+.demo-field select {
+  flex: 1;
+  padding: 0.35rem 0.4rem;
+  border: 1px solid rgba(241, 233, 221, 0.22);
+  border-radius: 0.25rem;
+  background: #2a1518;
+  color: inherit;
+  font: inherit;
+}
+
+/* 4조합 비교 촬영: 결과 사진(틀 4:5) 네 장, 2×2 */
+.demo-compare {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin-top: 0.8rem;
+}
+
+.demo-compare:empty {
+  display: none;
+}
+
+.demo-compare figure {
+  margin: 0;
+}
+
+.demo-compare img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  object-fit: cover;
+  outline: 1px solid rgba(230, 196, 122, 0.35);
+}
+
+.demo-compare figcaption {
+  margin-top: 0.3rem;
+  color: rgba(241, 233, 221, 0.7);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.demo-compare figcaption b {
+  color: #e6c47a;
+  font-weight: 500;
 }
 
 .demo-readout {

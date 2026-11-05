@@ -5,9 +5,12 @@
   <!-- 앱(/)과 같은 CSP: 같은 출처만, 외부 전송 없음. blob: = 결과 사진·인쇄 데이터 미리보기(메모리 안 Object URL) -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; img-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>IMPRINT 시안 데모 (검토용 · 카메라 없음)</title>
+  <title>WISHFUL HOLIDAY 시안 데모 (검토용 · 카메라 없음)</title>
   <link rel="preload" href="../assets/fonts/Pretendard-Regular.subset.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="../assets/fonts/NotoSerifKR-Light.subset.woff" as="font" type="font/woff" crossorigin>
+  <link rel="preload" href="../assets/fonts/Cinzel-SemiBold.latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="../assets/fonts/Cinzel-Regular.latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="../assets/fonts/PinyonScript-Regular.latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="../style.css">
   <link rel="stylesheet" href="demo.css">
   <script type="module" src="demo.js"></script>
@@ -20,8 +23,8 @@
   <aside class="demo-panel" aria-label="검토용 데모 조작">
     <header>
       <p class="demo-kicker">검토용 데모 · 관람객 화면 아님</p>
-      <h1>IMPRINT</h1>
-      <p class="demo-note">카메라 없음. 도형으로 그린 <b>합성 장면</b>을 실제 카메라 처리 경로·회색조 유화 효과·촬영·인쇄 데이터 경로에 넣었다.
+      <h1>A Wishful Holiday</h1>
+      <p class="demo-note">카메라 없음. 도형으로 그린 <b>합성 장면</b>을 실제 카메라 처리 경로·유화 효과·촬영·인쇄 데이터 경로에 넣었다.
         사람 인식은 감지기 대신 아래 조작으로 정한다. 사진·인쇄 데이터는 메모리에만 있고 <b>프린터 연동은 없다</b>.</p>
     </header>
 
@@ -34,6 +37,33 @@
         <button type="button" data-demo="reset">초기화 (X)</button>
       </div>
       <p class="demo-readout" data-demo-state>-</p>
+    </section>
+
+    <section>
+      <h2>필터 시험 조합 (운영자 E 필터 섹션과 같은 값)</h2>
+      <div class="demo-buttons demo-combo" role="group" aria-label="유화·흑백 네 조합">
+        <button type="button" data-demo="combo" data-oil="false" data-mono="false" aria-pressed="false">원본 · 컬러</button>
+        <button type="button" data-demo="combo" data-oil="false" data-mono="true" aria-pressed="false">원본 · 흑백</button>
+        <button type="button" data-demo="combo" data-oil="true" data-mono="false" aria-pressed="false">유화 · 컬러</button>
+        <button type="button" data-demo="combo" data-oil="true" data-mono="true" aria-pressed="true">유화 · 흑백</button>
+      </div>
+      <label class="demo-field">흑백 방식
+        <select data-demo="mono-mode">
+          <option value="gray-oil">회색조 유화 (입력 흑백 · 인쇄 데이터)</option>
+          <option value="thermal">감열지 (1비트 점 · 인쇄 데이터)</option>
+          <option value="gray">회색조 (인쇄 데이터 없음)</option>
+        </select>
+      </label>
+      <div class="demo-buttons" role="group" aria-label="세부 수치">
+        <button type="button" data-demo="preset" data-value="defaults" aria-pressed="true">기본값</button>
+        <button type="button" data-demo="preset" data-value="site" aria-pressed="false">현장 저장값 (대조본)</button>
+      </div>
+      <p class="demo-hint">현장 저장값: 현장 PC effect.local.json을 2026-11-05에 읽기 전용으로 대조한 값(강도 0.05·붓 0.7·boil 0·12장·세부 0.09·처리 1·회색조·레벨 0.03/1.4/1.2)을 코드에 적어 둔 것이다. 파일을 읽거나 쓰지 않는다.</p>
+      <div class="demo-buttons">
+        <button type="button" data-demo="compare">4조합 비교 촬영</button>
+      </div>
+      <p class="demo-hint">대기 상태에서 같은 합성 장면을 네 조합으로 한 장씩 실제 촬영 경로(capture → 결과 효과 → 사진 틀)로 찍는다. 사진은 메모리에만 있고 다음 비교·페이지를 떠날 때 놓는다.</p>
+      <div class="demo-compare" data-demo-compare></div>
     </section>
 
     <section>

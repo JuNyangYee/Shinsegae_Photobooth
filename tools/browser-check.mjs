@@ -1036,6 +1036,70 @@ async function runScenarios(app, origin) {
     }
   });
 
+  await scenario('시험 조합 4가지(WISHFUL 시안, E 필터 섹션 조합 버튼, 처리 해상도 1): 원본·유화 × 컬러·흑백 — 결과 사진(틀 1080x1350) = 셔터 직전 미리보기 그림(같은 영역 블록 차 1/255 미만), 흑백이면 미리보기·결과 무채색·컬러면 색, 유화 끔이면 획 0, 인쇄 데이터는 흑백(회색조 유화)만, 유화 수치 유지, 닫으면 저장된 조합으로 (--screens면 조합별 결과 화면, 가짜 카메라만)', async () => {
+    const details = [];
+    await app.open();
+    await waitReady(app);
+    await app.openSection('effect');
+    await previewScaleOne(app);
+    const oilValues = () => app.devText().then((t) => subLine(t, 'values').split(' | ')[0]);
+    const before = await oilValues();
+    for (const [oil, mono] of [[false, false], [false, true], [true, false], [true, true]]) {
+      const label = `${oil ? 'oil' : 'photo'}-${mono ? 'mono' : 'color'}`;
+      await app.evaluate(`(() => { document.querySelector('#effect-panel button[data-action="combo"][data-oil="${oil}"][data-mono="${mono}"]').click(); return true; })()`);
+      await app.waitFor(`${label} combo`, async () => subLine(await app.devText(), 'combo').startsWith(`oil ${oil ? 'on' : 'off'}, mono ${mono ? 'on (gray-oil)' : 'off'}`), 5000);
+      // 그 조합으로 실제 그렸는지: 유화 끔이면 획 0, 켬이면 획이 있다 (D time 줄은 마지막 미리보기 그림의 통계)
+      const strokes = await app.waitFor(`${label} drawn`, async () => {
+        const n = Number(/strokes (\d+)/.exec(subLine(await app.devText(), 'time'))?.[1]);
+        return /^running, 1080x1920/.test((await app.dev()).get('effect') ?? '') && (oil ? n > 0 : n === 0) ? String(n) : null;
+      }, 5000);
+      const pressed = await app.evaluate("[...document.querySelectorAll('#effect-panel button[data-action=\"combo\"]')].filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.dataset.oil + '/' + b.dataset.mono).join(',')");
+      expect(pressed === `${oil}/${mono}`, `${label}: pressed ${pressed}`);
+      const info = await app.evaluate("document.querySelector('#effect-panel [data-combo-info]').textContent");
+      expect(mono ? /촬영 때 인쇄 데이터/.test(info) : /인쇄 데이터를 만들지 않는다/.test(info), `${label}: info ${info}`);
+      await app.evaluate(EFFECT_READER);
+      await app.evaluate('window.__fxReader.drawings.length = 0; window.__fxReader.pinned = null; true');
+      await sleep(500);
+      const { completedDelta, resources, dev, image, extra: c } = await withAutoPaused(app, () => manualCycle(app, {
+        onResult: async () => {
+          const compare = await app.evaluate(EFFECT_COMPARE);
+          if (options.screens && options.camera === 'fake') {
+            mkdirSync(options.screens, { recursive: true });
+            await app.key('KeyD');
+            await sleep(1200);
+            const { data } = await app.cdp.send('Page.captureScreenshot', { format: 'png' });
+            writeFileSync(join(options.screens, `combo-${label}-result.png`), Buffer.from(data, 'base64'));
+            await app.key('KeyD');
+          }
+          return compare;
+        },
+      }));
+      await app.evaluate('window.__fxReader.drawings.length = 0; true');
+      expect(completedDelta === 1 && photoFree(resources), `${label}: S +${completedDelta}, ${dev.get('resources')}`);
+      const fx = dev.get('photo-fx') ?? '';
+      const tag = oil ? '' : '\\[no oil\\] ';
+      const fxPattern = mono ? `^applied gray-oil ${tag}1080x1920 print blue-noise seed \\d+ tick \\d+ \\(same drawing as preview, gpu=cpu\\)`
+        : `^applied ${tag}1080x1920 seed \\d+ tick \\d+ \\(same drawing as preview\\)`;
+      expect(new RegExp(fxPattern).test(fx), `${label}: photo-fx ${fx}`);
+      expect(image.startsWith('1080x1350') && /image\/jpeg/.test(dev.get('capture') ?? ''), `${label}: ${image}, ${dev.get('capture')}`);
+      const print = dev.get('print') ?? '';
+      expect(mono ? /^576x912 1-bit \(imprint: photo 576x720 at row 84\)/.test(print) : print === '-', `${label}: print ${print}`);
+      expect(c.size === '1080x1350' && c.previewSize === '1080x1920' && c.shutterIndex >= 0, `${label}: compare ${JSON.stringify(c)}`);
+      const atShutter = c.drawings[c.shutterIndex];
+      expect(atShutter.diff < 1, `${label}: shutter drawing block diff ${atShutter.diff} (${JSON.stringify(c.drawings)})`);
+      if (mono) expect(c.drawings.every((d) => d.chroma === 0) && c.resultChroma <= 1, `${label}: chroma preview ${c.drawings.map((d) => d.chroma).join('/')} result ${c.resultChroma}`);
+      else expect(atShutter.chroma > 20 && c.resultChroma > 20, `${label}: color chroma preview ${atShutter.chroma} result ${c.resultChroma}`);
+      const others = c.drawings.filter((_, i) => i !== c.shutterIndex).map((d) => d.diff);
+      details.push(`${label}: strokes ${strokes}, shutter diff ${atShutter.diff} (others ${others.join('/') || '-'}), chroma ${atShutter.chroma}/${c.resultChroma}, print ${mono ? '576x912' : 'none'}`);
+    }
+    expect((await oilValues()) === before, `oil values changed: ${before} -> ${await oilValues()}`);
+    // 저장하지 않고 닫으면 저장된 조합(여기서는 파일 없음 = 기본값: 유화 켬·흑백 회색조 유화)으로 돌아간다
+    await app.closePanel();
+    await app.waitFor('combo reverted', async () => subLine(await app.devText(), 'combo').startsWith('oil on, mono on (gray-oil)'), 5000);
+    details.push(`oil values kept (${before}); closed without saving -> oil on, mono on (gray-oil)`);
+    return details.join('; ');
+  });
+
   await scenario('흑백 스타일(7-1) GPU = CPU·결정성·그림 사이 바뀐 점 (합성 이미지, 붓 결 선·흐름 선·질감 강조 점, 용지 576·384)', async () => {
     const outcome = await app.evaluate(`(async () => {
       const R = await import('/effect/oil-renderer.js'); const T = await import('/core/thermal.js');
@@ -1964,8 +2028,8 @@ async function runScenarios(app, origin) {
     }
   });
 
-  // ---- IMPRINT (사용자 채택 2026-11-03) ----
-  // 사진 틀(4:5, config.photoFrame 7/64~52/64) 밖에만 글자가 있는지, 결과 사진이 틀 자리에 1080x1350으로 놓이는지, 인쇄 쪽이 머리·꼬리를 포함한
+  // ---- 관람객 화면 (WISHFUL HOLIDAY 시안, 검토 중. IMPRINT 시나리오를 이어받음) ----
+  // 사진 틀(4:5, config.photoFrame 10/64~55/64) 밖에만 글자·표제·솜송이가 있는지, 결과 사진이 틀 자리에 1080x1350으로 놓이는지, 인쇄 쪽이 머리·꼬리를 포함한
   // 576x912(사진 576x720)인지, 머리 시각이 결과 동안 멈춰 있는지, 동작 줄이기에서 위치 움직임이 없는지. --screens면 상태별 화면(가짜 카메라)
   const shot = async (name) => {
     if (!options.screens) return;
@@ -1978,9 +2042,12 @@ async function runScenarios(app, origin) {
     const top = document.querySelector('.frame-margin.is-top').getBoundingClientRect().bottom - st.top;
     const bottom = document.querySelector('.frame-margin.is-bottom').getBoundingClientRect().top - st.top;
     const boxes = {};
-    for (const id of ['guide', 'countdown', 'notice', 'result-note', 'status']) {
-      const e = document.getElementById(id);
-      if (e.hidden) continue;
+    // 3·2·1 묶음은 화면 전체를 덮는 자리라 숫자(위 띠)·안내(아래 띠)를 따로 잰다. 표제·솜송이는 늘 보이는 장식
+    const parts = [['guide', '#guide'], ['countdown-digit', '#countdown .countdown-digit'], ['countdown-caption', '#countdown-caption'], ['notice', '#notice'],
+      ['result-note', '#result-note'], ['status', '#status'], ['title', '.title'], ['puff', '.puff']];
+    for (const [id, selector] of parts) {
+      const e = document.querySelector(selector);
+      if (e.closest('[hidden]') || getComputedStyle(e).opacity === '0') continue;
       const r = e.getBoundingClientRect();
       boxes[id] = [Math.round(r.top - st.top), Math.round(r.bottom - st.top)];
     }
@@ -1993,13 +2060,14 @@ async function runScenarios(app, origin) {
   })()`;
   const textOutsideFrame = (l) => Object.entries(l.boxes).filter(([, [a, b]]) => !(b <= l.top + 1 || a >= l.bottom - 1)).map(([id]) => id);
 
-  await scenario('관람객 화면(IMPRINT 시안): 글자·숫자는 사진 틀(4:5) 밖에만, 결과 사진 = 틀 자리 1080x1350, 인쇄 쪽 576x912(사진 576x720 · 머리·꼬리 글자), 머리 시각 멈춤, 동작 줄이기 (--screens면 상태별 화면)', async () => {
+  await scenario('관람객 화면(WISHFUL 시안, IMPRINT 이어받음): 글자·숫자·표제·솜송이는 사진 틀(4:5) 밖에만, 결과 사진 = 틀 자리 1080x1350, 인쇄 쪽 576x912(사진 576x720 · 머리·꼬리 글자), 머리 시각 멈춤, 동작 줄이기 (--screens면 상태별 화면)', async () => {
     const details = [];
     await app.open();
     await waitReady(app);
     await app.key('KeyD'); // 화면 캡처·배치에 D가 겹치지 않게 (D 값은 결과 때 잠깐 켜서 읽는다)
     const idle = await app.waitFor('idle guide', async () => { const l = await app.evaluate(IMPRINT_LAYOUT); return l.boxes.guide ? l : null; }, 5000);
-    expect(Math.abs(idle.top - idle.h * 7 / 64) <= 1 && Math.abs(idle.bottom - idle.h * 52 / 64) <= 1, `frame ${idle.top}-${idle.bottom} of ${idle.h}`);
+    expect(Math.abs(idle.top - idle.h * 10 / 64) <= 1 && Math.abs(idle.bottom - idle.h * 55 / 64) <= 1, `frame ${idle.top}-${idle.bottom} of ${idle.h}`);
+    expect(idle.boxes.title && idle.boxes.puff, `idle title/puff visible ${JSON.stringify(idle.boxes)}`);
     expect(textOutsideFrame(idle).length === 0, `idle text inside frame: ${JSON.stringify(idle)}`);
     expect(idle.motion === 'full' && idle.phase === 'idle' && /^\d\d:\d\d:\d\d$/.test(idle.time), `idle ${JSON.stringify(idle)}`);
     await sleep(1200); // 짜 넣기가 끝난 뒤
@@ -2010,7 +2078,8 @@ async function runScenarios(app, origin) {
         const l = await app.evaluate(IMPRINT_LAYOUT);
         return l.phase === 'countdown' && (await app.evaluate("document.getElementById('countdown-number').textContent")) === '2' ? l : null;
       }, 4000);
-      expect(textOutsideFrame(counting).length === 0, `${label}: countdown text inside frame ${JSON.stringify(counting.boxes)}`);
+      expect(textOutsideFrame(counting).length === 0 && counting.boxes['countdown-digit'] && counting.boxes['countdown-digit'][1] <= counting.top
+        && !counting.boxes.title, `${label}: countdown digit in top band, caption below, title hidden ${JSON.stringify(counting.boxes)}`);
       const rolls = await app.evaluate("document.getElementById('countdown-number').getAnimations().map((a) => a.effect.getKeyframes().some((k) => k.transform && k.transform !== 'none'))");
       if (label === 'full') {
         await sleep(450);
@@ -2028,10 +2097,10 @@ async function runScenarios(app, origin) {
       const dev = await app.dev();
       await app.key('KeyD');
       expect(/^1080x1350 /.test(dev.get('capture') ?? ''), `${label}: capture ${dev.get('capture')}`);
-      expect(/frame 1080x1350 rows 210-1560/.test(dev.get('photo-fx') ?? ''), `${label}: photo-fx ${dev.get('photo-fx')}`);
+      expect(/frame 1080x1350 rows 300-1650/.test(dev.get('photo-fx') ?? ''), `${label}: photo-fx ${dev.get('photo-fx')}`);
       expect(/^576x912 1-bit \(imprint: photo 576x720 at row 84\), raster 72B\/row 65664B, png \d+B \(IHDR depth 1 color 0\)/.test(dev.get('print') ?? ''),
         `${label}: print ${dev.get('print')}`);
-      expect(/^photo 4:5 = stage rows 0\.1094-0\.8125 \(result 1920 -> 210-1560, print 1024 -> 112-832\), presence region clipped to frame/.test(dev.get('frame') ?? ''),
+      expect(/^photo 4:5 = stage rows 0\.1563-0\.8594 \(result 1920 -> 300-1650, print 1024 -> 160-880\), presence region clipped to frame/.test(dev.get('frame') ?? ''),
         `${label}: frame ${dev.get('frame')}`);
       expect(/\(clipped to photo frame\)/.test(dev.get('criteria') ?? ''), `${label}: criteria ${dev.get('criteria')}`);
       const cooling = await app.waitFor(`${label} cooldown`, async () => { const l = await app.evaluate(IMPRINT_LAYOUT); return l.phase === 'cooldown' && l.boxes.notice ? l : null; }, 13000);
@@ -2085,7 +2154,7 @@ async function runScenarios(app, origin) {
     return details.join('; ');
   });
 
-  await scenario('시안 데모(IMPRINT, /demo/index.html, 카메라 없음): 앱과 같은 관람객 화면 마크업, 합성 장면 → 실제 효과·촬영·인쇄 데이터 576x912, 검토 조작(사람·안내·동작 줄이기·인쇄 연동 흐름 흉내) (--screens면 상태별 화면·인쇄 데이터)', async () => {
+  await scenario('시안 데모(WISHFUL 시안, IMPRINT 이어받음, /demo/index.html, 카메라 없음): 앱과 같은 관람객 화면 마크업, 합성 장면 → 실제 효과·촬영·인쇄 데이터 576x912, 검토 조작(사람·안내·동작 줄이기·인쇄 연동 흐름 흉내) (--screens면 상태별 화면·인쇄 데이터)', async () => {
     const details = [];
     const demoShot = async (name) => {
       if (!options.screens) return;
@@ -2154,6 +2223,25 @@ async function runScenarios(app, origin) {
       await click('[data-demo="presence"]'); // 떠남
       await click('[data-demo="reset"]');
       await app.waitFor('demo idle', async () => (await phase()) === 'idle', 8000);
+      // 필터 시험 조합 (WISHFUL 시안): 4조합 비교 촬영 → 실제 촬영 경로로 네 장, 흑백(회색조 유화)만 인쇄 데이터, 끝나면 원래 조합(유화 · 흑백)
+      await click('[data-demo="compare"]');
+      const compare = await app.waitFor('demo compare', () => app.evaluate(`(() => {
+        const figs = [...document.querySelectorAll('[data-demo-compare] figure')];
+        if (figs.length < 4 || document.querySelector('[data-demo="compare"]').getAttribute('aria-pressed') === 'true') return null;
+        return figs.map((f) => ({ caption: f.querySelector('figcaption').textContent, w: f.querySelector('img').naturalWidth, h: f.querySelector('img').naturalHeight }));
+      })()`), 15000);
+      const expectCaption = [[/^원본 · 컬러 — off · 유화 끔 .*인쇄 데이터 없음$/], [/^원본 · 흑백 — gray-oil · 유화 끔 .*인쇄 데이터 576×912 1비트$/],
+        [/^유화 · 컬러 — off · 결과 .*인쇄 데이터 없음$/], [/^유화 · 흑백 — gray-oil · 결과 .*인쇄 데이터 576×912 1비트$/]];
+      expect(compare.every((c, i) => expectCaption[i][0].test(c.caption) && /셔터 순간 미리보기와 같은 그림/.test(c.caption) && c.w === 1080 && c.h === 1350),
+        `demo compare ${JSON.stringify(compare)}`);
+      const comboAfter = await app.evaluate("document.querySelector('[data-demo=\"combo\"][aria-pressed=\"true\"]').textContent");
+      expect(comboAfter === '유화 · 흑백', `demo combo after compare ${comboAfter}`);
+      if (options.screens) {
+        await sleep(300);
+        const { data } = await app.cdp.send('Page.captureScreenshot', { format: 'png' });
+        writeFileSync(join(options.screens, 'demo-8-combo-compare.png'), Buffer.from(data, 'base64'));
+      }
+      details.push('4-combo compare: 4 results 1080x1350 via capture path, print data only for mono (gray-oil), combo restored');
       // 안내 상태 흉내
       for (const kind of ['preparing', 'staff']) {
         await click(`[data-demo="guidance"][data-value="${kind}"]`);

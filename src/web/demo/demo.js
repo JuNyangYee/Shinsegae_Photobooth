@@ -1,4 +1,6 @@
-// IMPRINT 시안 데모 (검토용, 관람객 화면 아님): 카메라 없이 시안의 흐름·모션·결과·인쇄 데이터를 본다.
+// WISHFUL HOLIDAY 시안 데모 (검토용, 관람객 화면 아님, IMPRINT 데모를 이어받음): 카메라 없이 시안의 흐름·모션·결과·인쇄 데이터를 본다.
+// - 필터 시험 조합: 운영자 E 필터 섹션과 같은 값(유화 켬/끔 × 흑백 켬/끔, 흑백 방식)을 효과 미리보기에 넣고, "4조합 비교 촬영"은
+//   같은 합성 장면을 네 조합으로 실제 촬영 경로(capture.take → 결과 효과 → 사진 틀)에서 한 장씩 만들어 나란히 보인다(메모리만).
 // - 관람객 화면: 앱 index.html의 #stage 마크업을 그대로 불러오고(fetch '/'), 같은 style.css·ui/guest-screen.js·config/guest-text.js를 쓴다.
 // - 영상: 합성 장면(scene.js, 도형)을 captureStream()으로 <video>에 넣어 실제 카메라 처리 경로(camera-frame.js)·회색조 유화 미리보기
 //   (effect-preview.js)·촬영(capture.js)·결과 효과·사진 틀·인쇄 쪽(photo-effect.js)을 그대로 돌린다.
@@ -9,6 +11,7 @@
 import { config } from '../config/config.js';
 import { guestText } from '../config/guest-text.js';
 import { normalizeCameraSettings } from '../config/camera-settings.js';
+import { applyEffectTunables, comboTunables, effectCombo, normalizeEffectSettings } from '../config/effect-settings.js';
 import { createCameraFrame } from '../camera/camera-frame.js';
 import { createCapture } from '../camera/capture.js';
 import { createRawPreview } from '../camera/raw-preview.js';
@@ -16,13 +19,20 @@ import { createAutoStart } from '../core/auto-start.js';
 import { Guidance } from '../core/guidance.js';
 import { SessionState, createSession } from '../core/session.js';
 import { EffectStatus, createEffectPreview } from '../effect/effect-preview.js';
-import { IMPRINT_FONTS } from '../effect/imprint-page.js';
+import { IMPRINT_FONT_LOADS } from '../effect/imprint-page.js';
 import { createPhotoEffect } from '../effect/photo-effect.js';
 import { createGuestScreen } from '../ui/guest-screen.js';
 import { createScene } from './scene.js';
 
 const AUTOPLAY = Object.freeze({ firstArriveMs: 2200, idleMs: 3800, leaveAfterCooldownMs: 1600 });
 const PRINT_FLOW_MS = 2500; // "인쇄 연동 뒤 흐름" 흉내: 결과 처음 이만큼 출력 중
+// 현장 저장값 대조본 (검토용): 현장 PC config/effect.local.json을 2026-11-05에 읽기 전용으로 확인한 내용. 데모는 파일을 읽거나 쓰지 않는다
+const SITE_EFFECT = Object.freeze({
+  strength: 0.05, size: 0.7, boil: 0, fps: 12, grade: 1, refineThreshold: 0.09, previewScale: 1, outputMode: 'gray',
+  dither: 'blue-noise', brightness: 0.03, contrast: 1.4, gamma: 1.2, paperDots: 576, bwStyle: 'stroke', bwTexture: 1, lineSpacing: 4,
+});
+const COMBOS = Object.freeze([[false, false], [false, true], [true, false], [true, true]]);
+const comboName = (oil, mono) => `${oil ? '유화' : '원본'} · ${mono ? '흑백' : '컬러'}`;
 const rootEl = document.documentElement;
 const stageAspect = config.aspectRatio.width / config.aspectRatio.height;
 
@@ -39,14 +49,19 @@ let forceReduced = false;
 const applyMotion = () => { rootEl.dataset.motion = forceReduced || systemReduced.matches ? 'reduce' : 'full'; };
 applyMotion();
 systemReduced.addEventListener('change', applyMotion);
-await Promise.all([IMPRINT_FONTS.sans(22), IMPRINT_FONTS.serif(30)].map((font) => document.fonts.load(font, '0123456789.:AMSTUWDHNOEFRI'))).catch(() => {});
+await Promise.all(IMPRINT_FONT_LOADS.map(([font, sample]) => document.fonts.load(font, sample))).catch(() => {});
 
 // 검토용 패널 (관람객 화면 밖)
 const panel = document.querySelector('.demo-panel');
 const stateText = panel.querySelector('[data-demo-state]');
 const printImage = document.getElementById('demo-print-image');
 const printCaption = panel.querySelector('[data-demo-print]');
+const monoModeSelect = panel.querySelector('[data-demo="mono-mode"]');
+const compareBox = panel.querySelector('[data-demo-compare]');
 let printUrl = null;
+let preset = 'defaults'; // 세부 수치: 'defaults'(config.effect) | 'site'(현장 저장값 대조본)
+let comparing = false;
+let compareShots = []; // 4조합 비교 촬영 결과 (capture.take의 사진, 다음 비교·페이지를 떠날 때 놓는다)
 
 // ---- 합성 영상 → 카메라 처리 경로 ----
 const video = document.getElementById('preview');
@@ -186,7 +201,14 @@ function renderPanel(s) {
   const e = effect.getState();
   stateText.textContent = `${s.state}${s.state === SessionState.COUNTDOWN ? ` ${s.countdown}` : ''} · 회차 ${s.round} · 완료 ${s.completed}`
     + `\n사람 ${present ? '있음' : '없음'} · 효과 ${e.status}${e.status === EffectStatus.RUNNING ? ` ${e.width}×${e.height}` : ''}`;
+  const fx = effect.getSettings();
+  const combo = effectCombo(fx);
+  stateText.textContent += `\n조합 ${comboName(combo.oil, combo.mono)} (출력 모드 ${fx.outputMode}, 흑백 방식 ${fx.monoMode}) · 세부 수치 ${preset === 'site' ? '현장 저장값' : '기본값'}`;
+  monoModeSelect.value = fx.monoMode;
   const pressed = (name, value) => panel.querySelectorAll(`[data-demo="${name}"]`).forEach((b) => b.setAttribute('aria-pressed', String(value(b))));
+  pressed('combo', (b) => b.dataset.oil === String(combo.oil) && b.dataset.mono === String(combo.mono));
+  pressed('preset', (b) => b.dataset.value === preset);
+  pressed('compare', () => comparing);
   pressed('autoplay', () => autoplay);
   pressed('presence', () => present);
   pressed('guidance', (b) => b.dataset.value === guidance);
@@ -195,11 +217,101 @@ function renderPanel(s) {
   panel.querySelector('[data-demo="presence"]').textContent = present ? '사람 나감' : '사람 들어옴';
 }
 
+// ---- 필터 시험 조합 (운영자 E 필터 섹션과 같은 계산: config/effect-settings.js comboTunables) ----
+
+function setEffect(patch) {
+  const now = effect.getSettings();
+  effect.setSettings(applyEffectTunables(now, patch, config.effect).settings);
+}
+
+function applyPreset(value) {
+  preset = value;
+  const keep = effectCombo(effect.getSettings()); // 세부 수치만 바꾸고 지금 조합은 그대로
+  const base = normalizeEffectSettings(config.effect, config.effect).settings;
+  const next = value === 'site' ? applyEffectTunables(base, SITE_EFFECT, config.effect).settings : base;
+  effect.setSettings(applyEffectTunables(next, comboTunables(next, keep), config.effect).settings);
+}
+
+function releaseCompare() {
+  for (const shot of compareShots) capture.release(shot.photo);
+  compareShots = [];
+  compareBox.replaceChildren();
+}
+
+const nextFrames = (n) => new Promise((resolve) => {
+  const step = (left) => (left <= 0 ? resolve() : requestAnimationFrame(() => step(left - 1)));
+  step(n);
+});
+
+function renderCompare(error = '') {
+  compareBox.replaceChildren(...compareShots.map(({ oil, mono, photo, stats }) => {
+    const figure = document.createElement('figure');
+    const img = document.createElement('img');
+    img.src = photo.url;
+    img.alt = `${comboName(oil, mono)} 결과 (합성 장면)`;
+    const caption = document.createElement('figcaption');
+    const name = document.createElement('b');
+    name.textContent = comboName(oil, mono);
+    const print = photo.print ? `인쇄 데이터 ${photo.print.width}×${photo.print.height} 1비트` : '인쇄 데이터 없음';
+    caption.append(name, ` — ${stats?.mode ?? '?'}${stats?.oil === false ? ' · 유화 끔' : ''} · 결과 ${photo.width}×${photo.height}`
+      + ` · ${stats?.sameAsPreview ? '셔터 순간 미리보기와 같은 그림' : '새 그림'} · ${print}`);
+    figure.append(img, caption);
+    return figure;
+  }));
+  if (error) {
+    const p = document.createElement('p');
+    p.className = 'demo-hint';
+    p.textContent = `비교 촬영 실패: ${error}`;
+    compareBox.append(p);
+  }
+}
+
+// 같은 합성 장면을 네 조합으로 한 장씩: 조합을 넣고 미리보기가 그 조합으로 그린 뒤(화면 갱신 3번) 실제 촬영 경로로 찍는다. 끝나면 원래 조합으로
+async function compareCombos() {
+  if (comparing || session.getState().state !== SessionState.IDLE) return;
+  comparing = true;
+  autoplay = false;
+  clearTimeout(autoplayTimer);
+  if (present) leave(); // 비교 중 자동 회차가 끼어들지 않게
+  releaseCompare();
+  render(session.getState());
+  const saved = effect.getSettings();
+  let error = '';
+  try {
+    for (const [oil, mono] of COMBOS) {
+      effect.setSettings(applyEffectTunables(saved, comboTunables(saved, { oil, mono }), config.effect).settings);
+      await nextFrames(3);
+      const photo = await capture.take();
+      compareShots.push({ oil, mono, photo, stats: photoEffect.getStats().last });
+      renderCompare();
+    }
+  } catch (e) {
+    error = e?.message ?? String(e);
+  } finally {
+    effect.setSettings(saved);
+    comparing = false;
+    renderCompare(error);
+    render(session.getState());
+  }
+}
+
+monoModeSelect.addEventListener('change', () => {
+  const mono = effectCombo(effect.getSettings()).mono;
+  setEffect(mono ? { outputMode: monoModeSelect.value, monoMode: monoModeSelect.value } : { monoMode: monoModeSelect.value });
+  render(session.getState());
+});
+
 panel.addEventListener('click', (event) => {
   const button = event.target.closest('button[data-demo]');
   if (!button) return;
   const action = button.dataset.demo;
-  if (action === 'autoplay') {
+  if (action === 'combo') {
+    setEffect(comboTunables(effect.getSettings(), { oil: button.dataset.oil === 'true', mono: button.dataset.mono === 'true' }));
+  } else if (action === 'preset') {
+    applyPreset(button.dataset.value);
+  } else if (action === 'compare') {
+    compareCombos();
+  } else if (action === 'autoplay') {
     autoplay = !autoplay;
     clearTimeout(autoplayTimer);
     if (autoplay && session.getState().state === SessionState.IDLE && !present) autoplayTimer = setTimeout(arrive, 600);
@@ -227,6 +339,7 @@ window.addEventListener('pagehide', () => {
   scene.stop();
   guest.dispose();
   if (printUrl) URL.revokeObjectURL(printUrl);
+  releaseCompare();
 });
 
 render(session.getState());
