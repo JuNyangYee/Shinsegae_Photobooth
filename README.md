@@ -8,9 +8,9 @@
 
 **현재 상태:** 카메라 → 회색조 유화 미리보기 → 자동 촬영·결과 표시까지 구현, 인쇄 연동은 예정.
 
-> **이 브랜치(`design-wishful-holiday`)는 별도 시안 WISHFUL HOLIDAY(검토 중)다.** 캠페인 키비주얼에 맞춘 붉은 카드·금박 표제·솜송이 화면과, 운영자가 유화·흑백을 따로 켜고 끄는 시험 조합(`E` 필터 섹션)을 담았다. 채택·병합되지 않았고, 사용자 유지 기준인 IMPRINT는 `master`와 태그 `backup/imprint-2026-11-05`에 있다. [로그](docs/logs/2026-11-05-01-design-wishful-holiday.md).
+> **현재 관람객 화면은 WISHFUL HOLIDAY다.** 사용자 요청으로 독립 기술 검수 후 채택·병합했다. 캠페인 키비주얼에 맞춘 붉은 카드·금박 표제·솜송이 화면과 유화·흑백 독립 시험 조합(`E` 필터 섹션)을 제공한다. 이전 IMPRINT는 태그 `backup/imprint-2026-11-05`에 보존한다. [병합 기록](docs/logs/2026-11-05-02-wishful-integration.md).
 
-`master`의 관람객 화면은 텍스트·타이포 디자인 **IMPRINT**다. 9:16 화면 안에 4:5 사진 틀을 두며, 글자는 틀 밖에 표시한다. 기존 시간·유화 필터·인식·카메라 기본값과 현장 저장값(`config/*.local.json`)을 유지한다. [시스템](docs/SYSTEM.md), [검수·병합 기록](docs/logs/2026-11-03-03-imprint-integration.md).
+9:16 화면 안에 4:5 사진 틀을 두며 글자는 틀 밖에 표시한다. 기존 시간·유화 세부 수치·인식·카메라 기본값과 현장 저장값(`config/*.local.json`)을 유지한다. [시스템](docs/SYSTEM.md).
 
 ## 실행
 
@@ -32,7 +32,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File bin\server\serve.ps1   # -Po
 
 Chrome에서 `http://localhost:8765/`를 연다(`127.0.0.1`은 400). 종료는 서버 창에서 Ctrl+C.
 
-**카메라 없는 시안 데모 (검토용, 관람객 화면 아님):** 같은 서버에서 `http://localhost:8765/demo/index.html`. (이 브랜치: 패널의 "필터 시험 조합"으로 네 조합·흑백 방식·현장 저장값 대조본을 바꾸고, "4조합 비교 촬영"으로 같은 합성 장면의 네 결과를 나란히 본다.) 도형으로 그린 합성 장면을 실제 효과·촬영·인쇄 데이터 경로에 넣어 대기 → 3·2·1 → 결과 → 쿨타임을 자동으로 되풀이한다. 오른쪽 패널(세로로 긴 창이면 아래)에서 사람 들어옴/나감, 수동 촬영·초기화, 준비 중·직원 문의 흉내, 동작 줄이기, 인쇄 연동 뒤 흐름 흉내(가상), 마지막 인쇄 데이터를 본다. 조절값 파일을 쓰지 않고 프린터 연동은 없다. 9:16 화면을 크게 보려면 창을 가로로 넓게(예: 1920×1080 이상) 연다.
+**카메라 없는 시안 데모 (검토용, 관람객 화면 아님):** 같은 서버에서 `http://localhost:8765/demo/index.html`. (패널의 "필터 시험 조합"으로 네 조합·흑백 방식·현장 저장값 대조본을 바꾸고, "4조합 비교 촬영"으로 같은 합성 장면의 네 결과를 나란히 본다.) 도형으로 그린 합성 장면을 실제 효과·촬영·인쇄 데이터 경로에 넣어 대기 → 3·2·1 → 결과 → 쿨타임을 자동으로 되풀이한다. 오른쪽 패널(세로로 긴 창이면 아래)에서 사람 들어옴/나감, 수동 촬영·초기화, 준비 중·직원 문의 흉내, 동작 줄이기, 인쇄 연동 뒤 흐름 흉내(가상), 마지막 인쇄 데이터를 본다. 조절값 파일을 쓰지 않고 프린터 연동은 없다. 9:16 화면을 크게 보려면 창을 가로로 넓게(예: 1920×1080 이상) 연다.
 
 ## 운영자 단축키 (관람객용 아님)
 
@@ -62,7 +62,7 @@ npm test                                            # Node 테스트 (Node 22 �
 npm run check:browser                               # 임시 프로필 headless Chrome으로 실제 앱 확인 (가짜 카메라)
 npm run check:browser -- --camera real              # 실제 카메라 (OBS 가상카메라 우선)
 npm run check:browser -- --soak --camera real       # 장시간 실측, 기본 10분 (--soak 60 처럼 분 지정)
-npm run check:browser -- --only "시험 조합|WISHFUL" --screens artifacts\wishful\screens   # 이 브랜치: 4조합·관람객 화면·데모 PNG (가짜 카메라·합성 장면, Git 제외)
+npm run check:browser -- --only "시험 조합|WISHFUL" --screens artifacts\wishful\screens   # 4조합·관람객 화면·데모 PNG (가짜 카메라·합성 장면, Git 제외)
 ```
 
 `check:browser`는 몇 초 동안 `config/*.local.json`에 시험 값을 썼다가 되돌리므로 **현장 키오스크가 도는 PC에서는 실행하지 않는다.** MediaPipe 라이브러리는 `lib/mediapipe/`에 커밋되어 있고, 버전을 바꿀 때만 `npm install` → `npm run vendor:mediapipe`를 쓴다([docs/SYSTEM.md](docs/SYSTEM.md) 5절 "MediaPipe 로컬 라이브러리").
