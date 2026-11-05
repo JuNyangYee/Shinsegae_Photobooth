@@ -1053,6 +1053,11 @@ async function runScenarios(app, origin) {
         const n = Number(/strokes (\d+)/.exec(subLine(await app.devText(), 'time'))?.[1]);
         return /^running, 1080x1920/.test((await app.dev()).get('effect') ?? '') && (oil ? n > 0 : n === 0) ? String(n) : null;
       }, 5000);
+      // 성능: 유화 켬은 설정한 초당 그림(기본 12), 끔은 30장(OIL_OFF_FPS). 처리 해상도 1(1080x1920)에서 실제 초당 그림을 기록한다
+      await sleep(1500);
+      const rate = /fps (\d+) -> (\d+) drawings\/s/.exec((await app.dev()).get('effect') ?? '');
+      const cpu = /cpu [\d.]+ms \(avg ([\d.]+)ms\)/.exec(subLine(await app.devText(), 'time'))?.[1] ?? '-';
+      expect(rate && rate[1] === (oil ? '12' : '30') && Number(rate[2]) >= Number(rate[1]) * 0.75, `${label}: rate ${rate?.[0]}`);
       const pressed = await app.evaluate("[...document.querySelectorAll('#effect-panel button[data-action=\"combo\"]')].filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.dataset.oil + '/' + b.dataset.mono).join(',')");
       expect(pressed === `${oil}/${mono}`, `${label}: pressed ${pressed}`);
       const info = await app.evaluate("document.querySelector('#effect-panel [data-combo-info]').textContent");
@@ -1090,7 +1095,7 @@ async function runScenarios(app, origin) {
       if (mono) expect(c.drawings.every((d) => d.chroma === 0) && c.resultChroma <= 1, `${label}: chroma preview ${c.drawings.map((d) => d.chroma).join('/')} result ${c.resultChroma}`);
       else expect(atShutter.chroma > 20 && c.resultChroma > 20, `${label}: color chroma preview ${atShutter.chroma} result ${c.resultChroma}`);
       const others = c.drawings.filter((_, i) => i !== c.shutterIndex).map((d) => d.diff);
-      details.push(`${label}: strokes ${strokes}, shutter diff ${atShutter.diff} (others ${others.join('/') || '-'}), chroma ${atShutter.chroma}/${c.resultChroma}, print ${mono ? '576x912' : 'none'}`);
+      details.push(`${label}: ${rate[2]}/${rate[1]} drawings/s, cpu avg ${cpu}ms, strokes ${strokes}, shutter diff ${atShutter.diff} (others ${others.join('/') || '-'}), chroma ${atShutter.chroma}/${c.resultChroma}, print ${mono ? '576x912' : 'none'}`);
     }
     expect((await oilValues()) === before, `oil values changed: ${before} -> ${await oilValues()}`);
     // 저장하지 않고 닫으면 저장된 조합(여기서는 파일 없음 = 기본값: 유화 켬·흑백 회색조 유화)으로 돌아간다

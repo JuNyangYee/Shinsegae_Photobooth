@@ -6,10 +6,10 @@
 
 1. 전체 구성 — 구성도, 폴더 구성, 정적 서버, 조절값 파일 API, CSP, 스크립트 인코딩, 현장 실행 스크립트, 브라우저 확인 도구
 2. 코드 책임 구분 — 모듈 경계, 폴더 규칙, 반복 오류 로그 제한
-3. 카메라와 영상 — OBS 가상카메라, 카메라 처리 경로(장치·해상도·색 보정·반전·회전·확대·이동), 화면 배치(사진 틀), 관람객 화면(IMPRINT 시안, 서체, 카메라 없는 데모), 좌우 반전, 권한, 카메라 상태와 자동 회복
+3. 카메라와 영상 — OBS 가상카메라, 카메라 처리 경로(장치·해상도·색 보정·반전·회전·확대·이동), 화면 배치(사진 틀), 관람객 화면(WISHFUL HOLIDAY 시안 — 검토 중, 서체, 카메라 없는 데모), 좌우 반전, 권한, 카메라 상태와 자동 회복
 4. 촬영 상태 — 촬영 한 사이클, 실패와 취소 경계, 시간 설정(E 시간 섹션), 운영자 단축키, 운영자 화면, 자동 시작과 이탈 취소, 출력 연동 시 참고 흐름
 5. 촬영 시작 인식 — 얼굴 감지와 인식 상태, 감지기 상태와 장애 안내, 설정값, 인식 범위 조절, 다인원과 성능, MediaPipe 로컬 라이브러리
-6. 사진 처리 — 캡처와 결과 이미지(사진 틀·인쇄 쪽), 사진 효과(유화 · 획), 회색조 유화, 출력 단계(감열지 흑백), 흑백 스타일
+6. 사진 처리 — 캡처와 결과 이미지(사진 틀·인쇄 쪽), 사진 효과(유화 · 획), 시험 조합(유화·흑백 켬/끔, WISHFUL 시안), 회색조 유화, 출력 단계(감열지 흑백), 흑백 스타일
 7. 참고 자료
 
 ## 1. 전체 구성
@@ -45,12 +45,12 @@ src/web/                    index.html(진입점 /) · main.js(화면 조립·�
   core/     session.js(촬영 상태 기계) · auto-start.js · presence.js(인식 판정) · guidance.js(관람객 안내 규칙)
             log-limit.js · oil-paint.js(획 목록·해상도 비례·tick) · thermal.js(감열지 출력 단계·입력 회색조 계수)
             camera-view.js(카메라 처리 경로의 변환·색 보정 계수)
-            photo-frame.js(사진 틀 줄·인식 영역 줄이기) · imprint.js(촬영 시각 표기·인쇄 쪽 배치·1비트 합치기) — IMPRINT 시안
+            photo-frame.js(사진 틀 줄·인식 영역 줄이기) · imprint.js(촬영 시각 표기·인쇄 쪽 배치·1비트 합치기) — IMPRINT에서 도입
   camera/   camera.js(장치·스트림) · camera-monitor.js(상태 감시·자동 회복·다시 열기) · capture.js(캡처·결과 이미지·자원 정리)
             camera-frame.js(카메라 처리 경로 2D 그리기·색 보정 SVG 필터) · raw-preview.js(원본 미리보기 캔버스)
   vision/   face-detector.js · detector-keeper.js(재생성·감지기 상태) · presence-monitor.js(감지 루프)
   effect/   oil-shaders.js · oil-renderer.js(WebGL2) · effect-preview.js(실시간 미리보기) · photo-effect.js(결과 사진 효과·사진 틀 자르기·인쇄 데이터)
-            imprint-page.js(인쇄 쪽 글자를 캔버스에 그려 1비트로, IMPRINT 시안)
+            imprint-page.js(인쇄 쪽 글자를 캔버스에 그려 1비트로, 글자는 WISHFUL 시안)
   ui/       guest-screen.js · operator-panel.js(E 패널·섹션) · camera-tuning.js · presence-tuning.js · timing-tuning.js · effect-tuning.js(카메라·인식·시간·필터 섹션)
             region-drag.js · dev-panel.js(D) · save-state.js
   demo/     index.html · demo.js · scene.js(합성 장면) · demo.css — 카메라 없는 시안 데모 (검토용, 관람객 화면 아님, IMPRINT 시안)
@@ -154,7 +154,7 @@ default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; im
 
 ### 브라우저 확인 도구
 
-`tools/browser-check.mjs` (`npm run check:browser`): 개발 PC에서 실제 앱을 headless Chrome으로 띄워 시나리오 24개를 확인한다(한 번에 약 8분, 화면 캡처는 `--screens`일 때만). Windows, Chrome, Node 22 이상, 설치 필요 없음.
+`tools/browser-check.mjs` (`npm run check:browser`): 개발 PC에서 실제 앱을 headless Chrome으로 띄워 시나리오 25개를 확인한다(한 번에 약 10분, 화면 캡처는 `--screens`일 때만). Windows, Chrome, Node 22 이상, 설치 필요 없음.
 
 ```powershell
 npm run check:browser                              # 가짜 카메라
@@ -164,7 +164,7 @@ npm run check:browser -- --soak 60 --camera real   # 분 지정
 npm run check:browser -- --camera real --only "카메라 변환|카메라 장치"   # 이름에 그 글자가 든 시나리오만 (첫 페이지 로드는 늘)
 npm run check:browser -- --camera real --camera-label "Logitech StreamCam (046d:0893)" --only "카메라"   # 카메라 설정 시나리오를 그 장치로
 npm run check:browser -- --only "화면 캡처" --screens "%TEMP%\photobooth-review\9"   # 운영자 화면 PNG (가짜 카메라만)
-npm run check:browser -- --only "IMPRINT" --screens artifacts\design-typography-claude\screens   # IMPRINT 시안 관람객 화면·데모 PNG (가짜 카메라·합성 장면만, artifacts/는 Git 제외)
+npm run check:browser -- --only "시험 조합|WISHFUL" --screens artifacts\wishful\screens   # WISHFUL 시안: 4조합·관람객 화면·데모 PNG (가짜 카메라·합성 장면만, artifacts/는 Git 제외)
 ```
 
 - **구조:** Node 내장 `WebSocket`으로 CDP에 직접 붙는다. `serve.ps1`을 빈 포트로, Chrome을 `%TEMP%\photobooth-check-*` 임시 프로필·`--headless=new`·`--remote-debugging-port=0`으로 띄운다(늘 `--user-data-dir`이라 사용자 Chrome에 붙지 않는다). 카메라는 기본 가짜 장치(`--use-fake-device-for-media-stream`), 권한은 CDP `Browser.setPermission`.
@@ -173,7 +173,7 @@ npm run check:browser -- --only "IMPRINT" --screens artifacts\design-typography-
 - **조절값 파일:** 시작할 때 `config/*.local.json`(인식·효과·카메라·시간)을 바이트 그대로(또는 "없음") 백업하고, 시나리오 뒤와 마지막에 **파일 시스템으로 직접** 되돌린다(없던 파일·빈 `config/`는 지운다). 그사이 몇 초 시험 값이 들어 있으므로 **현장 키오스크가 같은 저장소에서 도는 PC에서는 실행하지 않는다.**
 - **기다림 시간 초과:** 메시지 끝에 그때의 D `status`·`reason`·`video`·`effect`·`raw-view`를 붙인다(실제 카메라에서 원인을 바로 보이게).
 - **CDP:** 요청마다 제한 시간 15초. 연결이 끊기면 모든 요청이 바로 실패해 몇 초 안에 끝나고 정리한다(`browser-check-lib.mjs`).
-- **시나리오:** 페이지 로드(서체 포함) · `S` 한 사이클과 자원 정리 · 조절값 API(인식·시간: 왕복, 헤더 없음 403, 16KB 초과 413) · 감지기 생성 실패 정리 · 권한 거절 → 허용 · 모델 차단 · 효과 미리보기(기본값, 결과 사진 준비, 컨텍스트 손실·복구) · 회색조 유화 기본 촬영(결과 = 셔터 직전 그림, 무채색, 결과 1080×1350, 인쇄 쪽 576×912 1비트, 결과 폭 = 사진 틀 폭) · 출력 모드 전환 · 흑백 스타일 4가지 · 흑백 스타일 GPU = CPU · GPU 디더 = CPU·1비트 PNG · 효과 WebGL2 생성 실패(원본 미리보기 캔버스가 계속 그림) · `E` 필터 섹션 저장 유지 · 운영자 패널(9-2: `R` 없음·첫 섹션 카메라·원본 창, 실행 중 해상도 바꾸기 → 다시 열기·관람객 "준비 중", 회전·확대·반전·색 보정 즉시 반영 → 미리보기·원본 창 = 변환한 영상, 섹션별 저장·닫을 때 되돌리기·섹션별 기본값·새로고침 유지, 실행 중 장치 바꾸기(사용 중인 장치는 기록하고 다음 장치로, 닫으면 원래 장치), 원본 창 켬/끔 속도) · 시간 섹션(10단계: 인식 섹션에 시간 항목 없음, 조절 → 반응 시간 즉시 반영·저장 → 새로고침 유지, `S` 회차의 카운트다운·결과·쿨타임을 페이지 안에서 D `session` 줄 상태 변화 시각으로 재 바뀐 값과 비교(숫자 순서·진행선 길이 포함. 기록기는 설치·초기화 순간의 상태에서 시작하고, 실패하면 단계 순서와 대기로 돌아온 이유(D `last end`·`status`)를 남긴다), 카운트다운 도중 바꾸면 그 회차는 시작할 때 값·다음 회차부터 새 값, 저장하지 않고 닫으면 되돌림, 9단계 모양 인식 파일 → 시간 파일 옮기기, 시간 파일 자리에 폴더를 두어 서버 쓰기 실패 → 옛 값 사용·인식 파일 바이트 그대로·"저장 필요"·그동안 인식 섹션을 저장해도 옛 키 유지 → 시간 섹션 저장 → 다음 시작에 옛 키 정리) · 관람객 화면 IMPRINT 시안(글자·숫자의 화면 위치가 사진 틀(4:5) 밖인지 대기·카운트다운·결과·쿨타임마다, 결과 `<img>` 자리 = 틀, D `capture` 1080x1350·`photo-fx` `frame`·`print` `576x912 1-bit (imprint: photo 576x720 at row 84)`·`frame` 줄·인식 영역 줄임, 결과 동안 머리 시각 멈춤, 숫자 넘김 애니메이션, `Emulation.setEmulatedMedia`로 동작 줄이기 → `data-motion` reduce·바닥 쪽 선 멈춤·숫자 위치 움직임 없음, `--screens`면 대기·카운트다운·결과·쿨타임·준비 중 화면) · 시안 데모(`/demo/index.html`: 관람객 화면 id 목록 = 앱, 합성 장면 → 효과 540x960 → 결과 1080x1350·인쇄 PNG 576x912·머리·꼬리 글자, 출력 중 흉내, 준비 중·직원 문의 흉내, 동작 줄이기 전환, `--screens`면 상태별 화면·패널 포함 화면·인쇄 데이터 PNG) · 운영자 화면 캡처(`--screens`, 가짜 카메라 전용) · 좌우 반전 켬·끔(카메라 설정 파일 → 새로고침. CSS 반전 없음, 효과 미리보기·결과 사진 방향, 얼굴이 보이면 화면 x가 `1 - x`로, 효과 파일의 예전 `mirror` 옮기기) · 카메라 장치·해상도(프리셋 요청 → 실제 트랙·캡처, 다른 카메라가 있으면 그 라벨로, 없는 라벨이면 OBS·기본 규칙) · 카메라 변환·색 보정(회전 90°+3°·확대·이동·색 보정 6개: 같은 프레임의 2D 그림(앱 SVG 필터) = core 기준식, 효과 셰이더 입력(`FS_GRADE` uAmt 0) = 2D, 미리보기·결과 = 변환한 영상, 얼굴이 보이면 예측 위치, 화면·감지·효과 속도) · 결과 효과 렌더 실패 · 외부 요청·CSP 위반·예외 0. 확인 값은 `tools/browser-check.mjs`에 있다. 좌우 방향은 효과 그림·결과 사진·같은 순간의 영상을 페이지 안에서 18×32 밝기 격자로 줄여 비대칭 성분(`g - flip(g)`)의 상관 부호로 본다(같은 방향 +, 거울 −, 기준 ±0.3. 가짜 카메라 화면은 거의 좌우 대칭이라 그냥 상관으로는 갈리지 않는다). 페이지 로드 줄에 쓰인 카메라 라벨이 나온다. 화소 일치 시나리오는 `E`에서 처리 해상도를 1로 두고 실제 `1080x1920`으로 그린 뒤 시작한다.
+- **시나리오:** (WISHFUL 시안에서 더함: **시험 조합 4가지** — `E` 조합 버튼 → 처리 해상도 1에서 S, 결과 사진 = 셔터 직전 미리보기 그림의 틀 줄(블록 차 1/255 미만), 흑백이면 미리보기·결과 무채색·컬러면 색, 유화 끔이면 획 0·30장/초, 인쇄 데이터는 흑백만, 유화 수치 유지, 닫으면 저장 조합. 관람객 화면 시나리오는 틀 10/64~55/64·표제·솜송이까지 틀 밖인지, 데모 시나리오는 4조합 비교 촬영도 본다) 페이지 로드(서체 포함) · `S` 한 사이클과 자원 정리 · 조절값 API(인식·시간: 왕복, 헤더 없음 403, 16KB 초과 413) · 감지기 생성 실패 정리 · 권한 거절 → 허용 · 모델 차단 · 효과 미리보기(기본값, 결과 사진 준비, 컨텍스트 손실·복구) · 회색조 유화 기본 촬영(결과 = 셔터 직전 그림, 무채색, 결과 1080×1350, 인쇄 쪽 576×912 1비트, 결과 폭 = 사진 틀 폭) · 출력 모드 전환 · 흑백 스타일 4가지 · 흑백 스타일 GPU = CPU · GPU 디더 = CPU·1비트 PNG · 효과 WebGL2 생성 실패(원본 미리보기 캔버스가 계속 그림) · `E` 필터 섹션 저장 유지 · 운영자 패널(9-2: `R` 없음·첫 섹션 카메라·원본 창, 실행 중 해상도 바꾸기 → 다시 열기·관람객 "준비 중", 회전·확대·반전·색 보정 즉시 반영 → 미리보기·원본 창 = 변환한 영상, 섹션별 저장·닫을 때 되돌리기·섹션별 기본값·새로고침 유지, 실행 중 장치 바꾸기(사용 중인 장치는 기록하고 다음 장치로, 닫으면 원래 장치), 원본 창 켬/끔 속도) · 시간 섹션(10단계: 인식 섹션에 시간 항목 없음, 조절 → 반응 시간 즉시 반영·저장 → 새로고침 유지, `S` 회차의 카운트다운·결과·쿨타임을 페이지 안에서 D `session` 줄 상태 변화 시각으로 재 바뀐 값과 비교(숫자 순서·진행선 길이 포함. 기록기는 설치·초기화 순간의 상태에서 시작하고, 실패하면 단계 순서와 대기로 돌아온 이유(D `last end`·`status`)를 남긴다), 카운트다운 도중 바꾸면 그 회차는 시작할 때 값·다음 회차부터 새 값, 저장하지 않고 닫으면 되돌림, 9단계 모양 인식 파일 → 시간 파일 옮기기, 시간 파일 자리에 폴더를 두어 서버 쓰기 실패 → 옛 값 사용·인식 파일 바이트 그대로·"저장 필요"·그동안 인식 섹션을 저장해도 옛 키 유지 → 시간 섹션 저장 → 다음 시작에 옛 키 정리) · 관람객 화면 IMPRINT 시안(글자·숫자의 화면 위치가 사진 틀(4:5) 밖인지 대기·카운트다운·결과·쿨타임마다, 결과 `<img>` 자리 = 틀, D `capture` 1080x1350·`photo-fx` `frame`·`print` `576x912 1-bit (imprint: photo 576x720 at row 84)`·`frame` 줄·인식 영역 줄임, 결과 동안 머리 시각 멈춤, 숫자 넘김 애니메이션, `Emulation.setEmulatedMedia`로 동작 줄이기 → `data-motion` reduce·바닥 쪽 선 멈춤·숫자 위치 움직임 없음, `--screens`면 대기·카운트다운·결과·쿨타임·준비 중 화면) · 시안 데모(`/demo/index.html`: 관람객 화면 id 목록 = 앱, 합성 장면 → 효과 540x960 → 결과 1080x1350·인쇄 PNG 576x912·머리·꼬리 글자, 출력 중 흉내, 준비 중·직원 문의 흉내, 동작 줄이기 전환, `--screens`면 상태별 화면·패널 포함 화면·인쇄 데이터 PNG) · 운영자 화면 캡처(`--screens`, 가짜 카메라 전용) · 좌우 반전 켬·끔(카메라 설정 파일 → 새로고침. CSS 반전 없음, 효과 미리보기·결과 사진 방향, 얼굴이 보이면 화면 x가 `1 - x`로, 효과 파일의 예전 `mirror` 옮기기) · 카메라 장치·해상도(프리셋 요청 → 실제 트랙·캡처, 다른 카메라가 있으면 그 라벨로, 없는 라벨이면 OBS·기본 규칙) · 카메라 변환·색 보정(회전 90°+3°·확대·이동·색 보정 6개: 같은 프레임의 2D 그림(앱 SVG 필터) = core 기준식, 효과 셰이더 입력(`FS_GRADE` uAmt 0) = 2D, 미리보기·결과 = 변환한 영상, 얼굴이 보이면 예측 위치, 화면·감지·효과 속도) · 결과 효과 렌더 실패 · 외부 요청·CSP 위반·예외 0. 확인 값은 `tools/browser-check.mjs`에 있다. 좌우 방향은 효과 그림·결과 사진·같은 순간의 영상을 페이지 안에서 18×32 밝기 격자로 줄여 비대칭 성분(`g - flip(g)`)의 상관 부호로 본다(같은 방향 +, 거울 −, 기준 ±0.3. 가짜 카메라 화면은 거의 좌우 대칭이라 그냥 상관으로는 갈리지 않는다). 페이지 로드 줄에 쓰인 카메라 라벨이 나온다. 화소 일치 시나리오는 `E`에서 처리 해상도를 1로 두고 실제 `1080x1920`으로 그린 뒤 시작한다.
 - **범위 밖:** 가짜 카메라에 얼굴이 없어 자동 시작·이탈 취소·인식 중 `P`는 확인하지 않는다(Node 테스트 `test/core/auto-start.test.mjs`·`test/vision/presence-monitor.test.mjs`와 사람 실측). 키오스크, OBS 시작·중지, 절전 복귀, 4K도 범위 밖. `S` 사이클은 `P`를 켜고 돌려 실제 카메라 앞에 사람이 있어도 된다.
 - **장시간 실측:** `--interval`(기본 20초)마다 대기면 `S`. 1분마다 CSV에 JS 힙·DOM 노드·리스너·문서 수(`Performance.getMetrics`), D 화면 값, 이 프로필 `chrome.exe` 메모리(`PrivatePageCount`·`WorkingSetSize` 합), 콘솔·예외 수. 끝나면 항목별 통계와 시간당 기울기(처음 5분 제외 포함). 통과: 모든 기록에서 카메라 `ready`·감지기 `ok`, `S` 직전마다 사진 자원 0·`taken = released`, 측정값을 모두 읽음, 외부 요청·CSP 위반·예외 0, 완료 1회 이상.
 
@@ -282,57 +282,50 @@ npm run check:browser -- --only "IMPRINT" --screens artifacts\design-typography-
 
 - 9:16 영역(`#stage`)을 뷰포트 가운데에 최대 크기로 두고 밖은 검정(꾸미지 않음), 영역 바탕은 차콜(`--charcoal`). 비율은 `config.aspectRatio`.
 - `<video>`는 `object-fit: cover`(가운데 기준)로 깔려 계속 재생되지만(감지·캡처·프레임 감시용) 직접 보이지 않는다. 그 위에 원본 미리보기 캔버스(`#camera-raw`)와 효과 캔버스(`#effect`)가 같은 영역을 덮는다. 둘 다 카메라 처리 경로를 거친 9:16 그림이다. 효과가 그리고 있으면 효과 캔버스만, 효과를 끄거나 쓸 수 없으면(장애·손실) 원본 미리보기 캔버스만 보인다(`main.js` `updateRawPreview`). 카메라가 준비되지 않으면 둘 다 숨긴다.
-- **사진 틀 (IMPRINT):** 미리보기는 9:16 전체에 그리고, 실제로 찍히는 곳은 그 안의 **사진 틀** `config.photoFrame`(화면 폭 전체 × 화면 높이 7/64 ~ 52/64 = **4:5**, 1080×1920에서 210~1560줄)이다. 결과 사진·인쇄 데이터는 이 줄로 자르고(6절), 인식 영역은 틀 안으로 줄여 판정한다(5절). `main.js`가 같은 값을 CSS 변수 `--frame-top-frac`·`--frame-height-frac`로 넘긴다. 64분의 몇이라 결과 1920·인쇄 1024·4K 3840·감지 입력 640줄에서 모두 정수 줄이다(`core/photo-frame.js`, Node 테스트).
+- **사진 틀 (IMPRINT에서 도입):** 미리보기는 9:16 전체에 그리고, 실제로 찍히는 곳은 그 안의 **사진 틀** `config.photoFrame`(화면 폭 전체 × 화면 높이 **10/64 ~ 55/64** = **4:5**, 1080×1920에서 300~1650줄. WISHFUL 시안에서 위 띠를 넓히려고 IMPRINT의 7/64 ~ 52/64에서 옮겼다, 검토 중)이다. 결과 사진·인쇄 데이터는 이 줄로 자르고(6절), 인식 영역은 틀 안으로 줄여 판정한다(5절). `main.js`가 같은 값을 CSS 변수 `--frame-top-frac`·`--frame-height-frac`로 넘긴다. 64분의 몇이라 결과 1920·인쇄 1024·4K 3840·감지 입력 640줄에서 모두 정수 줄이다(`core/photo-frame.js`, Node 테스트).
 - D 정보는 기본 숨김이고 관람객 화면에 노출하지 않는다.
 
-### 관람객 화면 (IMPRINT)
+### 관람객 화면 (WISHFUL HOLIDAY 시안, 검토 중)
 
-> 2026-11-03 사용자가 선택한 IMPRINT를 독립 검수와 수정 후 `master`에 반영했다. 시간·유화 필터·인식·카메라 기본값과 현장 저장값(`config/*.local.json`)은 유지한다. [구현·검수 기록](logs/2026-11-03-02-design-imprint-typography.md), [최종 확인·병합 기록](logs/2026-11-03-03-imprint-integration.md).
+> 이 절은 브랜치 `design-wishful-holiday`의 별도 시안이다. **채택되지 않았고 `master`에 병합되지 않았다.** 사용자가 유지 기준으로 정한 IMPRINT는 `master`(`0095a55`)와 태그 `backup/imprint-2026-11-05`에 그대로 있고, IMPRINT 화면 규칙은 그 커밋의 이 문서 3절에 있다. 시간·유화 세부 수치·인식·카메라 기본값과 현장 저장값(`config/*.local.json`)은 바꾸지 않았다. 구현·검증 기록은 [로그 2026-11-05-01](logs/2026-11-05-01-design-wishful-holiday.md).
 
-**생각:** 화면을 "활자로 짠 한 쪽"으로 다룬다. 사진 틀(4:5)이 지면의 사진 자리이고, 틀 밖 위·아래 여백이 글자 자리다. 감열지 출력물도 같은 쪽 구성(머리 날짜·시각 → 사진 → 꼬리 한 줄)이라 화면 = 인쇄의 쪽 모양이다(6절 "인쇄 쪽").
+**생각:** 캠페인 키비주얼 "A WISHFUL HOLIDAY / Puuvilla Story Begins"(크리스마스 레드, 금박 세리프 표제, 필기체, 흰 털뭉치 캐릭터, 내리는 눈)를 화면 한 장의 **붉은 크리스마스 카드**로 옮겼다. 카드 가운데 사진 창(4:5)이 찍히는 곳이고, 창 위 띠가 표제·3·2·1, 아래 띠가 안내·날짜다. 창 안에는 글자·눈·장식을 두지 않는다(보이는 그대로 찍힌다). 참고 원본은 Git 밖 `runtime/design-reference/`에만 두고 앱은 쓰지 않는다(사진 속 인물·이미지는 쓰지 않고, 캐릭터는 SVG로 새로 그렸다).
 
-- **글자는 사진 틀 밖에만:** 머리(날짜·요일·시각)는 위 여백, 안내·3·2·1·쿨타임·결과 문구는 아래 여백에 둔다. 틀 안에는 네 모서리 표시와 셔터 빛뿐이라 촬영 중 자기 모습(얼굴·몸)을 가리지 않는다. 틀 밖 영상은 어두운 막(`.frame-margin`, 0.74, 카운트다운 중 0.86)으로 눌러 어디까지 찍히는지 보이고 흰 글자가 읽힌다(그라데이션 띠·글자 그림자 없음).
-- **무채색·장식 없음:** 오프화이트 `--white` `#f4f2ee`, 결과 종이 `--paper` `#efede8`, 먹 `--ink` `#151515`, 바탕 `--charcoal`. 가는 선(`--hairline` 1080 폭 1px, 틀 선 2px)과 서체만 쓴다. 크리스마스 표현 없음.
-- **서체 짝:** 한국어 줄은 Pretendard 400(큰 줄 6.3cqw, 자간 −0.025em), 영어 줄과 숫자는 Noto Serif KR Light의 라틴 글자(영어 3.9cqw, 3·2·1 27.8cqw), 머리·작은 표기는 Pretendard 500 대문자·숫자(2.04cqw, 자간 0.16em, 고정폭 숫자). 문구는 한국어 + 영어 한 줄(`guest-text.js` `{ ko, en }`).
-- **해상도 독립:** 길이·글자는 모두 `cqw`, 틀 위치는 화면 높이(`--stage-h` = 100cqw × 16/9)에 비율을 곱한다. 1080×1920·2160×3840에서 같은 비율.
-- **움직임은 `transform`·`opacity`만** (WAAPI·CSS 전환, `ui/guest-screen.js`):
-  - **짜 넣기:** 글자 묶음이 나타날 때 줄마다 창(`.line`, `overflow: hidden`) 아래에서 올라와 자리 잡는다(0.9초, `cubic-bezier(0.16, 1, 0.3, 1)`, 줄 사이 90ms). 빠질 때는 원본을 **바로 숨기고**(`hidden`, 상태는 즉시 — 확인 도구·테스트가 읽는다) id 없는 복제본이 위로 빠진 뒤 지워진다(0.38초).
-  - **머리 시각:** 1초마다 바뀐 숫자만 아래에서 올라온다. 셔터 순간 멈추고, 결과 동안 그 사진의 촬영 시각(`photo.takenAt`, 인쇄 쪽 머리와 같은 값)을 보인다. 쿨타임부터 다시 지금 시각.
-  - **3·2·1:** 큰 세리프 숫자 하나가 한 칸 창 안에서 위로 넘어간다(앞 숫자 `#countdown-ghost`는 위로, 새 숫자는 아래에서, 0.64초). `#countdown-number`의 글자는 늘 지금 숫자다. 틀 아래 선이 진행선(`#countdown-progress-fill`, 그 회차 길이 동안 왼쪽에서 차오름). 셔터면 숫자 묶음을 바로 끊고, 취소면 위로 빠진다.
-  - **셔터:** 사진 틀 안에만 흰 빛(최대 0.7, 0.32초), 모서리 표시가 제자리로 튄다.
-  - **결과:** 화면 전체가 종이가 되고(0.9초에 번짐) 사진은 틀 자리에 **움직임 없이** 놓인다(셔터 순간 그림이 멈춘 것처럼, 화면 폭 = 사진 폭이라 1080 화면 1:1·4K 2:1 정수 배율). 머리는 먹색. 아래에 문구, 사진 바로 아래 선이 남은 시간(오른쪽에서 줄어듦). 끝나기 0.7초 전 종이·사진·문구가 걷히고(`data-leaving`, 머리도 흰색으로) 어두운 여백 틀로 돌아온다. 사진 `src`는 상태 기계가 결과를 끝낼 때 지운다(기존 규칙).
-  - **인식 표시:** 네 모서리 표시가 또렷해지며(0.38 → 1) 1.3cqw 안으로 모인다(`#stage.is-present`).
-  - **대기:** 아래 여백 오른쪽의 가는 세로선 안에서 빛이 바닥(발자국 매트) 쪽으로 흘러내린다(2.8초 반복, 늘 도는 움직임은 이것과 준비 중 가는 선뿐).
-  - **동작 줄이기:** `main.js`가 `prefers-reduced-motion`을 `:root[data-motion="reduce"|"full"]`로 옮기고(바뀌면 따라감) CSS·`guest-screen.js`가 이 값 하나를 본다. 줄이기면 위치 움직임 없이 짧은 투명도만(짜 넣기 0.2초, 숫자 0.16초, 복제본 없음, 머리 숫자 움직임 없음, 셔터 빛 0.3, 바닥 쪽 선·준비 중 선 멈춤, 모서리 이동 없음). 정보가 되는 진행선(카운트다운·결과·쿨타임)은 그대로.
-- **단계:** `guest-screen.js`가 9:16 영역에 `data-phase`(상태 기계 상태)를 둔다. CSS가 여백 막 농도·모서리·머리 색을 이 값으로 바꾼다.
-- **문구:** 모두 `src/web/config/guest-text.js`. "준비 중"·"직원 문의"는 확정이고 확인 도구가 이 글자로 상태를 읽는다. 결과 문구는 인쇄 연동 전이라 "출력됨"을 말하지 않는다(종료 시계가 도는 동안 "사진이 완성되었습니다", 멈춘 동안 "사진을 출력하고 있습니다" — 인쇄 연동 뒤 출력 완료 확인 다음 문구는 그때 정한다).
+- **사진 창:** `config.photoFrame` 10/64 ~ 55/64(4:5, 1080×1920에서 300~1650줄). IMPRINT(7/64)보다 위 띠를 넓혀 표제가 들어가게 했다. 결과 사진 1080×1350·인쇄 사진 576×720·인식 영역 줄이기는 IMPRINT 규칙 그대로(값만 새 줄).
+- **카드 띠(`.frame-margin`):** 불투명 붉은 그라데이션(위·아래가 이어지게 같은 배경을 화면 크기로 깔고 자리만 옮김) + 고정 금가루 + 눈 두 겹(`.snow`, 무늬 한 칸만큼 `translate3d`로 내려 끊김 없이 반복, 15초·10초). IMPRINT의 "어둡게 비친 영상" 대신 카드다.
+- **금선·모서리:** 창 윗선은 금색 이중 괘선, 아랫선은 카운트다운·쿨타임 진행선(금색 채움). 창 안 네 모서리 금 L자는 인식되면 또렷해지며 안으로 모인다(`#stage.is-present`).
+- **표제(`.title`):** 필기체 "Puuvilla Story Begins"(Pinyon Script 6.1cqw) + 금박 "A WISHFUL / HOLIDAY"(Cinzel 600 8.8cqw, 줄마다 금박 그라데이션을 글자로 오림). 카운트다운·셔터 동안은 위로 물러나 3·2·1에 자리를 내주고, 결과가 시작되면 금박 위로 빛이 한 번 지나간다(`background-position`, 1.8초 한 번).
+- **솜송이(`.puff`, 인라인 SVG):** 창 윗선 오른쪽에 앉은 흰 털뭉치(난류 변위 필터로 털 가장자리, 두 눈·하트 코·볼). 늘 천천히 떠 있고 가끔 깜빡인다. 사람이 서면 창 쪽을 내려다보고, 셔터에 움찔하고, 결과에 눈웃음, 준비 중·직원 문의에는 잠든다. 장식이며 상자 아래끝이 창 윗선이다(확인 도구가 창 밖인지 본다).
+- **글자:** 한국어 줄 Pretendard 400 5.7cqw(크림색), 영어 줄 Cinzel 400 2.6cqw 자간 0.22em(소문자가 작은 대문자라 금박 각인처럼, 금색), 날짜·시각 Pretendard 500 1.85cqw(아래 띠 맨 아래, 금색). 가운데 맞춤. 문구는 `guest-text.js`.
+- **해상도 독립·움직임 규칙:** IMPRINT와 같다(길이는 `cqw`, 움직임은 `transform`·`opacity`, 줄 짜 넣기·빠지기 복제본, 숫자 넘기기, 머리 시각 멈춤은 `ui/guest-screen.js` 그대로). 예외는 결과 표제의 빛 한 번(`background-position`)뿐이다.
+- **동작 줄이기:** 눈·솜송이 떠 있기·깜빡임·바닥 쪽 선·준비 중 선·표제 빛을 멈추고, 모서리·솜송이·표제의 위치 전환을 없앤다. 진행선은 그대로.
 
-| 상태 | 보이는 것 (DOM 쌓임 순서: `.frame`, `#result-view`, `#status-veil`, `.masthead`, `#guide`, `#countdown`, `#notice`, `#flash`, `#pause-badge`, `#status`) |
+| 상태 | 보이는 것 (DOM 쌓임 순서: `.frame`, `#result-view`, `#status-veil`, `.title`, `.puff`, `.masthead`, `#guide`, `#countdown`, `#notice`, `#flash`, `#pause-badge`, `#status`) |
 |---|---|
-| 대기 | 미리보기 + 사진 틀(여백 막, 위·아래 틀 선, 모서리 0.38) + 머리 + `#guide` "발자국 위에 서 주세요" / "Step onto the footprints." + 바닥 쪽 선. 카메라·감지기가 정상일 때만 |
-| 인식 | 모서리가 또렷하게 안으로. 대기·카운트다운·쿨타임 중에만. `config.showPresenceIndicator`가 `false`면 늘 흐림 |
-| 카운트다운 | 여백 막 0.86, `#countdown`: 왼쪽 큰 숫자(넘김), 오른쪽 "화면을 보며 / 웃어 주세요" + "Look here, and smile.", 틀 아래 선이 차오름 |
-| 촬영 순간 | 틀 안 흰 빛, 모서리 제자리, 머리 시각 멈춤 |
-| 결과 | `#result-view`: 종이(`#result-paper`) + 틀 자리 사진(`#result-card` > `.result-photo` > `#result`, 1080×1350) + "사진이 완성되었습니다" / "Your portrait is set." + 사진 아래 남은 시간 선(`#result-timer`). 1비트 점 사진(감열지)은 `.is-dots` 표시만 남고 크기는 같다(화면용이 결과 크기로 확대된 PNG) |
-| 결과 (출력 중, 이후) | 종료 시계가 멈추면(`endsAt` = `null`) 선을 숨기고 "사진을 출력하고 있습니다" / "Printing your portrait." |
-| 쿨타임 | `#notice` "다음 촬영을 준비하고 있습니다" / "Setting up the next portrait."(한 단계 작게), 틀 아래 선이 남은 쿨타임 동안 차오름(`#cooldown-progress-fill`) |
-| 준비 중·직원 문의 | `#status-veil` 어두운 막(0.96, 틀은 숨김) + 머리 + 아래 여백 자리 `#status` 두 줄: "준비 중입니다."(Noto Serif KR Light 7.4cqw) / 둘째 줄(Pretendard 3.7cqw). 위 가는 선이 준비 중이면 숨 쉬고(2.4초) 직원 문의면 멈춘다 |
+| 대기 | 카드(띠·눈·금선·모서리 0.5) + 표제 + 솜송이 + `#guide` "발자국 위에 서 주세요" / "Step onto the footprints" + 오른쪽 금선(바닥 쪽으로 흐르는 빛) + 날짜·시각 |
+| 인식 | 모서리 또렷하게 안으로, 솜송이가 창 쪽을 본다 |
+| 카운트다운 | 표제가 물러나고 위 띠 가운데에 금박 숫자(Cinzel 400 24cqw, 한 칸 창 안에서 위로 넘어감, 카메라 가까이라 시선이 위로), 아래 띠 "화면을 보며 웃어 주세요" / "Look here and smile", 창 아랫선이 차오름 |
+| 촬영 순간 | 창 안에만 따뜻한 흰 빛(최대 0.7, 동작 줄이기 0.3), 모서리 제자리, 솜송이 움찔, 시각 멈춤 |
+| 결과 | 사진은 창 자리 그대로(1080 화면 1:1), 아래 띠가 눈 쌓인 카드 끝(`#result-paper`)으로 덮이고 "사진이 완성되었습니다" / "Your holiday portrait is ready"(붉은 먹색·금색), 창 아랫선이 남은 시간, 표제 빛 한 번, 솜송이 눈웃음. 끝나기 0.7초 전 걷힌다(`data-leaving`) |
+| 결과 (출력 중, 이후) | 종료 시계가 멈추면 선을 숨기고 "사진을 출력하고 있습니다" / "Printing your portrait" |
+| 쿨타임 | `#notice` "다음 촬영을 준비하고 있습니다" / "Preparing the next portrait"(한 단계 작게), 창 아랫선이 차오름 |
+| 준비 중·직원 문의 | 깊은 붉은 막(`#status-veil`, 창 숨김) 위에 표제·잠든 솜송이·날짜, 창 자리 가운데 `#status` 두 줄: "준비 중입니다."(Noto Serif KR Light 7.4cqw) / 둘째 줄(Pretendard 3.5cqw 금색). 위 금선 장식이 준비 중이면 숨 쉬고 직원 문의면 멈춘다 |
 
-- **운영자 표시 `#pause-badge`:** 위 여백 오른쪽 위(머리 시각 위), 1.7cqw.
-- **카메라 없는 데모 (검토용, 관람객 화면 아님):** `http://localhost:<포트>/demo/index.html`(`src/web/demo/`). 앱 `index.html`의 `#stage` 마크업을 그대로 불러와(`fetch('/')`) 같은 CSS·`guest-screen.js`로 그리고, 도형으로 그린 합성 장면(`demo/scene.js`, 사람 모양 셋, 얼굴 특징 없음)을 `captureStream()`으로 `<video>`에 넣어 실제 카메라 처리 경로·회색조 유화 효과·촬영·사진 틀·인쇄 쪽 경로와 실제 상태 기계·자동 시작 판정을 돌린다. 감지기는 돌리지 않고 "인식됨"은 패널의 "사람 들어옴/나감"으로 정한다. 9:16 영역 옆(세로로 긴 창이면 아래) 패널에 검토용 조작: 자동 시연(들어옴 → 3·2·1 → 결과 → 쿨타임 중 떠남 → 반복), 사람, 수동 촬영(S와 같음), 초기화(X와 같음), 안내 상태 흉내(정상·준비 중·직원 문의), 동작 줄이기, 인쇄 연동 뒤 흐름 흉내(결과 처음 2.5초 "출력 중"), 마지막 촬영의 실제 인쇄 데이터 PNG. 조절값 파일을 읽거나 쓰지 않고 기본값으로 돈다. 사진·인쇄 데이터는 메모리에만 두고, 인쇄 데이터 미리보기 URL은 다음 촬영·페이지를 떠날 때 놓는다. 앱과 같은 CSP.
+- **운영자 표시 `#pause-badge`:** 위 띠 왼쪽 위(오른쪽은 표제·솜송이 자리), 1.5cqw.
+- **확인 도구가 쓰는 id·문구:** IMPRINT와 같은 id(`#guide`·`#countdown-number`·`#countdown-ghost`·`#result-*`·`#status`·`#masthead-*` 등)를 유지했다. "준비 중"·"직원 문의" 문구는 확정 그대로.
+- **카메라 없는 데모 (검토용, 관람객 화면 아님):** `http://localhost:<포트>/demo/index.html`(`src/web/demo/`). IMPRINT 데모를 이어받아 앱 `#stage` 마크업·CSS·`guest-screen.js`와 합성 장면(`demo/scene.js`, 얼굴 특징 없는 도형)을 실제 카메라 처리 경로·효과·촬영·사진 틀·인쇄 쪽 경로에 넣는다. 패널 조작: 흐름(자동 시연·사람·S·X), **필터 시험 조합**(네 조합 버튼, 흑백 방식, 세부 수치 "기본값" / "현장 저장값 (대조본)" — 2026-11-05에 현장 `effect.local.json`을 읽기 전용으로 대조한 값을 코드에 적은 것, 파일을 읽거나 쓰지 않음), **4조합 비교 촬영**(대기 상태에서 같은 합성 장면을 네 조합으로 실제 `capture.take` → 결과 효과 → 사진 틀로 한 장씩 만들어 나란히, 캡션에 모드·유화 끔·셔터 순간 그림 여부·인쇄 데이터 크기. 끝나면 원래 조합으로, 사진은 메모리에만 두고 다음 비교·페이지를 떠날 때 놓음), 안내 상태 흉내, 동작 줄이기, 인쇄 연동 뒤 흐름 흉내, 마지막 인쇄 데이터 PNG. 앱과 같은 CSP.
 
-**서체** (`src/web/assets/fonts/`, 합계 약 566KB, 바꾸지 않음)
+**서체** (`src/web/assets/fonts/`, 바꾸지 않음)
 
 | 서체 | 쓰는 곳 | 파일 | 출처 | 라이선스 |
 |---|---|---|---|---|
-| Pretendard 400·500 | 한국어 줄(400), 머리·작은 표기·인쇄 쪽 머리(500), 운영자 패널 본문(400)·제목·주 버튼(500) | `Pretendard-Regular.subset.woff2`(267,096바이트), `Pretendard-Medium.subset.woff2`(268,324바이트) | GitHub `orioncactus/pretendard` v1.3.9 `Pretendard-1.3.9.zip`의 `web/static/woff2-subset/` 그대로(한글 2,780자, KS X 1001 2,350자 포함 + 영숫자·기호) | SIL OFL 1.1, `OFL-Pretendard.txt` |
-| Noto Serif KR 300 | 영어 줄, 3·2·1 숫자, 준비 중·직원 문의 첫 줄, 인쇄 쪽 꼬리 문장 | `NotoSerifKR-Light.subset.woff`(30,988바이트) | GitHub `notofonts/noto-cjk` `Serif2.003`의 `13_NotoSerifKR.zip` `SubsetOTF/KR/NotoSerifKR-Light.otf`(2.003)를 `fontTools` 4.63 `pyftsubset`으로 줄임: 7-2 문구 글자 + U+0020–007E + `· – — ‘ ’ “ ” …`, 이름 표·`kern`·`liga`·숫자 기능 유지, woff | SIL OFL 1.1, `OFL-NotoSerifKR.txt`. 부분 집합은 OFL 수정본이고 예약 이름("Source")은 쓰지 않는다 |
+| Pretendard 400·500 | 한국어 줄(400), 날짜·시각·인쇄 쪽 날짜·시각(500), 운영자 패널 | `Pretendard-Regular.subset.woff2`(267,096바이트), `Pretendard-Medium.subset.woff2`(268,324바이트) | GitHub `orioncactus/pretendard` v1.3.9 `web/static/woff2-subset/` 그대로 | SIL OFL 1.1, `OFL-Pretendard.txt` |
+| Noto Serif KR 300 | 준비 중·직원 문의 첫 줄 | `NotoSerifKR-Light.subset.woff`(30,988바이트) | `notofonts/noto-cjk` `Serif2.003` 부분 집합 (IMPRINT 때 줄인 것 그대로) | SIL OFL 1.1, `OFL-NotoSerifKR.txt` |
+| Cinzel 400·600 (WISHFUL) | 표제(600), 영어 줄·3·2·1(400), 인쇄 쪽 표제(600) | `Cinzel-Regular.latin.woff2`(14,128바이트, SHA-256 `b873cdd9…3dcf1217`), `Cinzel-SemiBold.latin.woff2`(15,204바이트, `61efc27c…2f28e4`) | npm `@fontsource/cinzel` 5.3.0(tarball SHA-256 `b80629f7…ee6d53c28`)의 `files/cinzel-latin-{400,600}-normal.woff2` 그대로. 원저작 NDISCOVER/Cinzel | SIL OFL 1.1, `OFL-Cinzel.txt`(패키지 LICENSE 그대로) |
+| Pinyon Script 400 (WISHFUL) | 표제 필기체, 인쇄 쪽 꼬리 | `PinyonScript-Regular.latin.woff2`(39,044바이트, `3e1f69a2…3e42`) | npm `@fontsource/pinyon-script` 5.3.0(tarball `7b4064f2…231dbe`)의 `files/pinyon-script-latin-400-normal.woff2` 그대로. 원저작 SorkinType/Pinyon | SIL OFL 1.1, `OFL-PinyonScript.txt` |
 
-- Pretendard 부분 집합은 `src/web`에 쓰인 한글을 모두 담는다(그 밖은 시스템 서체). `index.html`이 Pretendard 400과 세리프를 `<link rel="preload">`로 미리 받는다(Medium은 머리·운영자 패널). 인쇄 쪽 글자는 캔버스에 그리므로 `main.js`가 시작할 때 `document.fonts.load()`로 두 서체를 부른다(못 불렀으면 D `print` 줄 `FONTS NOT LOADED (system font)`).
-- **서체 검사 (`test/config/guest-text.test.mjs`):** 세리프로 보이는 글자(영어 줄 `en`·인쇄 꼬리 문장·숫자·준비 중 첫 줄)가 세리프 WOFF `cmap`에 모두 있는지, 한국어 줄과 머리·인쇄 쪽 글자가 Pretendard 400·500 WOFF2 `cmap`(Brotli를 풀어 표 목록에서 꺼냄)에 모두 있는지, 영어 줄이 U+0020–007E만 쓰는지 본다. 세리프 한글은 준비 중 첫 줄뿐이라 그 문구를 바꿀 때만 세리프를 다시 줄인다(저장소에 스크립트 없음, Python `fontTools` 필요. `<문구 글자 파일>`은 세리프로 보이는 비ASCII 글자를 UTF-8로 적은 것):
-  ```text
-  python -m fontTools.subset NotoSerifKR-Light.otf --text-file=<문구 글자 파일> --unicodes="U+0020-007E,U+00B7,U+2013,U+2014,U+2018,U+2019,U+201C,U+201D,U+2026" --flavor=woff --layout-features="kern,liga,lnum,tnum,pnum,onum" --name-IDs="*" --notdef-outline --output-file=NotoSerifKR-Light.subset.woff
-  ```
+- `index.html`이 Pretendard 400·Noto Serif·Cinzel 400·600·Pinyon을 `<link rel="preload">`로 미리 받는다. 인쇄 쪽 글자는 캔버스에 그리므로 `main.js`·`demo.js`가 시작할 때 `IMPRINT_FONT_LOADS`(Cinzel 600·Pinyon·Pretendard 500)를 `document.fonts.load()`로 부른다(못 불렀으면 D `print` 줄 `FONTS NOT LOADED (system font)`).
+- **서체 검사 (`test/config/guest-text.test.mjs`):** 영어 줄·숫자·표제·인쇄 표제가 Cinzel 400·600 WOFF2 `cmap`에, 필기체 줄이 Pinyon `cmap`에, 준비 중 첫 줄이 Noto Serif `cmap`에, 한국어 줄·날짜 글자가 Pretendard 400·500 `cmap`에 모두 있는지, 영어·인쇄 글자가 U+0020–007E만 쓰는지 본다. Cinzel·Pinyon은 latin 부분 집합(U+0000–00FF 등)이라 그 밖의 글자를 쓰려면 다른 부분 집합을 받는다. Noto Serif 한글은 준비 중 첫 줄뿐이라 그 문구를 바꿀 때만 다시 줄인다(IMPRINT 때와 같은 `fontTools` 명령, `master` 문서 참고).
 
 ### 좌우 반전
 
@@ -473,13 +466,14 @@ npm run check:browser -- --only "IMPRINT" --screens artifacts\design-typography-
 
 ### 운영자 화면
 
-`E` 패널(섹션 넷)·원본 창, `D`, `P` 표시, 인식 섹션 겹쳐 그리기. 관람객 화면과 같은 무채색이다. 디자인 이유는 [로그 2026-10-19-03](logs/2026-10-19-03-stage6-operator-ui.md).
+`E` 패널(섹션 넷)·원본 창, `D`, `P` 표시, 인식 섹션 겹쳐 그리기. WISHFUL 시안에서는 아주 짙은 버건디 바탕에 금색 강조(선택한 섹션 밑줄·주 버튼·켠 스위치·눌린 조합)이고, 상태 색(초록·주황·빨강)은 그대로 작은 점·글자에만 쓴다(주황은 금색과 구분되게 `#eda15f`). 디자인 이유는 [로그 2026-10-19-03](logs/2026-10-19-03-stage6-operator-ui.md).
 
 - **모양:** 차콜 반투명 패널(`--op-bg`), 1px 선, Pretendard 500·400, 숫자는 고정폭 오른쪽 정렬, 채도 낮은 상태 색은 점·글자·왼쪽 선에만, `color-scheme: dark`, 움직임·블러 없음(미리보기 성능). 크기는 `--op-size`(D는 `--op-dev-size`, 둘 다 `clamp(…vmin…)`)에 `em`으로 맞춰 해상도와 관계없이 같은 비율이고, 영역 안 요소는 `cqw`.
 - **패널 하나 (`#operator-panel`, `ui/operator-panel.js`, 9-2):** `E`로 열고 닫는다(`Esc`·`닫기`로도). 머리(제목 "운영자 조절", "E·Esc 닫기 · 저장하지 않은 섹션은 닫을 때 취소", `위·아래`(`data-action="dock"`)·`닫기`) / 섹션 버튼 넷 `카메라`·`인식`·`시간`·`필터`(`[data-section]`, 밑줄 세그먼트, 섹션의 저장 상태 점: 저장 안 됨·고쳐 씀 호박색, 실패 빨강) / 보이는 섹션 하나(`.op-section`: 실시간 줄 `[data-live]` / 넘기는 몸통 — 묶음 `fieldset.op-group`, 줄 `.op-row` = 이름·도움말 · 조작 · 값·단위 / 늘 보이는 아래 — 저장 상태 `[data-state]`·섹션 `data-save`, 저장·취소·기본값, 알림 `[data-message]`).
 - **섹션 = 파일 하나:** 카메라 `#camera-panel`(`camera-tuning.js`, `camera.local.json`) · 인식 `#tuning-panel`(`presence-tuning.js`, `presence.local.json`) · 시간 `#timing-panel`(`timing-tuning.js`, `timing.local.json`, 10단계) · 필터 `#effect-panel`(`effect-tuning.js`, `effect.local.json`). 섹션마다 저장 상태·저장·취소(저장된 값으로)·**기본값으로(그 섹션의 값만)**를 따로 가진다. 패널을 **닫으면 저장하지 않은 섹션만 되돌린다**(실행 중인 값 = 다시 시작했을 때의 값, 섹션마다 이 규칙을 그대로). 저장 중인 섹션이 있으면 그 섹션을 보이고 "저장이 끝나면 닫습니다" 뒤 닫는다. 이유: 파일이 섹션마다 따로라 저장·실패도 섹션마다 따로 일어나고, 한 섹션의 저장 실패나 변경이 다른 섹션의 저장된 값을 건드리지 않게 한다. 패널 전체 "모두 저장"은 두지 않는다(무엇이 저장되는지 섹션 점으로 보인다).
 - **열기:** 네 조절값을 다 불러온 뒤에만 열린다(최대 약 3초). 처음은 카메라 섹션, 그 뒤엔 마지막으로 본 섹션(새로고침하면 다시 카메라 — 저장하지 않는다: 현장 PC를 다시 켰을 때 늘 같은 곳에서 시작). 열려 있으면 어느 섹션이든 자동 촬영을 막는다(4절 "자동 시작과 이탈 취소").
 - **원본 창 (`#raw-window`, 9-2):** 카메라·인식 섹션이 보이는 동안 구석에 필터 없는 카메라 처리 경로 그림(보정·변환 적용, 9:16)과 감지 박스·인식 영역 점선을 띄운다(`raw-preview.js`를 작은 캔버스로, 감지 박스는 화면 좌표 그대로). 인식 섹션에서도 보이는 이유: 필터(회색조 유화)가 얼굴을 덜 보이게 해도 감지는 필터 전 그림으로 한다는 것을 박스와 함께 보여 준다. 시간·필터 섹션·패널 닫힘이면 그리지 않는다. 위치: 세로 화면은 9:16 영역 오른쪽 위(패널이 위면 아래, 왼쪽 위는 D 표), 옆에 패널이 서는 가로 화면은 패널 반대쪽 빈 곳 아래. "옮기기"는 두 자리(세로: 오른쪽·왼쪽, 가로: 아래·위)를 오간다. 마우스는 통과시키고(옮기기 버튼만 받음) 인식 섹션에서는 반투명이라 아래 영역 핸들을 보고 끌 수 있다. 크기는 창의 장치 화소(긴 변 최대 640), 그리는 빈도는 초당 30 이하(가안, `main.js` `RAW_WINDOW_MAX_PX`·`RAW_WINDOW_FPS`. 측정은 [로그 2026-11-02-02](logs/2026-11-02-02-stage9-operator-panel.md)). D `raw-window`.
+- **필터 섹션 맨 위 시험 조합 (WISHFUL 시안):** 네 조합 버튼(`button[data-action="combo"][data-oil][data-mono]`, `aria-pressed`), 스위치 둘(`input[type=checkbox][data-key="oil"|"mono"]`), 안내 한 줄(`[data-combo-info]`: 지금 조합·흑백 방식·인쇄 데이터를 만드는지). 6절 "시험 조합".
 - **묶음:** 카메라 = 장치(카메라 선택·목록, 해상도 + 받은 크기·지원 범위·"OBS 가상카메라는 자동 권장" 줄) / 방향·위치(좌우 반전, 회전 ↺·↻ 90° 버튼과 미세 회전, 확대, 가로·세로 이동) / 색 보정(밝기·대비·채도·감마·색온도·색조), 맨 위 "OBS 보정과 중복 적용 주의" 한 줄. 인식 = 영역 / 얼굴 크기(가이드 색 견본) / 신뢰도 / 현재값 JSON(접힘). 시간 = 촬영 흐름(카운트다운·결과 표시·쿨타임, 초, "다음 회차부터 적용") / 인식 반응(인식까지·이탈까지, 초, "바로 적용") / 카메라 회복(다시 시도 간격·첫 프레임 기다림·정지 판정·직원 문의 전환, 초). 필터 = 효과(강도·붓 크기·획 다시 그리기·색 보정·세부 보존 문턱) / 출력 단계(출력 모드·점 방식·용지 폭·밝기·대비·감마·흑백 스타일·질감 세기·선 간격) / 미리보기(초당 그림·처리 해상도). 쓰지 않는 항목은 흐리게 막힌다.
 - **저장 상태 (`ui/save-state.js`, 문구 가안):** 바꾸는 중 `dirty`(저장 안 된 변경, 닫으면 취소)·`saving`·`failed`(파일은 이전 값, 다시 바꾸거나 저장 성공 때 풀림). 바꾸지 않았으면 불러온 결과: `saved`(파일에서 읽음·옮김·이번에 저장), `defaults`(파일 없음), `load-failed`(읽기 실패·시간 초과·형식 오류), `adjusted`(파일 값을 고쳐 씀·옮기지 못함 → 저장 필요). 저장할 것이 없으면 저장 버튼이 차분해진다(누를 수는 있다).
 - **위치:** 세로 화면은 아래(기본)·위, 높이 `50vh`까지(얼굴이 있는 위쪽 절반을 가리지 않음). 9:16 옆 빈 폭에 26em이 들어가면 옆(기본 오른쪽, `위·아래`로 왼쪽). `main.js` `updateOperatorRoom`이 창 크기마다 재서 루트에 `.op-side-room`(1920×1080은 옆, 1200×1080은 아래·위).
@@ -590,7 +584,7 @@ camera-monitor (ready·페이지 보임) ──▶ presence-monitor 감지 루�
 
 `presence.*`는 기본값이고 `E` 인식 섹션에서 저장한 값이 있으면 그 값이다. 감지 루프에는 인식 섹션의 판정값과 시간 섹션의 반응 시간을 합쳐 넣는다(`main.js` `presenceSettingsFor`). 판정은 매 프레임 현재 설정을 읽어 다음 감지부터 반영된다.
 
-**사진 틀 안으로 (IMPRINT):** 감지 루프에 넣는 인식 영역은 운영자가 정한 영역과 사진 틀(3절 "화면 배치", 화면 높이 7/64~52/64)의 겹친 부분이다(`core/photo-frame.js` `clipRegionToFrame`). 얼굴 중심이 틀 밖(위·아래 여백)이면 찍혀도 사진에 얼굴이 없으므로 인정하지 않는다. 틀과 전혀 겹치지 않거나 틀 끝에 맞닿기만 한 영역은 높이 0이 되고, 빈 영역은 그 선 위의 얼굴도 인정하지 않는다(독립 검수 P2: 경계 포함 판정이 높이 0 선 위의 얼굴을 인정해 틀 밖 영역으로 인식됨이 되던 것을 막음). 저장하는 값(`presence.local.json`)과 인식 섹션 편집 사각형은 운영자가 정한 영역 그대로이고, D `criteria` 줄은 줄인 영역에 `(clipped to photo frame)`, D `frame` 줄에 틀 줄·줄였는지. 기본 영역(0.1~0.9)은 0.109~0.8125로 줄어든다. D 겹쳐 그리기·원본 창·인식 섹션에는 사진 틀 위·아래 줄(호박색 점선)이 보인다. 좌표계는 바뀌지 않는다(감지 입력 = 9:16 화면 영역, 틀은 그 안의 줄 범위).
+**사진 틀 안으로 (IMPRINT에서 도입):** 감지 루프에 넣는 인식 영역은 운영자가 정한 영역과 사진 틀(3절 "화면 배치", 화면 높이 10/64~55/64, WISHFUL 시안)의 겹친 부분이다(`core/photo-frame.js` `clipRegionToFrame`). 얼굴 중심이 틀 밖(위·아래 여백)이면 찍혀도 사진에 얼굴이 없으므로 인정하지 않는다. 틀과 전혀 겹치지 않거나 틀 끝에 맞닿기만 한 영역은 높이 0이 되고, 빈 영역은 그 선 위의 얼굴도 인정하지 않는다(독립 검수 P2: 경계 포함 판정이 높이 0 선 위의 얼굴을 인정해 틀 밖 영역으로 인식됨이 되던 것을 막음). 저장하는 값(`presence.local.json`)과 인식 섹션 편집 사각형은 운영자가 정한 영역 그대로이고, D `criteria` 줄은 줄인 영역에 `(clipped to photo frame)`, D `frame` 줄에 틀 줄·줄였는지. 기본 영역(0.1~0.9)은 0.156~0.859로 줄어든다(IMPRINT 틀에서는 0.109~0.8125). D 겹쳐 그리기·원본 창·인식 섹션에는 사진 틀 위·아래 줄(호박색 점선)이 보인다. 좌표계는 바뀌지 않는다(감지 입력 = 9:16 화면 영역, 틀은 그 안의 줄 범위).
 
 ### 인식 범위 조절
 
@@ -665,7 +659,7 @@ const detector = await FaceDetector.createFromOptions(fileset, {
 0. **확인:** 이전 작업이 남아 있으면 `capture busy`, 마지막 새 프레임이 `config.capture.maxFrameAgeMs`(500ms, 가안)보다 오래면 `stale frame`으로 캔버스를 만들기 전에 실패.
 1. **프레임 잡기(동기):** 셔터 순간의 카메라 설정으로 카메라 처리 경로(3절, `camera-frame.js` `draw`: 색 보정·반전·회전·확대·이동)를 거친 9:16 화면 영역을, 화면이 덮는 원본 화소 수(`captureSizeFor`)의 캔버스에 그린다(변환이 없으면 OBS 1080×1920 → 1080×1920, 2160×3840 → 그대로, 가로 1920×1080 → 608×1080, 확대 2면 절반). 캔버스 생성 뒤 어디서 실패해도 비우고 실패.
 2. **사진 효과:** `effect(canvas, { signal, takenAt })` 경계에 `photo-effect.js`의 `apply`. 셔터 순간 미리보기와 같은 그림을 결과 크기로 새 캔버스에 그린다. `{ canvas, type?, print, dots? }`를 돌려주면 그 형식으로 인코딩하고 사진 `{ url, width, height, print, dots, takenAt }`에 인쇄 데이터를 붙인다(`dots` = 1비트 점 사진). `takenAt`은 프레임을 잡는 순간의 `Date.now()`(`clock`)이고 인쇄 쪽 머리와 관람객 화면 머리가 같은 값을 쓴다.
-2.5. **사진 틀 (IMPRINT):** 효과 단계의 마지막에 화면용 사진(9:16 전체)을 `config.photoFrame` 줄로 잘라 새 캔버스로 남긴다(1080×1920 → **1080×1350**, 210~1560줄. 효과를 끈 원본 캡처 2160×3840이면 420~3120줄). 어느 경로(효과·원본 대체·감열지·회색조·끔)든 같은 한 곳(`photo-effect.js` `framed`)이다. 자르기 캔버스를 만들지 못하면 9:16 그대로 두고 경고하며, 관람객 화면은 `object-position`으로 같은 줄을 보인다. D `photo-fx`는 효과 그림 크기(9:16)와 `, frame 1080x1350 rows 210-1560`, `capture`는 자른 크기.
+2.5. **사진 틀 (IMPRINT에서 도입):** 효과 단계의 마지막에 화면용 사진(9:16 전체)을 `config.photoFrame` 줄로 잘라 새 캔버스로 남긴다(1080×1920 → **1080×1350**, WISHFUL 시안 300~1650줄. 효과를 끈 원본 캡처 2160×3840이면 600~3300줄). 어느 경로(효과·원본 대체·감열지·회색조·끔)든 같은 한 곳(`photo-effect.js` `framed`)이다. 자르기 캔버스를 만들지 못하면 9:16 그대로 두고 경고하며, 관람객 화면은 `object-position`으로 같은 줄을 보인다. D `photo-fx`는 효과 그림 크기(9:16)와 `, frame 1080x1350 rows 300-1650`, `capture`는 자른 크기.
 3. **인코딩:** `canvas.toBlob()`, 기본 `config.capture` `image/jpeg` 품질 0.92(가안). 감열지는 `image/png`.
 4. **정리:** 성공·실패·취소 모두 캔버스 크기를 0으로. 결과는 `URL.createObjectURL(blob)`로만 들고 `release(photo)`가 `revokeObjectURL`과 인쇄 데이터 해제를 한 번만 한다. `release`는 결과 종료·강제 초기화·늦은 결과 폐기 때 불린다.
 
@@ -745,8 +739,33 @@ const detector = await FaceDetector.createFromOptions(fileset, {
 - 효과 7개(강도, 붓 크기, 획 다시 그리기, 초당 그림, 색 보정, 세부 보존 문턱, 처리 해상도), 출력 단계(출력 모드·점 방식·용지 폭 선택, 밝기·대비·감마 슬라이더), 흑백 스타일(스타일·질감 세기·선 간격). 범위는 원본 갤러리 슬라이더와 같다. 좌우 반전(2026-10-26 ~ 9-1에는 여기 "카메라")은 카메라 설정으로 옮겼다(3절).
 - 출력 모드 첫 선택지는 회색조 유화. 감열지가 아니면 흑백 스타일을, 회색조·끔이면 점 방식·용지 폭도, 끔이면 레벨도 막는다(회색조 유화에서 점 방식·용지 폭은 인쇄 데이터용으로 열림). 질감 세기는 톤 점에서, 선 간격은 선 스타일이 아니면 막힌다.
 - 즉시 반영. 저장·취소·기본값(필터 값만)·저장 없이 닫으면 되돌리기·저장 중 닫기는 인식·카메라 섹션과 같은 규칙이고, 패널이 열려 있는 동안 자동 촬영을 막는다.
-- **파일** `config/effect.local.json`: `{ "version": 1, "settings": { strength, size, boil, fps, grade, refineThreshold, previewScale, outputMode, dither, brightness, contrast, gamma, paperDots, bwStyle, bwTexture, lineSpacing } }`(조절하는 16개 값만). 파일 값이 있으면 그 값이다(예: 예전에 `thermal`로 저장한 파일은 감열지로 시작하므로 회색조 유화로 바꾸려면 `E`에서 고르고 저장). 일부 키만 있으면 나머지를 기본값으로 채우고 알린다(`adjusted`). 예전 파일(2026-10-26 ~ 9-1)에 남은 `mirror`는 읽지 않고 알리지도 않는다(카메라 파일이 없을 때 카메라 설정으로 한 번 옮기고 이 파일에서 그 키를 뺀다, 3절).
+- **파일** `config/effect.local.json`: `{ "version": 1, "settings": { strength, size, boil, fps, grade, refineThreshold, previewScale, outputMode, dither, brightness, contrast, gamma, paperDots, bwStyle, bwTexture, lineSpacing, oil, monoMode } }`(조절하는 값만. 끝의 `oil`·`monoMode`는 WISHFUL 시안의 시험 조합 선택 키로, 없으면 알리지 않고 채운다 — 아래 "시험 조합"). 파일 값이 있으면 그 값이다(예: 예전에 `thermal`로 저장한 파일은 감열지로 시작하므로 회색조 유화로 바꾸려면 `E`에서 고르고 저장). 일부 키만 있으면 나머지를 기본값으로 채우고 알린다(`adjusted`). 예전 파일(2026-10-26 ~ 9-1)에 남은 `mirror`는 읽지 않고 알리지도 않는다(카메라 파일이 없을 때 카메라 설정으로 한 번 옮기고 이 파일에서 그 키를 뺀다, 3절).
 - **불러오기: 파일 → 기본값**(`localStorage` 없음). 404·읽기 실패·`effectSettingsFile.timeoutMs`(3초, 가안) 초과·형식 오류면 기본값이고 파일은 그대로. 불러오는 동안은 기본값으로 그리고 **자동 촬영을 막지 않는다**(판정과 무관, 그사이 촬영돼도 미리보기와 결과는 같은 값). D `values`에 값과 출처(`file`·`saved`·`defaults (no file)`·`+ unsaved changes`).
+
+### 시험 조합: 유화 켬/끔 × 흑백 켬/끔 (WISHFUL 시안, 검토 중)
+
+사용자 요청(2026-11-05): 유화 필터와 흑백을 **따로 켜고 꺼서** 네 조합(원본 컬러·원본 흑백·유화 컬러·유화 흑백)을 운영자가 시험한다. 관람객 조작이 아니라 `E` 필터 섹션 맨 위(네 조합 버튼, "유화 필터"·"흑백" 스위치, 안내 한 줄)와 카메라 없는 데모 패널에 있다. 표시만 바꾸는 것이 아니라 **실제 영상 처리**가 바뀌고, 미리보기와 셔터 결과는 같은 설정 객체·같은 프레임·같은 카메라 좌표로 그린다(기존 `renderStill` 규칙 그대로).
+
+| 값 (`config.effect`, 파일 선택 키) | 기본값 | 뜻 |
+|---|---|---|
+| `oil` | `true` | 유화 패스를 쓸지. `false`면 렌더러가 구조 텐서·흐름장·밑칠·붓 층·보완 층·합성을 건너뛰고, 같은 카메라 처리 경로 입력(회색조 유화면 `FS_INPUT_GRAY`, 아니면 `FS_GRADE` `uAmt` 0 = 카메라 그림 그대로)을 합성 그림 자리(`composed`)에 그려 **기존 출력 단계를 그대로** 입힌다. 강도·붓 크기·boil·색 보정·세부 보존·초당 그림 값은 **지우지 않고** 막아 둘 뿐이다(다시 켜면 그 값) |
+| `monoMode` | `'gray-oil'` | "흑백"일 때의 출력 모드(흑백 방식: `gray-oil`·`thermal`·`gray`). **흑백 = `outputMode`가 `off`가 아님.** 흑백을 끄면 지금 흑백 방식을 `monoMode`에 남기고 `outputMode = 'off'`(컬러), 켜면 `outputMode = monoMode`. 출력 모드가 흑백이면 `monoMode`는 늘 같은 값이다(정규화) |
+
+- **기존 출력 모드와의 관계:** `outputMode`는 예전 뜻 그대로다(회색조 유화·감열지·회색조·끔). 시험 조합은 그 위의 두 스위치일 뿐이라, 유화 켬이면 네 출력 모드가 예전과 화소까지 같다(Node 렌더러 테스트). 현장 저장값 `outputMode: "gray"`는 "유화 켬 · 흑백 켬(회색조)"으로 읽힌다.
+- **조합별 처리:**
+
+| 조합 | 미리보기·결과 화면용 | 인쇄 데이터 |
+|---|---|---|
+| 원본 · 컬러 | 카메라 처리 경로 그림 그대로(출력 단계 `off`, 레벨 없음), 획 0 | 없음 (화면 시험용) |
+| 원본 · 흑백 | 흑백 방식대로: 회색조 유화 = 입력 회색조(Rec.709) → 회색조·레벨, 회색조 = 컬러 → 회색조·레벨, 감열지 = 1비트 톤 점(흑백 스타일은 획이 없어 늘 톤 점, `bwStyleOf`) | 회색조 유화·감열지만 (회색조는 예전처럼 없음) |
+| 유화 · 컬러 | 컬러 유화(예전 `off`) | 없음 (화면 시험용) |
+| 유화 · 흑백 | 예전 그대로(기본 회색조 유화, 현장값 회색조) | 회색조 유화·감열지만 |
+
+- **화면 컬러 시험과 인쇄용 흑백 데이터는 구분한다:** 컬러 조합은 인쇄 데이터를 만들지 않는다(D `combo` 줄 `print data no (color is a screen test)`, `print` 줄 `-`). 인쇄 데이터는 늘 감열지 1비트이고 흑백 방식이 회색조 유화·감열지일 때만 만든다. 실제 프린터 연동은 없다(인쇄 완료를 말하지 않는다).
+- **초당 그림:** 유화 끔은 획이 없어 스톱모션으로 둘 이유가 없으므로 `OIL_OFF_FPS` 30장(가안, `effect-preview.js` `drawFpsOf`). 유화 `fps` 값은 그대로 남는다. 결과 사진 준비 키에 `oil`이 들어 있어 바꾸면 다시 준비한다.
+- **저장·취소·기본값·재시작:** 다른 필터 값과 같은 규칙이다. 조합은 즉시 반영되고 **저장해야** `effect.local.json`에 남으며, 저장하지 않고 패널을 닫으면 저장된 조합으로 돌아간다(재시작해도 저장된 조합). "취소"는 저장된 조합, "기본값으로"는 유화 켬·흑백 켬(회색조 유화)과 필터 기본 수치(개발 PC 값)다 — 현장 수치로 돌아가는 것이 아니므로 현장에서는 "취소"를 쓴다.
+- **파일 호환:** 버전 1 그대로 두 키만 더했다. **둘 다 선택 키**라 없으면 알리지 않고 채운다(`EFFECT_OPTIONAL_KEYS`, `oil` 켬, `monoMode`는 흑백이면 출력 모드·컬러면 기본값). 그래서 예전 16개 키 파일(현장 저장값 포함)은 저장 상태가 "고쳐 씀"이 되지 않고 같은 값으로 읽힌다(2026-11-05 현장 4개 파일 복사본으로 확인, Node 테스트). 새로 저장한 파일을 예전 앱(IMPRINT `master`)이 읽으면 `outputMode`는 맞게 읽고 `oil`은 모르므로 유화 켬으로 보인다.
+- **D:** `effect` 줄 `fps 30 -> …`(유화 끔), `time` 줄 `strokes 0`, `combo` 줄(`oil on|off, mono on (모드)|off (color, mono mode …), print data yes|no (…)`), `photo-fx` 줄 모드 뒤 `[no oil]`.
 
 ### 회색조 유화
 
@@ -793,7 +812,7 @@ composed → 회색조(Rec.601) → 대비(0.5 중심) → 밝기 → 0~1 → �
 **결과와 인쇄용 데이터** (`renderStill` → 렌더러 `output: 'print'`)
 
 - **(a) 인쇄용 1비트 (정본)**, 사진의 `print`: `bits` 래스터 비트(줄마다 `ceil(Pw/8)`바이트, 위 줄부터, 왼쪽 점이 최상위 비트, **1 = 검은 점**, ESC/POS `GS v 0`과 같은 뜻), `png` 1비트 회색조 PNG Blob(비트 깊이 1, 색 형식 0, 브라우저 `CompressionStream('deflate')`), `width`·`height`·`bytesPerRow`·`blackRatio`·`layout`·`photo`(쪽 안의 사진 줄)·`takenAt`·`fontsReady`·`imprintError`. 메모리에만 두고 `release` 때 놓는다. 인쇄 연동 때 이것을 넘긴다.
-- **인쇄 쪽 (IMPRINT):** 인쇄 데이터는 9:16 인쇄 해상도 마스크(576×1024)에서 사진 틀 줄(112~832)만 남긴 576×720 사진을 감열지 한 장으로 짠 것이다(`photo-effect.js` `imprintPage` → `effect/imprint-page.js`, 배치 `core/imprint.js` `imprintLayout`, 가안). 위 여백 → **머리**(왼쪽 `2026.11.03  TUE`, 오른쪽 `18:42:07`, Pretendard 500 22점·자간 넓게) → **사진**(84줄부터, 용지 폭 전체) → **꼬리**(왼쪽 세리프 한 줄 "Set in light, printed in heat." Noto Serif KR 300 30점, 오른쪽 용지 폭 `80 MM`) → 아래 여백. 576점이면 **576×912 = 약 114mm**(예전 사진만 1024줄보다 짧다, 래스터 65,664바이트), 384점(58mm)은 같은 배치를 폭에 비례(384×608). 글자는 2D 캔버스에 흰 바탕·검은 글자로 그려 빨강 128 문턱으로 1비트로 바꾸고(회색 점 없이 가장자리만 계단), 사진 줄은 마스크 그대로 넣는다(점 방식·GPU = CPU 확인은 사진 쪽 그대로). 글자 짜기가 실패하면 인쇄 데이터는 틀 사진만(경고 `imprint type not drawn`, D `print` `(photo only, imprint failed: …)`). 시각은 현장 PC의 지역 시각. 화면에는 인쇄 데이터를 보이지 않는다(관람객 화면의 결과 종이는 같은 쪽 모양을 화면 서체로 짠 것이고 인쇄 데이터가 아니다). D `print` `576x912 1-bit (imprint: photo 576x720 at row 84), …`.
+- **인쇄 쪽 (IMPRINT에서 도입, 글자는 WISHFUL 시안):** 인쇄 데이터는 9:16 인쇄 해상도 마스크(576×1024)에서 사진 틀 줄(160~880)만 남긴 576×720 사진을 감열지 한 장으로 짠 것이다(`photo-effect.js` `imprintPage` → `effect/imprint-page.js`, 배치 `core/imprint.js` `imprintLayout`, 가안). 위 여백 → **머리**(왼쪽 캠페인 표제 `A WISHFUL HOLIDAY` Cinzel 600 24점, 오른쪽 촬영 날짜 `2026.11.03` Pretendard 500 20점) → **사진**(84줄부터, 용지 폭 전체) → **꼬리**(왼쪽 필기체 "Puuvilla Story Begins" Pinyon Script 34점, 오른쪽 `18:42:07  ·  80 MM` Pretendard 500 16점) → 아래 여백. 글자 크기는 `imprintTypeSizes`(576점 기준을 폭에 비례). 필기체의 가는 획이 203dpi 감열지에서 끊기지 않는지는 **미검증**(실제 프린터 없음). 576점이면 **576×912 = 약 114mm**(예전 사진만 1024줄보다 짧다, 래스터 65,664바이트), 384점(58mm)은 같은 배치를 폭에 비례(384×608). 글자는 2D 캔버스에 흰 바탕·검은 글자로 그려 빨강 128 문턱으로 1비트로 바꾸고(회색 점 없이 가장자리만 계단), 사진 줄은 마스크 그대로 넣는다(점 방식·GPU = CPU 확인은 사진 쪽 그대로). 글자 짜기가 실패하면 인쇄 데이터는 틀 사진만(경고 `imprint type not drawn`, D `print` `(photo only, imprint failed: …)`). 시각은 현장 PC의 지역 시각. 화면에는 인쇄 데이터를 보이지 않는다(관람객 화면의 결과 종이는 같은 쪽 모양을 화면 서체로 짠 것이고 인쇄 데이터가 아니다). D `print` `576x912 1-bit (imprint: photo 576x720 at row 84), …`.
 - **(b) 화면용:** (a)를 결과 크기로 확대해 칠한 PNG(미리보기와 화소가 같음). 확대는 240줄씩 나눠 양보한다(촬영 순간 긴 작업 방지). 처리 중 취소되면 만들지 않는다.
 - **형식:** 감열지 → PNG + 인쇄 데이터, 회색조 유화 → JPEG + 인쇄 데이터, 회색조·끔 → JPEG만(JPEG는 1비트 점을 뭉갠다). IMPRINT 시안에서는 화면용 사진 모두 사진 틀로 자른 크기, 인쇄 데이터 모두 인쇄 쪽.
 - **장애:** 효과를 못 그리면 원본 사진에 같은 출력 단계를 CPU로(인쇄 데이터 포함, D `RAW PHOTO thermal 576x1024 (원인)`, 회색조 모드면 원본을 회색조·레벨로). 출력 단계 자체가 실패하면(PNG 압축, 캔버스) 원본 컬러 JPEG, 인쇄 데이터 없음.
