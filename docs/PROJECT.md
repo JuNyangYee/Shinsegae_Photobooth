@@ -111,7 +111,7 @@
 | 10. 시간 설정 | `E` 시간 섹션(촬영 흐름·인식 반응·카메라 회복), `timing.local.json`, 인식 파일의 옛 시간 키 옮기기 | 완료 (검수·병합 `81dc8f4`) | [2026-11-03-01](logs/2026-11-03-01-stage10-timing-settings.md) |
 | 11. IMPRINT | 사진 틀 4:5, 타이포 관람객 화면·모션, 감열지 인쇄 쪽, 카메라 없는 데모 | 완료 (사용자 채택·독립 검수 P2 수정·605개 테스트 후 `master` 반영) | [구현·검수](logs/2026-11-03-02-design-imprint-typography.md)·[병합](logs/2026-11-03-03-imprint-integration.md) |
 | 12. WISHFUL HOLIDAY | 키비주얼 관람객·운영자 화면, 유화·흑백 시험 조합, 데모 4조합 비교 | 완료 (독립 검수 발견 없음, 사용자 채택·병합) | [구현](logs/2026-11-05-01-design-wishful-holiday.md)·[병합](logs/2026-11-05-02-wishful-integration.md) |
-| 13. 카메라 필터 업데이트 | oil2f 엔진·22개 원본 조절값·범위 동기화, 후보 시험·원자 적용·이전판 복원 | 독립 검수 4건 및 재검수 N1/N2 반영·자체 회귀 완료, 다음 재검수 대기 | [구현](logs/2026-11-06-01-filter-updates.md), [검수 보완](logs/2026-11-06-02-filter-review-fixes.md), [선언·schema](logs/2026-11-06-03-filter-boundary-review.md) |
+| 13. 카메라 필터 업데이트 | oil2f 엔진·22개 원본 조절값·범위 동기화, 후보 시험·원자 적용·이전판 복원 | 완료: 독립 검수 4건 및 N1/N2 수정·재검수 통과, 707개 테스트 후 master 반영 | [구현](logs/2026-11-06-01-filter-updates.md), [검수 보완](logs/2026-11-06-02-filter-review-fixes.md), [선언·schema](logs/2026-11-06-03-filter-boundary-review.md), [통합](logs/2026-11-06-04-filter-integration.md) |
 | 인쇄 연동 | 로컬 인쇄 서비스, 출력 완료 확인 | 범위 미정 | — |
 
 - 각 단계는 여러 세션으로 나눌 수 있다. 필수 예외 처리는 기능을 만들 때 넣고 묶어서 다시 검증한다.
