@@ -144,8 +144,52 @@ public static class FilterSourceParser {
         string[] allowed={"label","sbr","layers","refine","strength","size","boil","fps","grade","level","tune"};
         if(Map(p).Keys.Any(k=>!allowed.Contains(k))||!Equal(Get(p,"sbr"),1d)||Str(Get(p,"label")).Length>100)throw Bad("unsupported preset semantics");
         var tune=Map(Get(p,"tune"));if(tune.Count!=Oil.Length||Oil.Any(k=>!tune.ContainsKey(k)))throw Bad("preset tune keys");
-        foreach(var v in tune.Values.Concat(Top.Where(k=>Map(p).ContainsKey(k)).Select(k=>Get(p,k))))if(!(v is double)||Double.IsNaN((double)v)||Double.IsInfinity((double)v))throw Bad("preset number");
+        foreach(var v in tune.Values.Concat(Top.Where(k=>Map(p).ContainsKey(k)).Select(k=>Get(p,k))))if(!Number(v))throw Bad("preset number");
     }
+    static bool Number(object value) {
+        if(value==null||value is bool||value is string)return false;
+        if(!(value is double||value is float||value is int||value is long||value is decimal))return false;
+        double n=Convert.ToDouble(value,CultureInfo.InvariantCulture);return !Double.IsNaN(n)&&!Double.IsInfinity(n);
+    }
+    static double Num(object value){if(!Number(value))throw Bad("finite number expected");return Convert.ToDouble(value,CultureInfo.InvariantCulture);}
+    static void Label(object value){if(!(value is string)||((string)value).Length>100)throw Bad("label");}
+    static void Bundle(object b) {
+        if(!Equal(Get(b,"schema"),1d)||!Equal(Get(Get(b,"meta"),"source"),Url))throw Bad("bundle metadata");
+        foreach(string key in new[]{"sha256","htmlSha256"})if(!Regex.IsMatch(Str(Get(Get(b,"meta"),key)),@"^[a-f0-9]{64}$"))throw Bad("source hash");
+        if(!Regex.IsMatch(Str(Get(b,"fingerprint")),@"^[a-f0-9]{64}$"))throw Bad("engine fingerprint");
+        if(Map(b).ContainsKey("uiFingerprint")&&!Regex.IsMatch(Str(Get(b,"uiFingerprint")),@"^[a-f0-9]{64}$"))throw Bad("UI fingerprint");
+        var p=Get(b,"preset");Preset(p);
+        var ids=Top.Select(k=>"state."+k).Concat(Oil).Concat(new[]{"state.style"}).ToArray();
+        var controls=Arr(Get(b,"controls"));var seen=new HashSet<string>();
+        if(controls.Length!=ids.Length)throw Bad("controls count");
+        foreach(var c in controls) {
+            string id=Str(Get(c,"id"));if(!ids.Contains(id)||!seen.Add(id))throw Bad("control id");Label(Get(c,"label"));
+            if(id=="state.style") {
+                if(!Equal(Get(c,"kind"),"select")||!new[]{"flat","3d"}.Contains(Str(Get(c,"default"))))throw Bad("style");
+                var options=Arr(Get(c,"options"));if(options.Length!=2||!Equal(Get(options[0],"value"),"flat")||!Equal(Get(options[1],"value"),"3d"))throw Bad("style options");
+                foreach(var option in options)Label(Get(option,"label"));
+            } else {
+                if(!Equal(Get(c,"kind"),"number"))throw Bad("control kind");
+                double min=Num(Get(c,"min")),max=Num(Get(c,"max")),step=Num(Get(c,"step")),def=Num(Get(c,"default"));
+                if(min>=max||min< -100||max>100||step<=0||def<min||def>max)throw Bad("control range");
+            }
+        }
+        double flow=Num(Get(b,"flowDefault"));if(flow<=0||flow>1)throw Bad("flow default");
+        string[] slots={"tfmBody","strokeStep","strokeWidth","strokeFns","finishBody","blobFragment","blb"};var port=Map(Get(b,"port"));
+        if(port.Count!=slots.Length)throw Bad("shader slot count");
+        foreach(string key in slots){string value=Str(Get(port,key));if(String.IsNullOrWhiteSpace(value)||value.Length>30000||Regex.IsMatch(value,@"\x60|\$\{|#extension|#include"))throw Bad("shader slot");}
+        var layers=Arr(Get(p,"layers"));if(layers.Length!=3)throw Bad("layer count");
+        foreach(var layer in layers)Brush(Arr(layer),6,3);
+        Brush(Arr(Get(p,"refine")),5,4);
+        string[] rowIds={"state.strength","state.size","OIL.canvas","OIL.jit","CR.nosilw","CR.tfmE"};var rows=Arr(Get(b,"levels"));seen.Clear();
+        if(rows.Length!=6)throw Bad("level count");
+        foreach(var item in rows){var row=Arr(item);if(row.Length!=4&&row.Length!=7)throw Bad("level row length");string id=Str(row[0]);if(!rowIds.Contains(id)||!seen.Add(id))throw Bad("level id");for(int i=1;i<row.Length;i++){if(i==2&&row[i]==null)continue;double n=Num(row[i]);if(n<0||n>100)throw Bad("level value");}}
+    }
+    static void Brush(object[] row,int length,int positive) {
+        if(row.Length!=length)throw Bad("brush length");
+        for(int i=0;i<row.Length;i++){double n=Num(row[i]);if(n<0||n>=200||(i<positive&&n<=0))throw Bad("brush geometry");}
+    }
+    public static void Validate(string json){Bundle(Json().DeserializeObject(json));}
     public static string Extract(string module,string html,string baselineJson) {
         if(module.Length>500000||html.Length>800000||!html.TrimEnd().EndsWith("</html>")||!module.TrimEnd().EndsWith("}"))throw Bad("source size/end");
         var meta=Regex.Match(module.Substring(0,Math.Min(module.Length,600)),"\uac24\ub7ec\ub9ac ([0-9a-f]{7,40}) (\\d{4}-\\d{2}-\\d{2})");if(!meta.Success)throw Bad("source version");
@@ -207,6 +251,7 @@ public static class FilterSourceParser {
         foreach(string key in port.Keys.ToArray()) {string value=Str(port[key]);if(String.IsNullOrWhiteSpace(value))throw Bad("empty shader slot");skeleton=ReplaceFirst(skeleton,value,"SLOT");port[key]=Regex.Replace(Regex.Replace(value,@"\s*&&\s*uMedium == 1\b",""),@"\buMedium == 1\s*&&\s*","");}
         string fingerprint=Hash(Clean(skeleton)),uiFingerprint=Hash(UiSkeleton(html,hs));
         if(baselineJson!=null) {var baseline=Json().DeserializeObject(baselineJson);Same(fingerprint,Get(baseline,"fingerprint"),"unsupported engine code");Same(uiFingerprint,Get(baseline,"uiFingerprint"),"unsupported settings controller");}
-        return Json().Serialize(Obj("schema",1,"meta",Obj("commit",meta.Groups[1].Value,"date",meta.Groups[2].Value,"sha256",Hash(module),"htmlSha256",Hash(html),"bytes",Encoding.UTF8.GetByteCount(module),"source",Url),"fingerprint",fingerprint,"uiFingerprint",uiFingerprint,"controls",controls.ToArray(),"preset",preset.Value,"levels",levels.Value,"flowDefault",flow,"port",port));
+        var bundle=Obj("schema",1,"meta",Obj("commit",meta.Groups[1].Value,"date",meta.Groups[2].Value,"sha256",Hash(module),"htmlSha256",Hash(html),"bytes",Encoding.UTF8.GetByteCount(module),"source",Url),"fingerprint",fingerprint,"uiFingerprint",uiFingerprint,"controls",controls.ToArray(),"preset",preset.Value,"levels",levels.Value,"flowDefault",flow,"port",port);
+        Bundle(bundle);return Json().Serialize(bundle);
     }
 }

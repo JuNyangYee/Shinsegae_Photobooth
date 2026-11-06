@@ -54,41 +54,12 @@ function Receive-FilterSource([string]$url, [string]$kind, [int]$limit) {
         } finally { $mem.Dispose(); $stream.Dispose() }
     } finally { if ($null -ne $res) { $res.Dispose() } }
 }
-function Test-FilterNumber($v, [double]$min, [double]$max) {
-    return ($v -is [ValueType] -and $v -isnot [bool] -and -not [double]::IsNaN([double]$v) -and -not [double]::IsInfinity([double]$v) -and [double]$v -ge $min -and [double]$v -le $max)
+function Initialize-FilterParser {
+    if (-not ('FilterSourceParser' -as [type])) { Add-Type -Path $filterParserPath -ReferencedAssemblies 'System.Web.Extensions','System.Core' }
 }
 function Test-FilterBundle($b) {
-    if ($null -eq $b -or $b.schema -ne 1 -or $b.meta.source -cne $filterSourceUrl -or $b.meta.sha256 -cnotmatch '^[a-f0-9]{64}$' -or $b.meta.htmlSha256 -cnotmatch '^[a-f0-9]{64}$') { throw 'invalid bundle metadata' }
-    $ids = @('state.strength','state.size','state.boil','state.fps','state.grade','state.level','OIL.w.0','OIL.w.1','OIL.w.2','OIL.len','OIL.jit','OIL.bump','OIL.spec','OIL.canvas','OIL.refineT','OIL.eye','OIL.edge','OIL.spill','OIL.slope','OIL.halo','GRADE.keepW','state.style')
-    if ($b.controls.Count -ne 22) { throw 'invalid controls' }
-    $seen = @{}
-    foreach ($c in $b.controls) {
-        if ($ids -cnotcontains $c.id -or $seen.ContainsKey($c.id) -or $c.label -isnot [string] -or $c.label.Length -gt 100) { throw 'invalid control' }
-        $seen[$c.id] = $true
-        if ($c.id -ceq 'state.style') {
-            if ($c.kind -cne 'select' -or ($c.options.value -join ',') -cne 'flat,3d' -or @('flat','3d') -cnotcontains $c.default) { throw 'invalid style' }; continue
-        }
-        if ($c.kind -cne 'number') { throw 'invalid numeric control' }
-        foreach ($key in @('min','max','step','default')) { if ($c[$key] -isnot [ValueType] -or $c[$key] -is [bool] -or [double]::IsNaN([double]$c[$key]) -or [double]::IsInfinity([double]$c[$key])) { throw 'invalid number' } }
-        if ($c.min -ge $c.max -or $c.min -lt -100 -or $c.max -gt 100 -or $c.step -le 0 -or $c.default -lt $c.min -or $c.default -gt $c.max) { throw 'invalid range' }
-    }
-    if (-not (Test-FilterNumber $b.flowDefault 0.000000000001 1)) { throw 'invalid flow default' }
-    $slots = @('tfmBody','strokeStep','strokeWidth','strokeFns','finishBody','blobFragment','blb')
-    if ($b.port.Count -ne $slots.Count) { throw 'invalid slots' }
-    foreach ($key in $slots) { if ($b.port[$key] -isnot [string] -or [string]::IsNullOrWhiteSpace($b.port[$key]) -or $b.port[$key].Length -gt 30000 -or $b.port[$key] -match '`|\$\{|#extension|#include') { throw 'invalid shader data' } }
-    if ($b.preset.layers.Count -ne 3 -or $b.preset.refine.Count -ne 5 -or $b.levels.Count -ne 6) { throw 'invalid mapping' }
-    $rowIds = @('state.strength','state.size','OIL.canvas','OIL.jit','CR.nosilw','CR.tfmE')
-    $rowsSeen = @{}
-    foreach ($r in $b.levels) {
-        if (@(4,7) -notcontains $r.Count -or $rowIds -cnotcontains $r[0] -or $rowsSeen.ContainsKey($r[0])) { throw 'invalid level row' }
-        $rowsSeen[$r[0]] = $true
-        for ($i=1; $i -lt $r.Count; $i++) {
-            if ($null -eq $r[$i] -and $i -eq 2) { continue }
-            if (-not (Test-FilterNumber $r[$i] 0 100)) { throw 'invalid level value' }
-        }
-    }
-    foreach ($v in $b.preset.refine) { if (-not (Test-FilterNumber $v 0 200)) { throw 'invalid refine value' } }
-    foreach ($layer in $b.preset.layers) { if ($layer.Count -ne 6) { throw 'invalid layer' }; foreach ($v in $layer) { if ($v -isnot [ValueType] -or $v -is [bool] -or [double]$v -lt 0 -or [double]$v -gt 200) { throw 'invalid layer value' } } }
+    Initialize-FilterParser
+    [FilterSourceParser]::Validate($filterSerializer.Serialize($b))
 }
 function Test-FilterSettings($value) {
     if ($null -eq $value -or $value.version -ne 1 -or $value.settings -isnot [Collections.Generic.IDictionary[string,object]] -or $filterSerializer.Serialize($value).Length -gt 16384) { throw 'invalid settings' }
@@ -123,7 +94,7 @@ function Invoke-FilterApi($request) {
             Test-FilterBundle $data
             if ($null -eq $script:filterSource -or $data.meta.sha256 -cne (Get-FilterHash $script:filterSource.module) -or $data.meta.htmlSha256 -cne (Get-FilterHash $script:filterSource.gallery)) { throw 'source mismatch; check again' }
             if ($null -eq $script:filterExpected) {
-                if (-not ('FilterSourceParser' -as [type])) { Add-Type -Path $filterParserPath -ReferencedAssemblies 'System.Web.Extensions','System.Core' }
+                Initialize-FilterParser
                 $baselineJson = [IO.File]::ReadAllText((Join-Path $webRoot 'config\filter-builtin.json'))
                 $expectedJson = [FilterSourceParser]::Extract($script:filterSource.module, $script:filterSource.gallery, $baselineJson)
                 $expected = $filterSerializer.DeserializeObject($expectedJson)
@@ -143,15 +114,18 @@ function Invoke-FilterApi($request) {
         if ($request.RawUrl -ceq '/local-api/filter-state') {
             Test-FilterSettings $data.settings
             if ($null -eq $state.active) { throw 'no active bundle' }
+            if ($null -ne $state.active.bundle) { Test-FilterBundle $state.active.bundle }
             $state.active.settings = $data.settings
         } elseif ($request.RawUrl -ceq '/local-api/filter-apply') {
             Test-FilterSettings $data.settings
             Test-FilterSettings $data.before
             if ($null -eq $script:filterCandidate -or $data.id -cne ($script:filterCandidate.meta.sha256 + ':' + $script:filterCandidate.meta.htmlSha256)) { throw 'no matching candidate' }
+            Test-FilterBundle $script:filterCandidate
             $state.previous = if ($null -ne $state.active) { $state.active } else { @{ bundle = $null; settings = $data.before } }
             $state.active = @{ bundle = $script:filterCandidate; settings = $data.settings }
         } else {
             if ($null -eq $state.previous) { throw 'no previous version' }
+            if ($null -ne $state.previous.bundle) { Test-FilterBundle $state.previous.bundle }
             $old = $state.active
             $state.active = $state.previous
             $state.previous = $old
