@@ -421,7 +421,20 @@ function applyLayout() {
   document.documentElement.style.setProperty('--stage-ratio-h', String(height));
   document.documentElement.style.setProperty('--frame-top-frac', String(config.photoFrame.top));
   document.documentElement.style.setProperty('--frame-height-frac', String(config.photoFrame.height));
+  scaleSnowCarve();
   updateOperatorRoom();
+}
+
+// 눈 바닥 글씨 필터(15단계, index.html #snow-carve)의 길이 값은 1080 폭 기준이다. 4K 등 다른 화면 폭에서도 홈 모양이 같게 곱한다
+function scaleSnowCarve() {
+  const k = stage.getBoundingClientRect().width / 1080;
+  if (!(k > 0)) return;
+  for (const el of document.querySelectorAll('.snow-carve-defs [data-base]')) {
+    el.setAttribute(el.localName === 'feMorphology' ? 'radius' : 'stdDeviation', String(Number(el.dataset.base) * k));
+  }
+  for (const el of document.querySelectorAll('.snow-carve-defs [data-base-scale]')) {
+    el.setAttribute('surfaceScale', String(Number(el.dataset.baseScale) * k));
+  }
 }
 
 // 운영자 패널(E)을 9:16 영역 옆 빈 곳에 세울 공간이 실제로 있는지 (6단계 검수 2). 화면 비율만 보면 좁은 가로 창
@@ -913,7 +926,7 @@ applyLayout();
 // 인쇄 쪽 글자(IMPRINT 시안, effect/imprint-page.js)는 캔버스에 그리므로 서체가 미리 불려 있어야 한다 (관람객 화면에는 아직 안 쓰인 크기도)
 Promise.all(IMPRINT_FONT_LOADS.map(([font, sample]) => document.fonts.load(font, sample)))
   .catch((error) => console.warn('[imprint] print fonts not loaded; print type uses system fonts', error));
-window.addEventListener('resize', updateOperatorRoom);
+window.addEventListener('resize', () => { scaleSnowCarve(); updateOperatorRoom(); });
 camera.subscribe(() => {
   session.setCameraReady(camera.isReady());
   renderStatus();

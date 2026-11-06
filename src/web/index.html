@@ -53,7 +53,84 @@
     <div id="status-veil" class="status-veil" hidden></div>
     <!-- 장면 (창 밖 배경·창틀·캐릭터). 창 줄의 그린만 투명. 나중에 알파 없는 캐릭터 영상도 같은 자리·같은 키로 바꿔 끼운다 -->
     <canvas id="scene-plate" class="scene-plate" aria-hidden="true" hidden></canvas>
-    <!-- 대기 안내 (눈 바닥에 새긴 글씨: 한국어 큰 줄, 영어 작은 대문자 줄) -->
+    <!-- 눈 바닥 글씨 (15단계, 가안): 글자 모양을 발자국처럼 눈에 파인 홈으로 그리는 SVG 조명 필터. 글자 색은 쓰지 않고 모양(알파)만 쓴다.
+         글자 알파를 흐려 뒤집은 높이(글자 안이 낮다)를 왼쪽 위 빛으로 비춰 홈 벽의 그늘·밝은 벽을 얻고, 그늘(남보라)·빛(흰색)만 남긴다.
+         바닥은 가장자리 그늘이 짙고 가운데가 옅은 눈빛, 안쪽에 눈 알갱이 질감, 바깥 둘레에 밀려 올라온 눈의 밝은 테. 평평한 곳은 투명이라
+         장면의 눈 바닥이 그대로 보인다. 길이 값은 1080 폭 기준이고 main.js가 화면 폭에 맞춰 data-base 값을 곱한다 -->
+    <svg class="snow-carve-defs" width="0" height="0" aria-hidden="true" focusable="false">
+      <filter id="snow-carve" x="-8%" y="-40%" width="116%" height="180%" color-interpolation-filters="sRGB">
+        <feGaussianBlur in="SourceAlpha" stdDeviation="2.2" data-base="2.2" result="soft"/>
+        <feComponentTransfer in="soft" result="height"><feFuncA type="table" tableValues="1 0"/></feComponentTransfer>
+        <feDiffuseLighting in="height" surfaceScale="5" data-base-scale="5" diffuseConstant="1" lighting-color="#ffffff" result="lit">
+          <feDistantLight azimuth="235" elevation="40"/>
+        </feDiffuseLighting>
+        <!-- 평평한 곳 밝기 = sin(40°) ≈ 0.643. 그보다 어두운 벽 → 눈 그늘(남보라, 최대 0.7), 밝은 벽 → 빛(최대 0.85) -->
+        <feColorMatrix in="lit" type="matrix" result="wallShadeRaw"
+          values="0 0 0 0 0.36  0 0 0 0 0.33  0 0 0 0 0.62  -1.8 0 0 0 1.157"/>
+        <feComponentTransfer in="wallShadeRaw" result="wallShade"><feFuncA type="table" tableValues="0 0.7"/></feComponentTransfer>
+        <feColorMatrix in="lit" type="matrix" result="wallLightRaw"
+          values="0 0 0 0 1  0 0 0 0 0.99  0 0 0 0 1  2.0 0 0 0 -1.286"/>
+        <feComponentTransfer in="wallLightRaw" result="wallLight"><feFuncA type="table" tableValues="0 0.85"/></feComponentTransfer>
+        <!-- 홈 바닥: 글자 안쪽에 옅은 그늘 + 가장자리 쪽 짙게(넓게 흐린 알파와의 차) -->
+        <feGaussianBlur in="SourceAlpha" stdDeviation="4.5" data-base="4.5" result="wide"/>
+        <feComposite in="SourceAlpha" in2="wide" operator="arithmetic" k1="0" k2="0.2" k3="0.12" k4="0" result="floorAlpha"/>
+        <feFlood flood-color="#7d74bd" result="floorColor"/>
+        <feComposite in="floorColor" in2="floorAlpha" operator="in" result="floor"/>
+        <!-- 눈 알갱이: 홈 안쪽에만 -->
+        <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="4" result="noise"/>
+        <feColorMatrix in="noise" type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 1.2 -0.7" result="grain"/>
+        <feComposite in="grain" in2="SourceAlpha" operator="in" result="grainIn"/>
+        <!-- 밀려 올라온 눈의 밝은 테: 글자를 넓힌 모양 − 글자 -->
+        <feMorphology in="SourceAlpha" operator="dilate" radius="2" data-base="2" result="fat"/>
+        <feComposite in="fat" in2="SourceAlpha" operator="out" result="ring"/>
+        <feGaussianBlur in="ring" stdDeviation="1.2" data-base="1.2" result="ringSoft"/>
+        <feColorMatrix in="ringSoft" type="matrix" values="0 0 0 0 1  0 0 0 0 0.98  0 0 0 0 1  0 0 0 0.45 0" result="lip"/>
+        <feMerge>
+          <feMergeNode in="lip"/>
+          <feMergeNode in="floor"/>
+          <feMergeNode in="wallShade"/>
+          <feMergeNode in="wallLight"/>
+          <feMergeNode in="grainIn"/>
+        </feMerge>
+      </filter>
+      <!-- 3·2·1 (큰 글자): 같은 식, 길이 값 2.4배 -->
+      <filter id="snow-carve-lg" x="-8%" y="-40%" width="116%" height="180%" color-interpolation-filters="sRGB">
+        <feGaussianBlur in="SourceAlpha" stdDeviation="5.28" data-base="5.28" result="soft"/>
+        <feComponentTransfer in="soft" result="height"><feFuncA type="table" tableValues="1 0"/></feComponentTransfer>
+        <feDiffuseLighting in="height" surfaceScale="12.0" data-base-scale="12.0" diffuseConstant="1" lighting-color="#ffffff" result="lit">
+          <feDistantLight azimuth="235" elevation="40"/>
+        </feDiffuseLighting>
+        <!-- 평평한 곳 밝기 = sin(40°) ≈ 0.643. 그보다 어두운 벽 → 눈 그늘(남보라, 최대 0.7), 밝은 벽 → 빛(최대 0.85) -->
+        <feColorMatrix in="lit" type="matrix" result="wallShadeRaw"
+          values="0 0 0 0 0.36  0 0 0 0 0.33  0 0 0 0 0.62  -1.8 0 0 0 1.157"/>
+        <feComponentTransfer in="wallShadeRaw" result="wallShade"><feFuncA type="table" tableValues="0 0.7"/></feComponentTransfer>
+        <feColorMatrix in="lit" type="matrix" result="wallLightRaw"
+          values="0 0 0 0 1  0 0 0 0 0.99  0 0 0 0 1  2.0 0 0 0 -1.286"/>
+        <feComponentTransfer in="wallLightRaw" result="wallLight"><feFuncA type="table" tableValues="0 0.85"/></feComponentTransfer>
+        <!-- 홈 바닥: 글자 안쪽에 옅은 그늘 + 가장자리 쪽 짙게(넓게 흐린 알파와의 차) -->
+        <feGaussianBlur in="SourceAlpha" stdDeviation="10.8" data-base="10.8" result="wide"/>
+        <feComposite in="SourceAlpha" in2="wide" operator="arithmetic" k1="0" k2="0.2" k3="0.12" k4="0" result="floorAlpha"/>
+        <feFlood flood-color="#7d74bd" result="floorColor"/>
+        <feComposite in="floorColor" in2="floorAlpha" operator="in" result="floor"/>
+        <!-- 눈 알갱이: 홈 안쪽에만 -->
+        <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="4" result="noise"/>
+        <feColorMatrix in="noise" type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 1.2 -0.7" result="grain"/>
+        <feComposite in="grain" in2="SourceAlpha" operator="in" result="grainIn"/>
+        <!-- 밀려 올라온 눈의 밝은 테: 글자를 넓힌 모양 − 글자 -->
+        <feMorphology in="SourceAlpha" operator="dilate" radius="4.8" data-base="4.8" result="fat"/>
+        <feComposite in="fat" in2="SourceAlpha" operator="out" result="ring"/>
+        <feGaussianBlur in="ring" stdDeviation="2.88" data-base="2.88" result="ringSoft"/>
+        <feColorMatrix in="ringSoft" type="matrix" values="0 0 0 0 1  0 0 0 0 0.98  0 0 0 0 1  0 0 0 0.45 0" result="lip"/>
+        <feMerge>
+          <feMergeNode in="lip"/>
+          <feMergeNode in="floor"/>
+          <feMergeNode in="wallShade"/>
+          <feMergeNode in="wallLight"/>
+          <feMergeNode in="grainIn"/>
+        </feMerge>
+      </filter>
+    </svg>
+    <!-- 대기 안내 (눈 바닥에 파인 글씨, #snow-carve: 한국어 큰 줄, 영어 작은 대문자 줄) -->
     <div id="guide" class="band guide" hidden></div>
     <!-- 3·2·1: 눈 바닥 가운데에 크게 새긴 숫자가 한 칸 창 안에서 넘어간다. 안내 줄(#countdown-caption)은 문구만 두고 화면에는 숨긴다. 진행선은 바닥 진행선 -->
     <div id="countdown" class="band countdown" hidden>
