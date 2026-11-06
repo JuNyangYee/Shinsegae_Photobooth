@@ -18,8 +18,8 @@
 // 효과를 그리지 못하면 원본 사진에 같은 출력 단계를 CPU로 적용한다(감열지·회색조 유화면 인쇄 데이터도 만든다).
 // 출력 단계 자체가 실패하면 원본 컬러 사진(결과 크기, JPEG)으로 대신한다.
 //
-// 사진 틀 (IMPRINT, 사용자 채택 2026-11-03, config.photoFrame): 위 결과는 9:16 화면 전체의 그림이고, 마지막에 사진 틀(화면 폭 × 높이의 7/64~52/64,
-// 4:5)의 줄만 남긴다 — 화면용 사진(1080x1920 → 1080x1350)과 인쇄 데이터(576x1024 → 576x720)가 같은 비율의 같은 줄이다.
+// 사진 틀 (IMPRINT에서 도입, config.photoFrame): 위 결과는 9:16 화면 전체의 그림이고, 마지막에 사진 틀 직사각형만 남긴다.
+// 16단계(사방 inset, 3:4): 화면용 사진 1080x1920 → 810x1080, 인쇄 격자 576x1024 → 432x576점(용지 가운데, 좌우 흰 여백)이 같은 화면 영역이다.
 // 인쇄 데이터는 그 사진을 감열지 한 장으로 짠 것이다: 머리(촬영 날짜·시각) + 사진 + 꼬리(세리프 한 줄·용지 폭), effect/imprint-page.js.
 // 촬영 시각(takenAt)은 capture.js가 셔터 순간에 잰 값이고 관람객 화면 머리에 보이는 시각과 같다.
 
@@ -28,7 +28,7 @@ import { guestText } from '../config/guest-text.js';
 import { imprintStamp, paperLabel } from '../core/imprint.js';
 import { errorLog } from '../core/log-limit.js';
 import { resultSizeFor } from '../core/oil-paint.js';
-import { cropRows, isFullFrame, photoFrameRows } from '../core/photo-frame.js';
+import { cropRect, isFullFrame, padColumns, photoFrameRect } from '../core/photo-frame.js';
 import {
   bwStyleOf, dither, ditherThreshold, ditherWithThresholds, encodeOneBitPng, grayLevelsInPlace, inputGrayInPlace, isGpuDither,
   packPrintBits, printSizeFor, readPngHeader, reduceToPrintGray, screenOf, thresholdMap, toneOilBlend, upscaleSharp,
@@ -110,21 +110,25 @@ export function createPhotoEffect({
   }
 
   /**
-   * 인쇄 쪽 (IMPRINT 시안): 9:16 인쇄 해상도 마스크(Pw×Ph)에서 사진 틀 줄만 남기고, 머리·꼬리 글자와 함께 한 장으로 짠다.
-   * 글자 짜기가 실패하면 사진만으로 (경고, imprintError). photo: 쪽 안의 사진 줄(top·height)과 원래 마스크에서 가져온 첫 줄(sourceTop)
+   * 인쇄 쪽 (IMPRINT 시안): 9:16 인쇄 해상도 마스크(Pw×Ph)에서 사진 틀 직사각형만 남기고, 머리·꼬리 글자와 함께 한 장으로 짠다.
+   * 16단계: 틀이 좌우로도 inset이라 사진은 용지 폭보다 좁다(576점 → 432점). 같은 점 격자 그대로 잘라 용지 가운데에 놓고 좌우는 흰 종이(1).
+   * 그래서 감열지 화면 미리보기의 점 = 인쇄 점이다. 글자 짜기가 실패하면 사진만으로 (경고, imprintError).
+   * photo: 쪽 안의 사진 줄(top·height)·열(left·width)과 원래 마스크에서 가져온 첫 줄·열(sourceTop·sourceLeft)
    */
   function imprintPage(mask, Pw, Ph, takenAt) {
-    const rows = photoFrameRows(Ph, frame);
-    const photo = isFullFrame(frame) ? mask : cropRows(mask, Pw, rows);
-    const photoOnly = { mask: photo, height: rows.height, layout: 'photo', photo: Object.freeze({ top: 0, height: rows.height, sourceTop: rows.top }) };
+    const rect = photoFrameRect(Pw, Ph, frame);
+    const left = Math.floor((Pw - rect.width) / 2);
+    const photo = isFullFrame(frame) ? mask : padColumns(cropRect(mask, Pw, rect), rect.width, rect.height, Pw, left, 1);
+    const place = { left, width: rect.width, sourceTop: rect.top, sourceLeft: rect.left };
+    const photoOnly = { mask: photo, height: rect.height, layout: 'photo', photo: Object.freeze({ top: 0, height: rect.height, ...place }) };
     if (!imprint) return photoOnly;
     try {
       const page = imprint.render({
-        photoMask: photo, width: Pw, photoHeight: rows.height, stamp: imprintStamp(takenAt), paper: paperLabel(Pw),
+        photoMask: photo, width: Pw, photoHeight: rect.height, stamp: imprintStamp(takenAt), paper: paperLabel(Pw),
       });
       return {
         mask: page.mask, height: page.height, layout: 'imprint', fontsReady: page.fontsReady,
-        photo: Object.freeze({ top: page.photoTop, height: rows.height, sourceTop: rows.top }),
+        photo: Object.freeze({ top: page.photoTop, height: rect.height, ...place }),
       };
     } catch (error) {
       const imprintError = error?.message ?? String(error);
@@ -187,7 +191,8 @@ export function createPhotoEffect({
     return {
       width: print.width, height: print.height, bytesPerRow: print.bytesPerRow, rasterBytes: print.bits.length,
       pngBytes: print.pngBytes, pngBitDepth: print.pngBitDepth, pngColorType: print.pngColorType, blackRatio: print.blackRatio,
-      layout: print.layout, photoTop: print.photo.top, photoHeight: print.photo.height, fontsReady: print.fontsReady,
+      layout: print.layout, photoTop: print.photo.top, photoHeight: print.photo.height, photoLeft: print.photo.left ?? 0,
+      photoWidth: print.photo.width ?? print.width, fontsReady: print.fontsReady,
       imprintError: print.imprintError,
     };
   }
@@ -380,19 +385,20 @@ export function createPhotoEffect({
   }
 
   /**
-   * 사진 틀 (IMPRINT 시안): 효과 단계가 만든 화면용 사진(9:16 전체)에서 틀 줄만 새 캔버스로 남긴다. 들어온 캔버스(capture.js 원본)가 아닌
-   * 앞 단계 캔버스는 비운다. 자르기 캔버스를 만들지 못하면 9:16 그대로 둔다(경고) — 관람객 화면은 같은 줄을 CSS(object-position)로 보인다.
+   * 사진 틀 (IMPRINT 시안, 16단계 사방): 효과 단계가 만든 화면용 사진(9:16 전체)에서 틀 직사각형만 새 캔버스로 남긴다. 들어온 캔버스(capture.js 원본)가 아닌
+   * 앞 단계 캔버스는 비운다. 자르기 캔버스를 만들지 못하면 9:16 그대로 둔다(경고) — 관람객 화면은 그 사진을 화면 원래 크기·자리에 놓고
+   * 창 밖을 잘라(ui/guest-screen.js is-uncropped, style.css) 창에 셔터 순간 창 영역이 보이게 한다. 인쇄 데이터는 이와 따로 이미 잘려 있다.
    * 사진에 { canvas, … }가 붙어 있으면 canvas만 바꾼다
    */
   function framed(produced, input) {
     if (isFullFrame(frame)) return produced;
     const isWrapped = produced && typeof produced === 'object' && 'canvas' in produced;
     const source = isWrapped ? produced.canvas : produced;
-    const rows = photoFrameRows(source.height, frame);
+    const rect = photoFrameRect(source.width, source.height, frame);
     let cropped;
     try {
-      cropped = newCanvas(source.width, rows.height, (context) => {
-        context.drawImage(source, 0, rows.top, source.width, rows.height, 0, 0, source.width, rows.height);
+      cropped = newCanvas(rect.width, rect.height, (context) => {
+        context.drawImage(source, rect.left, rect.top, rect.width, rect.height, 0, 0, rect.width, rect.height);
       });
     } catch (error) {
       log.warn('effect-capture', `photo frame crop failed -> full 9:16 photo (${error?.message ?? error})`);
@@ -400,7 +406,7 @@ export function createPhotoEffect({
       return produced;
     }
     if (source !== input) free(source);
-    if (last) last = { ...last, frame: `${cropped.width}x${cropped.height} rows ${rows.top}-${rows.top + rows.height}` };
+    if (last) last = { ...last, frame: `${cropped.width}x${cropped.height} cols ${rect.left}-${rect.left + rect.width} rows ${rect.top}-${rect.top + rect.height}` };
     return isWrapped ? { ...produced, canvas: cropped } : cropped;
   }
 

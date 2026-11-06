@@ -54,9 +54,11 @@
 :root {
   --stage-ratio-w: 9;
   --stage-ratio-h: 16;
-  /* 사진 틀: 화면 높이 대비 위끝·높이 = config.photoFrame (14단계 8/64, 45/64) */
-  --frame-top-frac: 0.125;
-  --frame-height-frac: 0.703125;
+  /* 사진 틀: 화면 비율 왼끝·위끝·폭·높이 = config.photoFrame (16단계 1/8, 3/16, 3/4, 9/16 = 3:4) */
+  --frame-left-frac: 0.125;
+  --frame-top-frac: 0.1875;
+  --frame-width-frac: 0.75;
+  --frame-height-frac: 0.5625;
   /* 관람객 화면 (14단계 눈 마을 장면, 가안): 생성 장면의 청보라 밤빛·따뜻한 금빛·눈 */
   --font-display: 'Cinzel', 'Times New Roman', serif;
   --font-script: 'Pinyon Script', cursive;
@@ -134,13 +136,16 @@ body {
    제목·날짜·시각은 없다. 움직임은 transform·opacity만, 동작 줄이기(:root[data-motion="reduce"])에서는 늘 도는 움직임을 멈춘다. ---- */
 
 .stage {
-  /* 틀 위치 (화면 폭 기준 cqw). --frame-top-frac·--frame-height-frac는 main.js가 config.photoFrame으로 덮어쓴다 */
+  /* 틀 위치 (화면 폭 기준 cqw). --frame-*-frac는 main.js가 config.photoFrame으로 덮어쓴다 */
   --stage-h: calc(100cqw * var(--stage-ratio-h) / var(--stage-ratio-w));
   --frame-top: calc(var(--stage-h) * var(--frame-top-frac));
   --frame-h: calc(var(--stage-h) * var(--frame-height-frac));
   --frame-bottom: calc(var(--frame-top) + var(--frame-h));
-  --ground-top: calc(var(--stage-h) * 57 / 64); /* 장면의 얼음벽 아래 눈 바닥 (1920 → 1710) */
-  --band-top: calc(var(--ground-top) + 3.3333cqw); /* 글자 묶음 위끝 (1920 → 1746) */
+  --frame-left: calc(100cqw * var(--frame-left-frac));
+  --frame-w: calc(100cqw * var(--frame-width-frac));
+  --frame-right: calc(var(--frame-left) + var(--frame-w));
+  --ground-top: calc(var(--stage-h) * 5 / 6); /* 장면의 눈벽 아래 눈 바닥 (16단계 장면, 1920 → 1600) */
+  --band-top: calc(var(--ground-top) + 4.6296cqw); /* 글자 묶음 위끝 (1920 → 1650) */
   --rule-top: calc(var(--stage-h) - 3.7037cqw); /* 바닥 진행선 (1920 → 1880) */
   --rule-w: 40cqw;
   --pad: 6.6667cqw; /* 1080 폭 72px */
@@ -158,7 +163,7 @@ body {
   inset: 0;
 }
 
-/* 장면을 못 읽었을 때의 대체 배경: 창 위·아래 띠에 같은 배경 사진을 화면 크기로 깔고 자리만 옮긴다 (장면이 있으면 그 아래에 가려진다) */
+/* 장면을 못 읽었을 때의 대체 배경: 창 위·아래·좌우 여백에 같은 배경 사진을 화면 크기로 깔고 자리만 옮긴다 (장면이 있으면 그 아래에 가려진다) */
 .frame-margin {
   left: 0;
   right: 0;
@@ -175,6 +180,23 @@ body {
   top: var(--frame-bottom);
   bottom: 0;
   background-position: 0 calc(-1 * var(--frame-bottom)), 0 0;
+}
+
+.frame-margin.is-left,
+.frame-margin.is-right {
+  top: var(--frame-top);
+  height: var(--frame-h);
+}
+
+.frame-margin.is-left {
+  right: auto;
+  width: var(--frame-left);
+  background-position: 0 calc(-1 * var(--frame-top)), 0 0;
+}
+
+.frame-margin.is-right {
+  left: var(--frame-right);
+  background-position: calc(-1 * var(--frame-right)) calc(-1 * var(--frame-top)), 0 0;
 }
 
 /* 장면: 9:16 전체. 창 줄의 그린은 ui/scene-plate.js가 투명하게 만든다 */
@@ -344,7 +366,7 @@ body {
   position: absolute;
   left: 0;
   right: 0;
-  top: calc(var(--ground-top) + 1.1111cqw);
+  top: calc(var(--ground-top) + 3.7037cqw);
   height: 0.94em;
   margin: 0;
   overflow: hidden;
@@ -375,8 +397,8 @@ body {
 /* 촬영 순간: 사진 창 안에만 짧은 따뜻한 빛 (장면 아래라 캐릭터는 그대로). ui/guest-screen.js가 투명도를 짧게 움직인다 */
 .flash {
   position: absolute;
-  left: 0;
-  right: 0;
+  left: var(--frame-left);
+  width: var(--frame-w);
   top: var(--frame-top);
   height: var(--frame-h);
   background: #fff8ec;
@@ -384,8 +406,9 @@ body {
   pointer-events: none;
 }
 
-/* ---- 결과: 사진은 창 자리 그대로 (화면 폭 = 사진 폭. 1080 화면 1:1, 4K 2:1 정수 배율), 장면의 창틀·캐릭터가 그 위에 그대로 걸친다.
-   사진은 틀로 자른 1080x1350이다. 자르지 못한 9:16 사진이 와도 object-position이 같은 줄을 보이게 한다 (top ÷ (1 − height)).
+/* ---- 결과: 사진은 창 자리 그대로 (1080 화면 1:1, 4K 2:1 정수 배율), 장면의 창틀·캐릭터가 그 위에 그대로 걸친다.
+   사진은 틀로 자른 810x1080(16단계 3:4)이다. 자르지 못한 9:16 사진(장애 대체)이 오면 .is-uncropped: 사진을 화면 원래 크기·자리(9:16 전체)에 놓고
+   창 밖은 잘라, 창에 보이는 곳이 셔터 순간 창 영역과 같다(배율·화각이 정상 결과와 같다).
    눈 바닥 문구 뒤에 따뜻한 빛(#result-paper)이 번지고, 바닥 진행선 자리에서 남은 시간이 줄어든다 ---- */
 .result-view {
   position: absolute;
@@ -404,15 +427,16 @@ body {
 
 .result-card {
   position: absolute;
-  left: 0;
+  left: var(--frame-left);
   top: var(--frame-top);
-  width: 100%;
+  width: var(--frame-w);
   height: var(--frame-h);
 }
 
 .result-photo {
   width: 100%;
   height: 100%;
+  overflow: hidden;
   background: var(--night);
 }
 
@@ -421,7 +445,16 @@ body {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: 50% calc(var(--frame-top-frac) / (1 - var(--frame-height-frac)) * 100%);
+}
+
+/* 자르지 못한 9:16 사진: 화면 전체 크기로, 화면 왼쪽 위가 제자리에 오게 창 위치만큼 당긴다 (창 밖은 .result-photo가 자른다) */
+.result-card.is-uncropped .result {
+  width: 100cqw;
+  height: var(--stage-h);
+  max-width: none;
+  margin-left: calc(-1 * var(--frame-left));
+  margin-top: calc(-1 * var(--frame-top));
+  object-fit: fill;
 }
 
 .result-timer {

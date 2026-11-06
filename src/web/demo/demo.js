@@ -47,6 +47,8 @@ rootEl.style.setProperty('--stage-ratio-w', String(config.aspectRatio.width));
 rootEl.style.setProperty('--stage-ratio-h', String(config.aspectRatio.height));
 rootEl.style.setProperty('--frame-top-frac', String(config.photoFrame.top));
 rootEl.style.setProperty('--frame-height-frac', String(config.photoFrame.height));
+rootEl.style.setProperty('--frame-left-frac', String(config.photoFrame.left ?? 0));
+rootEl.style.setProperty('--frame-width-frac', String(config.photoFrame.width ?? 1));
 const systemReduced = window.matchMedia('(prefers-reduced-motion: reduce)');
 let forceReduced = false;
 const applyMotion = () => { rootEl.dataset.motion = forceReduced || systemReduced.matches ? 'reduce' : 'full'; };
@@ -113,7 +115,7 @@ const presence = {
 const autoStart = createAutoStart({ session, presence, isTuningOpen: () => false, isPaused: () => false, isSettingsReady: () => true });
 
 const guest = createGuestScreen({
-  root: document, text: guestText, countdownSeconds: t.countdownSeconds, reducedMotion: () => rootEl.dataset.motion === 'reduce',
+  root: document, text: guestText, countdownSeconds: t.countdownSeconds, stageAspect, reducedMotion: () => rootEl.dataset.motion === 'reduce',
 });
 // 장면 (14단계): 앱과 같은 이미지·같은 창 키. 데모 페이지 기준 경로라 앱 루트로 바꿔 읽는다
 createScenePlate({
@@ -204,7 +206,7 @@ function showPrint(photo) {
   printUrl = URL.createObjectURL(p.png);
   printImage.src = printUrl;
   printImage.hidden = false;
-  printCaption.textContent = `실제로 만든 1비트 PNG ${p.width}×${p.height}점 (${(p.height / 8).toFixed(0)}mm) · 사진 ${p.width}×${p.photo.height}`
+  printCaption.textContent = `실제로 만든 1비트 PNG ${p.width}×${p.height}점 (${(p.height / 8).toFixed(0)}mm) · 사진 ${p.photo.width ?? p.width}×${p.photo.height}`
     + ` · ${p.layout === 'imprint' ? '머리·꼬리 글자 포함' : '사진만'}${p.fontsReady === false ? ' · 서체 미적재' : ''} · 합성 장면 · 프린터 미연동`;
 }
 

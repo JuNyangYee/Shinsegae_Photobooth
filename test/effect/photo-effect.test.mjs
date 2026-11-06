@@ -201,7 +201,7 @@ describe('createPhotoEffect: 출력 모드 (6-1)', () => {
 describe('createPhotoEffect: 사진 틀·인쇄 쪽 (IMPRINT 시안, 실제 기본값 config.photoFrame)', () => {
   const frame = config.photoFrame;
   const TAKEN_AT = new Date(2026, 10, 3, 18, 42, 7).getTime();
-  // 인쇄 해상도 16x64: 줄 번호를 담은 마스크 (짝수 줄 흰 종이, 홀수 줄 검정) → 틀 줄 8~53 (14단계 기본값)
+  // 인쇄 해상도 16x64: 줄 번호를 담은 마스크 (짝수 줄 흰 종이, 홀수 줄 검정) → 틀 열 2~14·줄 12~48 (16단계 기본값, 12x36)
   const Pw = 16;
   const Ph = 64;
   const rowMask = Uint8Array.from({ length: Pw * Ph }, (_, i) => (Math.floor(i / Pw) % 2 === 0 ? 1 : 0));
@@ -221,14 +221,14 @@ describe('createPhotoEffect: 사진 틀·인쇄 쪽 (IMPRINT 시안, 실제 기�
     };
   }
 
-  it('효과 사진(9:16 1080x1920)을 틀 줄 240~1590만 남긴 1080x1350 새 캔버스로, 앞 캔버스는 비운다', async () => {
+  it('효과 사진(9:16 1080x1920)을 틀 직사각형 x135~945·y360~1440만 남긴 810x1080 새 캔버스로, 앞 캔버스는 비운다', async () => {
     const t = setup({ still: goodStill, frame });
     const out = await t.effect.apply(fakeCanvas(1080, 1920), { takenAt: TAKEN_AT });
-    assert.deepEqual([out.width, out.height], [1080, 1350]);
+    assert.deepEqual([out.width, out.height], [810, 1080]);
     const source = t.created[0];
-    assert.deepEqual(out.ops.at(-1), ['draw', source, 0, 240, 1080, 1350, 0, 0, 1080, 1350]);
+    assert.deepEqual(out.ops.at(-1), ['draw', source, 135, 360, 810, 1080, 0, 0, 810, 1080]);
     assert.deepEqual([source.width, source.height], [0, 0], '9:16 결과 캔버스는 비운다');
-    assert.equal(t.effect.getStats().last.frame, '1080x1350 rows 240-1590');
+    assert.equal(t.effect.getStats().last.frame, '810x1080 cols 135-945 rows 360-1440');
     assert.equal(t.effect.getStats().last.width, 1920 / 1920 * 1080, 'photo-fx는 효과 그림(9:16) 크기 그대로');
   });
 
@@ -237,29 +237,31 @@ describe('createPhotoEffect: 사진 틀·인쇄 쪽 (IMPRINT 시안, 실제 기�
     const raw = fakeCanvas(2160, 3840);
     const out = await t.effect.apply(raw);
     assert.notEqual(out, raw);
-    assert.deepEqual([out.width, out.height], [2160, 2700]);
-    assert.deepEqual(out.ops.at(-1), ['draw', raw, 0, 480, 2160, 2700, 0, 0, 2160, 2700]);
+    assert.deepEqual([out.width, out.height], [1620, 2160]);
+    assert.deepEqual(out.ops.at(-1), ['draw', raw, 270, 720, 1620, 2160, 0, 0, 1620, 2160]);
     assert.equal(raw.width, 2160);
   });
 
-  it('감열지: 인쇄 데이터는 9:16 마스크의 틀 줄(8~53)을 인쇄 쪽 가운데에 넣은 한 장, 머리에 셔터 시각, 화면용 PNG도 같은 비율로 자른다', async () => {
+  it('감열지: 인쇄 데이터는 9:16 마스크의 틀 직사각형(열 2~14·줄 12~48)을 용지 가운데(좌우 흰 종이)에 넣은 한 장, 머리에 셔터 시각, 화면용 PNG도 같은 직사각형', async () => {
     const calls = [];
     const t = setup({ still: thermalStill, settings: framedThermalSettings, frame, imprint: fakeImprint(calls) });
     const out = await t.effect.apply(fakeCanvas(1080, 1920), { takenAt: TAKEN_AT });
     assert.equal(calls.length, 1);
-    assert.deepEqual([calls[0].width, calls[0].photoHeight, calls[0].paper], [Pw, 45, '16 DOTS']);
+    assert.deepEqual([calls[0].width, calls[0].photoHeight, calls[0].paper], [Pw, 36, '16 DOTS']);
     assert.deepEqual(calls[0].stamp, { date: '2026.11.03', weekday: 'TUE', time: '18:42:07' });
-    assert.deepEqual([...calls[0].photoMask], [...rowMask.slice(8 * Pw, 53 * Pw)], '틀 줄 그대로');
+    const want = [];
+    for (let y = 12; y < 48; y += 1) for (let x = 0; x < Pw; x += 1) want.push(x < 2 || x >= 14 ? 1 : rowMask[y * Pw + x]);
+    assert.deepEqual([...calls[0].photoMask], want, '틀 직사각형 그대로, 좌우는 흰 종이(1)');
     const { print } = out;
-    assert.deepEqual([print.width, print.height, print.layout, print.takenAt], [Pw, 61, 'imprint', TAKEN_AT]);
-    assert.deepEqual(print.photo, { top: 10, height: 45, sourceTop: 8 });
-    assert.equal(print.bits.length, 2 * 61);
-    // 래스터 10번째 줄 = 원래 8번째 줄(짝수 → 흰색) / 11번째 줄 = 9번째 줄(홀수 → 검정, 비트 1)
-    assert.deepEqual([...print.bits.slice(10 * 2, 12 * 2)], [0, 0, 0xff, 0xff]);
-    assert.deepEqual([out.canvas.width, out.canvas.height], [1080, 1350]);
+    assert.deepEqual([print.width, print.height, print.layout, print.takenAt], [Pw, 52, 'imprint', TAKEN_AT]);
+    assert.deepEqual(print.photo, { top: 10, height: 36, left: 2, width: 12, sourceTop: 12, sourceLeft: 2 });
+    assert.equal(print.bits.length, 2 * 52);
+    // 래스터 10번째 줄 = 원래 12번째 줄(짝수 → 흰색) / 11번째 줄 = 13번째 줄(홀수 → 검정, 좌우 2점은 흰 종이): 0011 1111 1111 1100
+    assert.deepEqual([...print.bits.slice(10 * 2, 12 * 2)], [0, 0, 0x3f, 0xfc]);
+    assert.deepEqual([out.canvas.width, out.canvas.height], [810, 1080]);
     assert.equal(out.dots, true);
     const { last } = t.effect.getStats();
-    assert.deepEqual([last.print.layout, last.print.photoTop, last.print.photoHeight, last.print.fontsReady], ['imprint', 10, 45, true]);
+    assert.deepEqual([last.print.layout, last.print.photoTop, last.print.photoHeight, last.print.fontsReady], ['imprint', 10, 36, true]);
   });
 
   it('takenAt이 없으면 그때의 clock으로 찍는다', async () => {
@@ -277,13 +279,13 @@ describe('createPhotoEffect: 사진 틀·인쇄 쪽 (IMPRINT 시안, 실제 기�
   it('인쇄 쪽 글자를 못 짜면 인쇄 데이터는 틀 사진만(경고), 사진·흐름은 그대로', async () => {
     const t = setup({ still: thermalStill, settings: framedThermalSettings, frame, imprint: fakeImprint([], { fail: true }) });
     const out = await t.effect.apply(fakeCanvas(1080, 1920), { takenAt: TAKEN_AT });
-    assert.deepEqual([out.print.width, out.print.height, out.print.layout], [Pw, 45, 'photo']);
+    assert.deepEqual([out.print.width, out.print.height, out.print.layout], [Pw, 36, 'photo']);
     assert.match(out.print.imprintError, /canvas text failed/);
     assert.ok(t.warnings.some(([category, message]) => category === 'effect-capture' && /imprint type not drawn/.test(message)));
     assert.equal(t.effect.getStats().last.status, 'applied');
   });
 
-  it('자르기 캔버스를 못 만들면 9:16 사진 그대로 (경고, 관람객 화면 CSS가 같은 줄을 보인다)', async () => {
+  it('자르기 캔버스를 못 만들면 9:16 사진 그대로 (경고). 화면 맞춤은 guest-screen is-uncropped·CSS가 맡는다(test/ui/guest-screen)', async () => {
     let made = 0;
     const warnings = [];
     const effect = createPhotoEffect({

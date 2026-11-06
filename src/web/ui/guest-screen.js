@@ -25,12 +25,13 @@ const PAPER_MS = 900; // 결과 둘레가 종이로 번지는 시간
 /**
  * @param {{ root: Document, text: typeof import('../config/guest-text.js').guestText, countdownSeconds: number,
  *   now?: () => number, timers?: { setTimeout: Function, clearTimeout: Function },
- *   reducedMotion?: () => boolean }} options
+ *   reducedMotion?: () => boolean, stageAspect?: number }} options
  *   now: session의 endsAt과 같은 시계 (performance.now). countdownSeconds는 기본값이고,
  *   상태 기계 스냅숏에 그 회차의 countdownSeconds가 있으면 그 값을 쓴다 (10단계 시간 섹션). reducedMotion: 동작 줄이기인지 (부를 때마다 읽는다)
+ *   stageAspect: 9:16 화면 비(가로/세로). 결과 사진이 이 비율이면 사진 틀로 자르지 못한 장애 대체 사진이다(아래 is-uncropped)
  */
 export function createGuestScreen({
-  root, text, countdownSeconds, now = () => performance.now(), timers = globalThis, reducedMotion = () => false,
+  root, text, countdownSeconds, now = () => performance.now(), timers = globalThis, reducedMotion = () => false, stageAspect = 9 / 16,
 }) {
   const $ = (id) => root.getElementById(id);
   const stage = $('stage');
@@ -205,6 +206,9 @@ export function createGuestScreen({
       else resultImage.removeAttribute('src');
       // 1비트 점 사진(감열지) 표시. 사진 틀 폭 = 화면 폭이라 연속 톤·점 사진 모두 같은 크기다 (점 사진도 결과 크기로 확대된 화면용)
       resultCard.classList.toggle('is-dots', url !== null && s.photo.dots === true);
+      // 사진 틀로 자르지 못한 9:16 사진(장애 대체, photo-effect.js framed): 화면 원래 배율·자리에 놓고 창 밖은 잘라 보인다(CSS).
+      // 그래야 창에 보이는 결과 = 셔터 순간 창 영역이다 (16단계 간단 검수 P2)
+      resultCard.classList.toggle('is-uncropped', url !== null && Math.abs(s.photo.width / s.photo.height - stageAspect) < 0.005);
       shownUrl = url;
       shownEndsAt = undefined;
       stopLeaving();

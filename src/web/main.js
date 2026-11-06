@@ -30,7 +30,7 @@ import { guestText } from './config/guest-text.js';
 import { createGuestScreen } from './ui/guest-screen.js';
 import { createScenePlate } from './ui/scene-plate.js';
 import { createScenePainter } from './effect/scene-paint.js';
-import { clipRegionToFrame, photoFrameAspect, photoFrameRows } from './core/photo-frame.js';
+import { clipRegionToFrame, photoFrameAspect, photoFrameRect } from './core/photo-frame.js';
 import { IMPRINT_FONT_LOADS } from './effect/imprint-page.js';
 
 const stage = document.getElementById('stage');
@@ -58,6 +58,7 @@ reducedMotionQuery.addEventListener('change', applyMotionPreference);
 // 카운트다운 진행선 길이는 회차마다 상태 기계 스냅숏(countdownSeconds)을 따른다
 const guest = createGuestScreen({
   root: document, text: guestText, countdownSeconds: config.timing.countdownSeconds,
+  stageAspect: config.aspectRatio.width / config.aspectRatio.height,
   reducedMotion: () => document.documentElement.dataset.motion === 'reduce',
 });
 
@@ -68,7 +69,7 @@ createScenePlate({
   key: config.scene.key, keyMarginFrac: config.scene.keyMarginFrac, layout: config.scene.layout,
   size: config.scene.size, paint: config.scene.paint ? createScenePainter() : null,
 }).ready.then((r) => {
-  sceneInfo = r.ok ? `${r.width}x${r.height}${r.bands ? `, bands top ${r.bands.topShift} bottom ${r.bands.bottomShift >= 0 ? '+' : ''}${r.bands.bottomShift}` : ''}, keyed rows ${r.keyed.top}-${r.keyed.top + r.keyed.height} (clear ${r.cleared}, edge ${r.edge}, rim ${r.despilled}), ${r.painted ? `oil painted ${r.paintMs}ms` : `not painted${r.paintError ? ` (${r.paintError})` : ''}`}`
+  sceneInfo = r.ok ? `${r.width}x${r.height}${r.bands ? `, bands top ${r.bands.topShift} bottom ${r.bands.bottomShift >= 0 ? '+' : ''}${r.bands.bottomShift}` : ''}, keyed ${r.keyed.width}x${r.keyed.height}@${r.keyed.left},${r.keyed.top}${r.fit ? `, fit x${r.fit.scale.toFixed(3)} gap ${r.gapFilled} sealed ${r.sealed}` : ""} (clear ${r.cleared}, edge ${r.edge}, rim ${r.despilled}), ${r.painted ? `oil painted ${r.paintMs}ms` : `not painted${r.paintError ? ` (${r.paintError})` : ''}`}`
     : `fallback background (${r.error})`;
   if (!r.ok) console.warn(`[scene] ${r.error}`);
   else if (r.paintError) console.warn(`[scene] oil paint failed, plain scene: ${r.paintError}`);
@@ -421,6 +422,8 @@ function applyLayout() {
   document.documentElement.style.setProperty('--stage-ratio-h', String(height));
   document.documentElement.style.setProperty('--frame-top-frac', String(config.photoFrame.top));
   document.documentElement.style.setProperty('--frame-height-frac', String(config.photoFrame.height));
+  document.documentElement.style.setProperty('--frame-left-frac', String(config.photoFrame.left ?? 0));
+  document.documentElement.style.setProperty('--frame-width-frac', String(config.photoFrame.width ?? 1));
   scaleSnowCarve();
   updateOperatorRoom();
 }
@@ -595,7 +598,7 @@ function effectDevLines() {
   const photoLine = `photo-fx   : ${photo}${p.last?.frame ? `, frame ${p.last.frame}` : ''} (applied ${p.applied}, raw ${p.fellBack})`;
   const pr = p.last?.print;
   const layout = pr?.layout === 'imprint'
-    ? ` (imprint: photo ${pr.width}x${pr.photoHeight} at row ${pr.photoTop}${pr.fontsReady === false ? ', FONTS NOT LOADED (system font)' : ''})`
+    ? ` (imprint: photo ${pr.photoWidth}x${pr.photoHeight} at row ${pr.photoTop} col ${pr.photoLeft}${pr.fontsReady === false ? ', FONTS NOT LOADED (system font)' : ''})`
     : pr ? ` (photo only${pr.imprintError ? `, imprint failed: ${pr.imprintError}` : ''})` : '';
   const printLine = `print      : ${pr
     ? `${pr.width}x${pr.height} 1-bit${layout}, raster ${pr.bytesPerRow}B/row ${pr.rasterBytes}B, png ${pr.pngBytes}B`
@@ -644,14 +647,16 @@ function describeTiming() {
     + ` (${timingTuning ? timingTuning.describeSettingsSource() : 'loading'}, ${config.timingSettingsFile.url})`;
 }
 
-// 사진 틀 (IMPRINT에서 도입, 14단계 8/64~53/64): 화면 높이 대비 줄, 결과 1920줄·인쇄 1024줄에서의 줄 (화면 폭 전체)
+// 사진 틀 (IMPRINT에서 도입, 16단계 사방 inset 3:4): 화면 비율의 열·줄, 결과 1080x1920·인쇄 격자 576x1024에서의 직사각형
 function describePhotoFrame() {
   const f = config.photoFrame;
   const aspect = photoFrameAspect(stageAspect, f);
-  const result = photoFrameRows(1920, f);
-  const print = photoFrameRows(1024, f);
-  return `photo ${aspect === 0.8 ? '4:5' : aspect.toFixed(3)} = stage rows ${+f.top.toFixed(4)}-${+(f.top + f.height).toFixed(4)}`
-    + ` (result 1920 -> ${result.top}-${result.top + result.height}, print 1024 -> ${print.top}-${print.top + print.height}),`
+  const named = { 0.75: '3:4', 0.8: '4:5' }[aspect.toFixed(4).replace(/0+$/, '')] ?? aspect.toFixed(3);
+  const rect = (r) => `${r.width}x${r.height}@${r.left},${r.top}`;
+  const left = f.left ?? 0;
+  const width = f.width ?? 1;
+  return `photo ${named} = stage cols ${+left.toFixed(4)}-${+(left + width).toFixed(4)} rows ${+f.top.toFixed(4)}-${+(f.top + f.height).toFixed(4)}`
+    + ` (result 1080x1920 -> ${rect(photoFrameRect(1080, 1920, f))}, print 576x1024 -> ${rect(photoFrameRect(576, 1024, f))}),`
     + ` presence region ${presenceRegionClipped ? 'clipped to frame' : 'inside frame'}, scene ${sceneInfo}`;
 }
 
@@ -709,11 +714,10 @@ function drawPresenceOverlay(ctx, width, height, { guides, scores = true }) {
   };
 
   const { region } = d.settings;
-  // 사진 틀 위·아래 줄 (화면 폭 전체). 감지 박스와 같은 화면 좌표라 원본 창에도 같은 자리
+  // 사진 틀 직사각형 (16단계 사방). 감지 박스와 같은 화면 좌표라 원본 창에도 같은 자리
   ctx.setLineDash([line * 1.5, line * 2.5]);
-  for (const y of [config.photoFrame.top, config.photoFrame.top + config.photoFrame.height]) {
-    strokeBox(0, Math.round(y * height), width, 0, OVERLAY.frame);
-  }
+  const fr = photoFrameRect(width, height, config.photoFrame);
+  strokeBox(fr.left, fr.top, fr.width, fr.height, OVERLAY.frame);
   ctx.setLineDash([line * 4, line * 3]);
   if (guides) {
     // 얼굴 박스는 거의 정사각형이므로 한 변 = 기준 높이 x 9:16 영역 높이(px)인 정사각형으로 보인다.

@@ -28,13 +28,15 @@
 
     <!-- ---- 관람객 화면 (14단계 눈 마을 장면, 가안 — ui/guest-screen.js·ui/scene-plate.js). 문구는 config/guest-text.js.
          화면 = 생성 장면 한 장(#scene-plate): 위 DOF 눈 마을, 나무 창틀 두 들보, 그 위·앞의 캐릭터, 아래 얼음벽과 눈 바닥.
-         가운데 사진 창(4:5, config.photoFrame)만 단색 그린을 브라우저에서 빼서 카메라·결과가 보인다. 캐릭터가 창에 걸친 부분은 그대로 덮는다
+         가운데 사진 창(16단계 3:4, 사방 inset, config.photoFrame)만 단색 그린을 브라우저에서 빼서 카메라·결과가 보인다. 캐릭터가 창에 걸친 부분은 그대로 덮는다
          (화면 장식일 뿐 사진·인쇄 데이터에는 없다). 안내 글과 3·2·1은 눈 바닥에 새긴 글씨 (위 띠에는 관람객 UI 없음) ---- -->
     <!-- 대체 배경과 눈송이: 장면 이미지를 못 읽으면 창 밖 띠에 배경 사진(snow-village-bg)이 보인다. 눈송이는 장면 위로 내린다.
          바닥 진행선 = 카운트다운·쿨타임 진행 (왼쪽에서 차오른다) -->
     <div class="frame" aria-hidden="true">
       <div class="frame-margin is-top"><span class="snow is-far"></span><span class="snow is-near"></span></div>
       <div class="frame-margin is-bottom"><span class="snow is-far"></span><span class="snow is-near"></span></div>
+      <div class="frame-margin is-left"></div>
+      <div class="frame-margin is-right"></div>
       <div class="frame-rule is-bottom">
         <span id="countdown-progress-fill" class="rule-fill countdown-progress-fill"></span>
         <span id="cooldown-progress-fill" class="rule-fill cooldown-progress-fill"></span>
