@@ -8,7 +8,7 @@
 
 **현재 상태:** 카메라 → 회색조 유화 미리보기 → 자동 촬영·결과 표시까지 구현, 인쇄 연동은 예정.
 
-> **현재 관람객 화면은 WISHFUL HOLIDAY다.** 사용자 요청으로 독립 기술 검수 후 채택·병합했다. 캠페인 키비주얼에 맞춘 붉은 카드·금박 표제·솜송이 화면과 유화·흑백 독립 시험 조합(`E` 필터 섹션)을 제공한다. 이전 IMPRINT는 태그 `backup/imprint-2026-11-05`에 보존한다. [병합 기록](docs/logs/2026-11-05-02-wishful-integration.md).
+> **14단계(검수 전):** 관람객 화면을 눈 마을 장면으로 바꾸는 중이다. 생성 장면의 나무 창틀·캐릭터 사이 4:5 사진 창, 위 띠에는 관람객 UI 없음, 안내와 3·2·1은 눈 바닥에 새긴 글씨. 감열지 톤 점에 유화 획을 섞는다. [구현 로그](docs/logs/2026-11-06-06-snow-frame-ui-filter.md). 이전 WISHFUL HOLIDAY 판은 태그 `backup/wishful-filter-2026-11-06`, IMPRINT는 `backup/imprint-2026-11-05`에 보존한다. 유화·흑백 독립 시험 조합(`E` 필터 섹션)은 그대로다.
 
 9:16 화면 안에 4:5 사진 틀을 두며 글자는 틀 밖에 표시한다. 기존 시간·유화 세부 수치·인식·카메라 기본값과 현장 저장값(`config/*.local.json`)을 유지한다. [시스템](docs/SYSTEM.md).
 
@@ -72,6 +72,7 @@ npm run check:browser                               # 임시 프로필 headless 
 npm run check:browser -- --camera real              # 실제 카메라 (OBS 가상카메라 우선)
 npm run check:browser -- --soak --camera real       # 장시간 실측, 기본 10분 (--soak 60 처럼 분 지정)
 npm run check:browser -- --only "시험 조합|WISHFUL" --screens artifacts\wishful\screens   # 4조합·관람객 화면·데모 PNG (가짜 카메라·합성 장면, Git 제외)
+npm run check:browser -- --only "관람객 화면(14단계|시안 데모|흑백 스타일 4가지" --screens artifacts\stage14\screens   # 14단계 장면·톤 점 × 유화 (가짜 카메라·합성 장면, Git 제외)
 ```
 
 `check:browser`, `filter-browser-check.mjs`, `filter-api-check.mjs`는 검증 중 `config/*.local.json`에 시험 값을 썼다가 되돌리므로 **현장 키오스크가 도는 PC에서는 실행하지 않는다.** MediaPipe 라이브러리는 `lib/mediapipe/`에 커밋되어 있고, 버전을 바꿀 때만 `npm install` → `npm run vendor:mediapipe`를 쓴다([docs/SYSTEM.md](docs/SYSTEM.md) 5절 "MediaPipe 로컬 라이브러리").
