@@ -22,12 +22,13 @@ export const config = Object.freeze({
     // 그린 우세 d = G − max(R, B): d ≤ low면 불투명, d ≥ high면 투명, 사이는 비례 + 초록 번짐 제거
     key: Object.freeze({ low: 60, high: 140 }),
     keyMarginFrac: 1 / 64,
-    // 띠 맞춤 (원본 이미지는 그대로 두고 그릴 때만 옮긴다, 가안): 생성 이미지는 들보 위치를 정확히 맞추지 못하므로, 장면 높이 비율로
-    // 위 띠 = 원본 0 ~ topCut 줄을 topShift만큼, 아래 띠 = 원본 bottomCut ~ 끝 줄을 bottomShift만큼 평행이동해 그린다(크기 그대로).
-    // 자르는 줄은 전부 그린인 줄이라 캐릭터가 잘리지 않고, 빈 줄은 그린으로 채워 키로 빠진다. 위 들보 중심 → 8/64(240), 아래 들보 중심 → 53/64(1590).
-    // 나중의 캐릭터 영상도 같은 규격(같은 넷 값)으로 그린다. null이면 그대로 그린다.
-    // 3차 장면(exec-931e0f16, 1920 환산): 전부 그린인 줄 285~1257, 들보 중심 248·1543 → 위 −8, 아래 +47 (눈 바닥은 1710부터)
-    layout: Object.freeze({ topCut: 285 / 1920, topShift: -8 / 1920, bottomCut: 1258 / 1920, bottomShift: 47 / 1920 }),
+    // 맞춤 (16단계, 가안, ui/scene-plate.js fitPlacement): 원본 이미지는 그대로 두고, 그린 개구부(이미지 비율 left·top·right·bottom,
+    // right·bottom은 끝 다음 화소)를 균일 배율로 사진 틀 높이에 맞추고 가로 가운데를 맞춘다(찌그러뜨리지 않는다). 생성 개구부가 3:4보다
+    // 넓으면 틀 밖 좌우에 남은 그린을 나무 기둥을 거울로 이어 채운다(fillFrameGap). 나중의 캐릭터 영상도 같은 넷 값·같은 규칙으로 그린다.
+    // 16단계 장면(exec-9ddc025d, 941x1672): 그린 x108~831·y376~1290(포함) = 724x915(0.791) → 배율 1080/915 ≈ 1.180,
+    // 화면 그린 약 x113~967 → 사진 틀 x135~945 밖 좌우 약 22px를 기둥으로 채움. 눈벽 아래 눈 바닥은 약 y1600부터.
+    // (14·15단계 장면의 띠 맞춤 { topCut, topShift, bottomCut, bottomShift }도 계속 읽는다)
+    layout: Object.freeze({ fit: Object.freeze({ left: 108 / 941, top: 376 / 1672, right: 832 / 941, bottom: 1291 / 1672 }) }),
     // 그리는 크기 (15단계): 화면 기준 1080x1920으로 그려 유화 붓 크기가 화면에 맞게 한다 (띠 맞춤도 이 높이 기준 비율 그대로)
     size: Object.freeze({ width: 1080, height: 1920 }),
     // 장면 유화 (15단계, 가안, effect/scene-paint.js): 장면을 읽을 때 한 번 기존 oil2f(기본 제공판 원본 기본값, 출력 끔)로 칠한다.
