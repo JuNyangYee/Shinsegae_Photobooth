@@ -28,6 +28,7 @@ import { PanelSection, createOperatorPanel, showsPresenceEditing, showsRawWindow
 import { renderDevPanel } from './ui/dev-panel.js';
 import { guestText } from './config/guest-text.js';
 import { createGuestScreen } from './ui/guest-screen.js';
+import { createScenePlate } from './ui/scene-plate.js';
 import { clipRegionToFrame, photoFrameAspect, photoFrameRows } from './core/photo-frame.js';
 import { IMPRINT_FONT_LOADS } from './effect/imprint-page.js';
 
@@ -52,11 +53,22 @@ const applyMotionPreference = () => { document.documentElement.dataset.motion = 
 applyMotionPreference();
 reducedMotionQuery.addEventListener('change', applyMotionPreference);
 
-// 관람객 화면 표현 (IMPRINT, 사용자 채택 2026-11-03). 문구는 config/guest-text.js 한곳에 있고, 상태 상세는 D 키 개발용 정보에만 보인다.
+// 관람객 화면 표현 (IMPRINT에서 시작, 14단계 눈 마을 장면). 문구는 config/guest-text.js 한곳에 있고, 상태 상세는 D 키 개발용 정보에만 보인다.
 // 카운트다운 진행선 길이는 회차마다 상태 기계 스냅숏(countdownSeconds)을 따른다
 const guest = createGuestScreen({
   root: document, text: guestText, countdownSeconds: config.timing.countdownSeconds,
   reducedMotion: () => document.documentElement.dataset.motion === 'reduce',
+});
+
+// 관람객 화면 장면 (14단계, 가안): 생성 장면 한 장을 그리고 사진 창 줄의 그린만 뺀다. 못 읽으면 대체 배경과 글자만 보인다 (D 화면에 결과)
+let sceneInfo = 'loading';
+createScenePlate({
+  canvas: document.getElementById('scene-plate'), src: config.scene.plate, frame: config.photoFrame,
+  key: config.scene.key, keyMarginFrac: config.scene.keyMarginFrac,
+}).ready.then((r) => {
+  sceneInfo = r.ok ? `${r.width}x${r.height}, keyed rows ${r.keyed.top}-${r.keyed.top + r.keyed.height} (clear ${r.cleared}, edge ${r.edge}, rim ${r.despilled})`
+    : `fallback background (${r.error})`;
+  if (!r.ok) console.warn(`[scene] ${r.error}`);
 });
 
 // 기다려도 스스로 풀리기 어려운 카메라 상태는 바로 직원 문의 문구를 보인다. 감지기는 장애(fault)가 그렇다.
@@ -616,7 +628,7 @@ function describeTiming() {
     + ` (${timingTuning ? timingTuning.describeSettingsSource() : 'loading'}, ${config.timingSettingsFile.url})`;
 }
 
-// 사진 틀 (IMPRINT 시안): 화면 높이 대비 줄, 결과 1920줄·인쇄 1024줄에서의 줄 (화면 폭 전체)
+// 사진 틀 (IMPRINT에서 도입, 14단계 8/64~53/64): 화면 높이 대비 줄, 결과 1920줄·인쇄 1024줄에서의 줄 (화면 폭 전체)
 function describePhotoFrame() {
   const f = config.photoFrame;
   const aspect = photoFrameAspect(stageAspect, f);
@@ -624,7 +636,7 @@ function describePhotoFrame() {
   const print = photoFrameRows(1024, f);
   return `photo ${aspect === 0.8 ? '4:5' : aspect.toFixed(3)} = stage rows ${+f.top.toFixed(4)}-${+(f.top + f.height).toFixed(4)}`
     + ` (result 1920 -> ${result.top}-${result.top + result.height}, print 1024 -> ${print.top}-${print.top + print.height}),`
-    + ` presence region ${presenceRegionClipped ? 'clipped to frame' : 'inside frame'}`;
+    + ` presence region ${presenceRegionClipped ? 'clipped to frame' : 'inside frame'}, scene ${sceneInfo}`;
 }
 
 function sessionDevLines() {

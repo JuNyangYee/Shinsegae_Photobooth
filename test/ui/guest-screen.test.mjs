@@ -66,13 +66,15 @@ function fakeDocument(log) {
     };
     return el;
   }
+  const requested = new Set();
   return {
+    requested,
     getElementById(id) {
+      requested.add(id);
       if (!byId.has(id)) {
         const el = element('auto', id);
         if (['stage', 'flash', 'result-paper', 'result-card', 'result-timer', 'result-timer-fill', 'countdown-progress-fill',
-          'cooldown-progress-fill', 'countdown-number', 'countdown-ghost', 'countdown-caption', 'masthead-date', 'masthead-day',
-          'masthead-time'].includes(id)) el.hidden = false;
+          'cooldown-progress-fill', 'countdown-number', 'countdown-ghost', 'countdown-caption'].includes(id)) el.hidden = false;
         byId.set(id, el);
       }
       return byId.get(id);
@@ -81,53 +83,32 @@ function fakeDocument(log) {
   };
 }
 
-const TAKEN_AT = new Date(2026, 10, 3, 18, 42, 7).getTime();
-
 function setup({ countdownSeconds = 3, reduced = false } = {}) {
   const log = [];
   const root = fakeDocument(log);
   const clock = fakeClock(1000); // performance.now 쪽 (endsAt)과 타이머
-  let wall = new Date(2026, 10, 3, 18, 41, 59, 500).getTime();
   const motion = { reduced };
   const screen = createGuestScreen({
-    root, text: guestText, countdownSeconds, now: clock.now, clock: () => wall, timers: clock.timers, reducedMotion: () => motion.reduced,
+    root, text: guestText, countdownSeconds, now: clock.now, timers: clock.timers, reducedMotion: () => motion.reduced,
   });
   const el = (id) => root.getElementById(id);
   const snapshot = (state, extra = {}) => ({ state, countdown: 0, endsAt: null, photo: null, ...extra });
   return {
     screen, el, log, snapshot, clock, motion,
-    setWall: (ms) => { wall = ms; },
-    advance: (ms) => { wall += ms; clock.advance(ms); },
+    requested: root.requested,
+    advance: (ms) => clock.advance(ms),
   };
 }
 
 const transforms = (animation) => animation.keyframes.map((k) => k.transform);
 
-describe('guest-screen: 머리 (날짜·요일·시각)', () => {
-  it('처음에 지금 시각을 놓고, 초가 바뀔 때마다 바뀐 글자만 아래에서 올라온다', () => {
+describe('guest-screen: 날짜·시각 없음 (14단계)', () => {
+  it('머리 날짜·시각 요소를 찾지도 않고, 시계 타이머도 걸지 않는다', () => {
     const t = setup();
-    assert.equal(t.el('masthead-date').textContent, '2026.11.03');
-    assert.equal(t.el('masthead-day').textContent, 'TUE');
-    assert.equal(t.el('masthead-time').textContent, '18:41:59');
-    assert.ok(t.el('masthead-time').children.every((c) => c.animations.length === 0), '처음엔 움직이지 않는다');
-    t.advance(600); // 18:42:00.1
-    assert.equal(t.el('masthead-time').textContent, '18:42:00');
-    const moved = t.el('masthead-time').children.filter((c) => c.animations.length).map((c) => c.textContent);
-    assert.deepEqual(moved, ['2', '0', '0'], '분 둘째 자리와 초 두 자리');
-  });
-
-  it('셔터 순간 멈추고, 결과 동안 그 사진의 촬영 시각(인쇄 쪽 머리와 같다), 쿨타임부터 다시 지금 시각', () => {
-    const t = setup();
-    t.setWall(TAKEN_AT + 300);
+    assert.ok(!['masthead-date', 'masthead-day', 'masthead-time'].some((id) => t.requested.has(id)));
+    assert.equal(t.clock.pending.size, 0);
     t.screen.renderSession(t.snapshot(SessionState.CAPTURING));
-    assert.equal(t.el('masthead-time').textContent, '18:42:07');
-    t.advance(2000);
-    assert.equal(t.el('masthead-time').textContent, '18:42:07', '멈춰 있다');
-    t.screen.renderSession(t.snapshot(SessionState.RESULT, { photo: { url: 'blob:a', takenAt: TAKEN_AT - 1000 }, endsAt: 20000 }));
-    assert.equal(t.el('masthead-time').textContent, '18:42:06', '사진의 촬영 시각');
-    t.screen.renderSession(t.snapshot(SessionState.COOLDOWN, { endsAt: 30000 }));
-    assert.equal(t.el('masthead-time').textContent, '18:42:09');
-    t.screen.dispose();
+    assert.equal(t.clock.pending.size, 0);
   });
 });
 
@@ -139,11 +120,11 @@ describe('guest-screen: 단계·짜 넣기', () => {
     assert.equal(t.el('stage').dataset.phase, 'countdown');
   });
 
-  it('대기 안내는 한국어 줄 + 영어 줄 + 바닥 쪽 가는 선. 보일 때 줄마다 창 아래에서 올라온다 (차례로)', () => {
+  it('대기 안내는 한국어 줄 + 영어 줄 (눈 바닥 글씨). 보일 때 줄마다 창 아래에서 올라온다 (차례로)', () => {
     const t = setup();
     const guide = t.el('guide');
     assert.equal(guide.textContent, guestText.idle.ko + guestText.idle.en);
-    assert.deepEqual(guide.children.map((c) => c.className), ['line is-ko', 'line is-en', 'floor-cue']);
+    assert.deepEqual(guide.children.map((c) => c.className), ['line is-ko', 'line is-en']);
     t.screen.setGuide(true);
     t.screen.setGuide(true);
     assert.equal(guide.hidden, false);
@@ -350,7 +331,7 @@ describe('guest-screen: 안내 문구', () => {
     assert.equal(t.el('status-veil').hidden, true);
   });
 
-  it('인식 표시는 9:16 영역의 is-present 클래스 하나로 켜고 끈다 (모서리 표시, CSS)', () => {
+  it('인식 표시는 9:16 영역의 is-present 클래스 하나로 켜고 끈다 (바닥 진행선, CSS)', () => {
     const t = setup();
     t.screen.setPresence(true);
     assert.ok(t.el('stage').classList.contains('is-present'));
@@ -383,8 +364,6 @@ describe('guest-screen: 동작 줄이기', () => {
     assert.equal(t.el('countdown-progress-fill').animations.length, 1, '정보가 되는 진행선은 그대로');
     t.screen.renderSession(t.snapshot(SessionState.CAPTURING));
     assert.ok(Math.max(...t.el('flash').animations[0].keyframes.map((k) => k.opacity)) <= 0.3);
-    t.advance(1000);
-    assert.ok(t.el('masthead-time').children.every((c) => c.animations.length === 0));
     t.screen.dispose();
   });
 });

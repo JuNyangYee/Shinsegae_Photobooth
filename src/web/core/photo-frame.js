@@ -7,7 +7,7 @@ export const isFullFrame = (frame) => !frame || (frame.top === 0 && frame.height
 
 /**
  * 높이 height(줄)인 화면 그림에서 틀이 덮는 줄 범위. 위·아래 끝을 각각 반올림한다
- * (1920 → 210~1560, 1024 → 112~832, 3840 → 420~3120, 683 → 75~555). frame이 없으면 전체
+ * (14단계 기본 8/64~53/64: 1920 → 240~1590, 1024 → 128~848, 3840 → 480~3180). frame이 없으면 전체
  * @returns {{ top: number, height: number }}
  */
 export function photoFrameRows(height, frame) {

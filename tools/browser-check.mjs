@@ -2033,9 +2033,9 @@ async function runScenarios(app, origin) {
     }
   });
 
-  // ---- 관람객 화면 (WISHFUL HOLIDAY 시안, 검토 중. IMPRINT 시나리오를 이어받음) ----
-  // 사진 틀(4:5, config.photoFrame 10/64~55/64) 밖에만 글자·표제·솜송이가 있는지, 결과 사진이 틀 자리에 1080x1350으로 놓이는지, 인쇄 쪽이 머리·꼬리를 포함한
-  // 576x912(사진 576x720)인지, 머리 시각이 결과 동안 멈춰 있는지, 동작 줄이기에서 위치 움직임이 없는지. --screens면 상태별 화면(가짜 카메라)
+  // ---- 관람객 화면 (14단계 눈 마을 장면, 가안. WISHFUL·IMPRINT 시나리오를 이어받음) ----
+  // 사진 틀(4:5, config.photoFrame 8/64~53/64) 밖에만 글자가 있는지, 제목·날짜·시각이 없는지, 장면(#scene-plate)을 읽었는지(못 읽으면 대체 배경이라 결과에 적는다),
+  // 결과 사진이 틀 자리에 1080x1350으로 놓이는지, 인쇄 쪽이 576x912(사진 576x720)인지, 동작 줄이기에서 위치 움직임이 없는지. --screens면 상태별 화면(가짜 카메라)
   const shot = async (name) => {
     if (!options.screens) return;
     mkdirSync(options.screens, { recursive: true });
@@ -2047,34 +2047,34 @@ async function runScenarios(app, origin) {
     const top = document.querySelector('.frame-margin.is-top').getBoundingClientRect().bottom - st.top;
     const bottom = document.querySelector('.frame-margin.is-bottom').getBoundingClientRect().top - st.top;
     const boxes = {};
-    // 3·2·1 묶음은 화면 전체를 덮는 자리라 숫자(위 띠)·안내(아래 띠)를 따로 잰다. 표제·솜송이는 늘 보이는 장식
+    // 3·2·1 묶음은 화면 전체를 덮는 자리라 숫자(위 띠)·안내(눈 바닥)를 따로 잰다
     const parts = [['guide', '#guide'], ['countdown-digit', '#countdown .countdown-digit'], ['countdown-caption', '#countdown-caption'], ['notice', '#notice'],
-      ['result-note', '#result-note'], ['status', '#status'], ['title', '.title'], ['puff', '.puff']];
+      ['result-note', '#result-note'], ['status', '#status']];
     for (const [id, selector] of parts) {
       const e = document.querySelector(selector);
       if (e.closest('[hidden]') || getComputedStyle(e).opacity === '0') continue;
       const r = e.getBoundingClientRect();
       boxes[id] = [Math.round(r.top - st.top), Math.round(r.bottom - st.top)];
     }
-    const m = document.querySelector('.masthead').getBoundingClientRect();
-    boxes.masthead = [Math.round(m.top - st.top), Math.round(m.bottom - st.top)];
     const img = document.getElementById('result').getBoundingClientRect();
     return { h: st.height, w: st.width, top, bottom, boxes, motion: document.documentElement.dataset.motion,
-      phase: document.getElementById('stage').dataset.phase, time: document.getElementById('masthead-time').textContent,
+      phase: document.getElementById('stage').dataset.phase, scene: !document.getElementById('scene-plate').hidden,
+      removed: ['.title', '.puff', '.masthead', '.frame-corner'].filter((q) => document.querySelector(q)),
       result: document.getElementById('result').hidden ? null : [Math.round(img.left - st.left), Math.round(img.top - st.top), Math.round(img.width), Math.round(img.height)] };
   })()`;
   const textOutsideFrame = (l) => Object.entries(l.boxes).filter(([, [a, b]]) => !(b <= l.top + 1 || a >= l.bottom - 1)).map(([id]) => id);
 
-  await scenario('관람객 화면(WISHFUL 시안, IMPRINT 이어받음): 글자·숫자·표제·솜송이는 사진 틀(4:5) 밖에만, 결과 사진 = 틀 자리 1080x1350, 인쇄 쪽 576x912(사진 576x720 · 머리·꼬리 글자), 머리 시각 멈춤, 동작 줄이기 (--screens면 상태별 화면)', async () => {
+  await scenario('관람객 화면(14단계 눈 마을 장면): 글자·숫자는 사진 틀(4:5, 8/64~53/64) 밖에만, 제목·날짜·시각 없음, 장면 읽음 여부, 결과 사진 = 틀 자리 1080x1350, 인쇄 쪽 576x912(사진 576x720 · 머리·꼬리 글자), 동작 줄이기 (--screens면 상태별 화면)', async () => {
     const details = [];
     await app.open();
     await waitReady(app);
     await app.key('KeyD'); // 화면 캡처·배치에 D가 겹치지 않게 (D 값은 결과 때 잠깐 켜서 읽는다)
     const idle = await app.waitFor('idle guide', async () => { const l = await app.evaluate(IMPRINT_LAYOUT); return l.boxes.guide ? l : null; }, 5000);
-    expect(Math.abs(idle.top - idle.h * 10 / 64) <= 1 && Math.abs(idle.bottom - idle.h * 55 / 64) <= 1, `frame ${idle.top}-${idle.bottom} of ${idle.h}`);
-    expect(idle.boxes.title && idle.boxes.puff, `idle title/puff visible ${JSON.stringify(idle.boxes)}`);
+    expect(Math.abs(idle.top - idle.h * 8 / 64) <= 1 && Math.abs(idle.bottom - idle.h * 53 / 64) <= 1, `frame ${idle.top}-${idle.bottom} of ${idle.h}`);
+    expect(idle.removed.length === 0, `removed title/date/corner elements present ${JSON.stringify(idle.removed)}`);
+    expect(idle.boxes.guide[0] >= idle.h * 57 / 64 - 1, `idle guide on snow ground ${JSON.stringify(idle.boxes)}`);
     expect(textOutsideFrame(idle).length === 0, `idle text inside frame: ${JSON.stringify(idle)}`);
-    expect(idle.motion === 'full' && idle.phase === 'idle' && /^\d\d:\d\d:\d\d$/.test(idle.time), `idle ${JSON.stringify(idle)}`);
+    expect(idle.motion === 'full' && idle.phase === 'idle', `idle ${JSON.stringify(idle)}`);
     await sleep(1200); // 짜 넣기가 끝난 뒤
     await shot('app-1-idle');
     const cycle = async (label) => {
@@ -2083,8 +2083,8 @@ async function runScenarios(app, origin) {
         const l = await app.evaluate(IMPRINT_LAYOUT);
         return l.phase === 'countdown' && (await app.evaluate("document.getElementById('countdown-number').textContent")) === '2' ? l : null;
       }, 4000);
-      expect(textOutsideFrame(counting).length === 0 && counting.boxes['countdown-digit'] && counting.boxes['countdown-digit'][1] <= counting.top
-        && !counting.boxes.title, `${label}: countdown digit in top band, caption below, title hidden ${JSON.stringify(counting.boxes)}`);
+      expect(textOutsideFrame(counting).length === 0 && counting.boxes['countdown-digit'] && counting.boxes['countdown-digit'][1] <= counting.top,
+        `${label}: countdown digit in top band, caption below ${JSON.stringify(counting.boxes)}`);
       const rolls = await app.evaluate("document.getElementById('countdown-number').getAnimations().map((a) => a.effect.getKeyframes().some((k) => k.transform && k.transform !== 'none'))");
       if (label === 'full') {
         await sleep(450);
@@ -2094,7 +2094,6 @@ async function runScenarios(app, origin) {
       await sleep(1300);
       const later = await app.evaluate(IMPRINT_LAYOUT);
       if (label === 'full') await shot('app-3-result');
-      expect(later.time === result.time, `${label}: masthead time moved during result ${result.time} -> ${later.time}`);
       expect(JSON.stringify(result.result) === JSON.stringify([0, Math.round(result.top), result.w, Math.round(result.bottom - result.top)]),
         `${label}: result box ${JSON.stringify(result.result)} vs frame ${result.top}-${result.bottom}`);
       expect(textOutsideFrame(later).length === 0, `${label}: result text inside frame ${JSON.stringify(later.boxes)}`);
@@ -2102,10 +2101,10 @@ async function runScenarios(app, origin) {
       const dev = await app.dev();
       await app.key('KeyD');
       expect(/^1080x1350 /.test(dev.get('capture') ?? ''), `${label}: capture ${dev.get('capture')}`);
-      expect(/frame 1080x1350 rows 300-1650/.test(dev.get('photo-fx') ?? ''), `${label}: photo-fx ${dev.get('photo-fx')}`);
+      expect(/frame 1080x1350 rows 240-1590/.test(dev.get('photo-fx') ?? ''), `${label}: photo-fx ${dev.get('photo-fx')}`);
       expect(/^576x912 1-bit \(imprint: photo 576x720 at row 84\), raster 72B\/row 65664B, png \d+B \(IHDR depth 1 color 0\)/.test(dev.get('print') ?? ''),
         `${label}: print ${dev.get('print')}`);
-      expect(/^photo 4:5 = stage rows 0\.1563-0\.8594 \(result 1920 -> 300-1650, print 1024 -> 160-880\), presence region clipped to frame/.test(dev.get('frame') ?? ''),
+      expect(/^photo 4:5 = stage rows 0\.125-0\.8281 \(result 1920 -> 240-1590, print 1024 -> 128-848\), presence region clipped to frame/.test(dev.get('frame') ?? ''),
         `${label}: frame ${dev.get('frame')}`);
       expect(/\(clipped to photo frame\)/.test(dev.get('criteria') ?? ''), `${label}: criteria ${dev.get('criteria')}`);
       const cooling = await app.waitFor(`${label} cooldown`, async () => { const l = await app.evaluate(IMPRINT_LAYOUT); return l.phase === 'cooldown' && l.boxes.notice ? l : null; }, 13000);
@@ -2115,7 +2114,7 @@ async function runScenarios(app, origin) {
         await shot('app-4-cooldown');
       }
       await app.waitFor(`${label} idle`, async () => (await app.evaluate(IMPRINT_LAYOUT)).phase === 'idle', 8000);
-      return { rolls, print: dev.get('print').split(', raster')[0], time: result.time };
+      return { rolls, print: dev.get('print').split(', raster')[0], scene: (dev.get('frame') ?? '').split('scene ')[1] ?? '-' };
     };
     // 가짜 카메라에는 얼굴이 없어 자동 회차가 끼어들지 않는다: 일시정지(P, 화면에 운영자 표시가 생긴다) 없이 돈다.
     // 실제 카메라면 withAutoPaused (D를 읽으므로 그동안 D를 켜 두고, 회차 동안만 끈다)
@@ -2128,15 +2127,16 @@ async function runScenarios(app, origin) {
     };
     const full = await round('full');
     expect(full.rolls.length > 0 && full.rolls.some(Boolean), `countdown digit roll animation ${JSON.stringify(full.rolls)}`);
-    details.push(`frame ${idle.top}-${idle.bottom}px of ${idle.h}, text outside frame in idle·countdown·result·cooldown, result box = frame, masthead frozen at ${full.time}, print ${full.print}`);
-    // 동작 줄이기: 시스템 설정(prefers-reduced-motion) → :root[data-motion=reduce] → 숫자는 위치 움직임 없이, 바닥 쪽 선은 멈춤
+    details.push(`frame ${idle.top}-${idle.bottom}px of ${idle.h}, text outside frame in idle·countdown·result·cooldown, result box = frame, print ${full.print},`
+      + ` scene ${idle.scene ? 'plate' : 'FALLBACK background'} (${full.scene})`);
+    // 동작 줄이기: 시스템 설정(prefers-reduced-motion) → :root[data-motion=reduce] → 숫자는 위치 움직임 없이, 눈송이는 멈춤
     await app.cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
     try {
       await app.waitFor('reduced motion', async () => (await app.evaluate(IMPRINT_LAYOUT)).motion === 'reduce', 3000);
-      const cue = await app.evaluate("getComputedStyle(document.querySelector('#guide .floor-cue'), '::before').animationName");
+      const cue = await app.evaluate("getComputedStyle(document.querySelector('.snow')).animationName");
       const reduced = await round('reduced');
-      expect(cue === 'none' && reduced.rolls.every((moves) => !moves), `reduced: floor cue ${cue}, digit rolls ${JSON.stringify(reduced.rolls)}`);
-      details.push('reduced motion: floor cue animation none, digit without transform, same layout/print');
+      expect(cue === 'none' && reduced.rolls.every((moves) => !moves), `reduced: snow ${cue}, digit rolls ${JSON.stringify(reduced.rolls)}`);
+      details.push('reduced motion: snow animation none, digit without transform, same layout/print');
     } finally {
       await app.cdp.send('Emulation.setEmulatedMedia', { features: [] });
     }

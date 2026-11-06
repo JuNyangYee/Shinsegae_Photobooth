@@ -12,17 +12,17 @@ const frame = config.photoFrame;
 const IMPRINT_FRAME = Object.freeze({ top: 7 / 64, height: 45 / 64 });
 
 describe('photo-frame: 줄 범위', () => {
-  it('기본 틀(WISHFUL 10/64 ~ 55/64)은 9:16 화면에서 4:5이고 결과·인쇄·4K·감지 입력에서 모두 정수 줄이다', () => {
+  it('기본 틀(14단계 8/64 ~ 53/64)은 9:16 화면에서 4:5이고 결과·인쇄·4K·감지 입력에서 모두 정수 줄이다', () => {
     assert.equal(photoFrameAspect(9 / 16, frame), 0.8);
-    assert.deepEqual(photoFrameRows(1920, frame), { top: 300, height: 1350 });
-    assert.deepEqual(photoFrameRows(1024, frame), { top: 160, height: 720 });
-    assert.deepEqual(photoFrameRows(3840, frame), { top: 600, height: 2700 });
-    assert.deepEqual(photoFrameRows(640, frame), { top: 100, height: 450 });
+    assert.deepEqual(photoFrameRows(1920, frame), { top: 240, height: 1350 });
+    assert.deepEqual(photoFrameRows(1024, frame), { top: 128, height: 720 });
+    assert.deepEqual(photoFrameRows(3840, frame), { top: 480, height: 2700 });
+    assert.deepEqual(photoFrameRows(640, frame), { top: 80, height: 450 });
     for (const H of [1920, 1024, 3840, 640]) {
       assert.ok(Number.isInteger(H * frame.top) && Number.isInteger(H * (frame.top + frame.height)), `${H}`);
     }
     // 결과 줄과 인쇄 줄이 같은 화면 줄을 덮는다 (1080 → 576은 1.875배)
-    assert.equal(300 / 1920, 160 / 1024);
+    assert.equal(240 / 1920, 128 / 1024);
     assert.equal(1350 / 1920, 720 / 1024);
   });
 
@@ -44,7 +44,7 @@ describe('photo-frame: 인식 영역을 틀 안으로', () => {
   it('기본 인식 영역(0.1~0.9)은 틀 위·아래 끝에 맞춰 줄어든다 (가로는 그대로)', () => {
     const { region, clipped } = clipRegionToFrame({ x: 0.1, y: 0.1, width: 0.8, height: 0.8 }, frame);
     assert.equal(clipped, true);
-    assert.deepEqual(region, { x: 0.1, y: 10 / 64, width: 0.8, height: 45 / 64 });
+    assert.deepEqual(region, { x: 0.1, y: 8 / 64, width: 0.8, height: 45 / 64 });
   });
 
   it('이미 틀 안이면 그대로 (같은 객체, 줄이지 않음)', () => {

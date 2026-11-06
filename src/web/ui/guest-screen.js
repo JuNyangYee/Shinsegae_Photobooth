@@ -1,17 +1,16 @@
-// 관람객 화면 표현 (IMPRINT, 사용자 채택 2026-11-03): 9:16 화면을 활자로 짠 한 쪽으로 다룬다. 사진 틀(4:5) 밖 위 여백에 날짜·시각(머리),
-// 아래 여백에 대기 안내·3·2·1·쿨타임·결과 문구를 한 자리에서 바꿔 짜 넣고, 틀 아래 선이 진행선이 된다.
+// 관람객 화면 표현 (IMPRINT에서 시작, 14단계 눈 마을 장면): 9:16 화면에서 사진 틀(4:5) 밖에만 글자를 둔다. 위 띠 가운데에 3·2·1,
+// 눈 바닥에 대기 안내·카운트다운 안내·쿨타임·결과 문구를 한 자리에서 바꿔 짜 넣고, 바닥 진행선이 카운트다운·쿨타임·결과 남은 시간을 보인다.
+// 날짜·시각은 보이지 않는다(14단계). 장면 그림(배경·창틀·캐릭터)은 ui/scene-plate.js.
 // 무엇을 보일지는 main.js가 정하고(상태 기계·안내 규칙), 이 모듈은 어떻게 보일지만 맡는다.
 //
 // 움직임 (transform·opacity만, 미리보기·감지·효과 성능을 건드리지 않게):
 // - 짜 넣기: 글자 줄마다 창(.line, overflow hidden) 아래에서 올라와 자리 잡는다. 빠질 때는 같은 자리의 복제본이 위로 빠지고 원본은 바로 숨는다
 //   (상태 = hidden 속성은 즉시, 확인 도구·테스트가 읽는다).
-// - 3·2·1: 큰 숫자가 한 칸 창 안에서 위로 넘어간다(앞 숫자는 위로, 새 숫자는 아래에서). 틀 아래 선이 그 회차 길이 동안 차오른다.
-// - 셔터: 사진 틀 안에만 짧은 흰 빛, 모서리 표시가 제자리로 튄다(CSS), 머리 시각이 그 순간에 멈춘다.
-// - 결과: 사진은 틀 자리 그대로 멈춘 그림처럼 놓이고 둘레가 종이로 번진다. 머리는 그 사진의 촬영 시각(인쇄 쪽 머리와 같다).
-//   끝나기 직전 종이·사진이 걷히며 어두운 여백으로 돌아온다(사진 src는 상태 기계가 결과를 끝낼 때 지운다).
+// - 3·2·1: 큰 숫자가 한 칸 창 안에서 위로 넘어간다(앞 숫자는 위로, 새 숫자는 아래에서). 바닥 진행선이 그 회차 길이 동안 차오른다.
+// - 셔터: 사진 틀 안에만 짧은 흰 빛.
+// - 결과: 사진은 틀 자리 그대로 멈춘 그림처럼 놓인다. 끝나기 직전 사진·문구가 걷힌다(사진 src는 상태 기계가 결과를 끝낼 때 지운다).
 // 동작 줄이기(reducedMotion)에서는 위치 움직임 없이 짧은 투명도만 쓴다. Node 테스트: test/ui/guest-screen.test.mjs
 
-import { imprintStamp } from '../core/imprint.js';
 import { SessionState } from '../core/session.js';
 
 const SET = 'cubic-bezier(0.16, 1, 0.3, 1)'; // CSS --ease-set
@@ -25,14 +24,13 @@ const PAPER_MS = 900; // 결과 둘레가 종이로 번지는 시간
 
 /**
  * @param {{ root: Document, text: typeof import('../config/guest-text.js').guestText, countdownSeconds: number,
- *   now?: () => number, clock?: () => number, timers?: { setTimeout: Function, clearTimeout: Function },
+ *   now?: () => number, timers?: { setTimeout: Function, clearTimeout: Function },
  *   reducedMotion?: () => boolean }} options
- *   now: session의 endsAt과 같은 시계 (performance.now). clock: 사람이 읽는 시각 (Date.now, 머리). countdownSeconds는 기본값이고,
+ *   now: session의 endsAt과 같은 시계 (performance.now). countdownSeconds는 기본값이고,
  *   상태 기계 스냅숏에 그 회차의 countdownSeconds가 있으면 그 값을 쓴다 (10단계 시간 섹션). reducedMotion: 동작 줄이기인지 (부를 때마다 읽는다)
  */
 export function createGuestScreen({
-  root, text, countdownSeconds, now = () => performance.now(), clock = () => Date.now(),
-  timers = globalThis, reducedMotion = () => false,
+  root, text, countdownSeconds, now = () => performance.now(), timers = globalThis, reducedMotion = () => false,
 }) {
   const $ = (id) => root.getElementById(id);
   const stage = $('stage');
@@ -54,9 +52,6 @@ export function createGuestScreen({
   const notice = $('notice');
   const statusVeil = $('status-veil');
   const status = $('status');
-  const mastDate = $('masthead-date');
-  const mastDay = $('masthead-day');
-  const mastTime = $('masthead-time');
 
   // ---- 글자 줄 ----
 
@@ -76,11 +71,8 @@ export function createGuestScreen({
     return inners;
   }
 
-  const floorCue = root.createElement('span');
-  floorCue.className = 'floor-cue';
-  floorCue.setAttribute('aria-hidden', 'true');
   const lineSets = new Map([
-    [guide, setLines(guide, text.idle, [floorCue])],
+    [guide, setLines(guide, text.idle)],
     [countdownCaption, setLines(countdownCaption, text.countdown)],
     [notice, setLines(notice, text.cooldown)],
   ]);
@@ -127,38 +119,6 @@ export function createGuestScreen({
     else if (!visible) setOut(element);
   }
 
-  // ---- 머리: 날짜·요일·시각 ----
-
-  let shownTime = '';
-  let frozenAt = null; // 멈춘 시각 (셔터 순간, 결과 동안은 그 사진의 촬영 시각). null이면 지금 시각
-  let clockTimer = null;
-
-  function renderClock() {
-    const stamp = imprintStamp(frozenAt ?? clock());
-    if (mastDate.textContent !== stamp.date) mastDate.textContent = stamp.date;
-    if (mastDay.textContent !== stamp.weekday) mastDay.textContent = stamp.weekday;
-    if (stamp.time === shownTime) return;
-    // 한 글자씩: 바뀐 숫자만 아래에서 올라온다 (처음엔 그냥 놓는다)
-    const before = shownTime;
-    const chars = [...stamp.time].map((c, i) => {
-      const span = root.createElement('span');
-      span.textContent = c;
-      if (before && before[i] !== c && !reducedMotion()) {
-        span.animate([{ transform: 'translateY(100%)', opacity: 0 }, { transform: 'translateY(0)', opacity: 1 }],
-          { duration: 520, easing: SET });
-      }
-      return span;
-    });
-    mastTime.replaceChildren(...chars);
-    shownTime = stamp.time;
-  }
-
-  // 초가 바뀌는 순간에 맞춰 다시 그린다 (멈춰 있어도 날짜가 바뀌면 다시 읽어야 하므로 계속 돈다)
-  function tick() {
-    renderClock();
-    clockTimer = timers.setTimeout(tick, 1000 - (clock() % 1000) + 8);
-  }
-
   // ---- 3·2·1 ----
 
   let lastState = SessionState.IDLE;
@@ -184,7 +144,7 @@ export function createGuestScreen({
   function renderCountdown(s) {
     const counting = s.state === SessionState.COUNTDOWN;
     if (counting && lastState !== SessionState.COUNTDOWN) {
-      // 틀 아래 선: 그 회차의 카운트다운 길이(기본 3초) 동안 왼쪽에서 차오른다 (transform만)
+      // 바닥 진행선: 그 회차의 카운트다운 길이(기본 3초) 동안 왼쪽에서 차오른다 (transform만)
       progressAnimation = countdownFill.animate([{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }],
         { duration: (s.countdownSeconds ?? countdownSeconds) * 1000, fill: 'forwards' });
       countdownNumber.textContent = '';
@@ -223,7 +183,7 @@ export function createGuestScreen({
     delete stage.dataset.leaving;
   }
 
-  // 결과가 끝나기 RESULT_LEAVE_MS 전부터 종이·사진·문구를 걷는다. 머리는 data-leaving으로 흰색으로 돌아간다 (CSS)
+  // 결과가 끝나기 RESULT_LEAVE_MS 전부터 바닥 빛·사진·문구를 걷는다 (data-leaving은 CSS가 읽는다)
   function scheduleLeaving(endsAt) {
     stopLeaving();
     if (endsAt === null) return;
@@ -249,7 +209,7 @@ export function createGuestScreen({
       shownEndsAt = undefined;
       stopLeaving();
       if (url) {
-        // 사진은 틀 자리에 그대로 (멈춘 그림처럼, 움직이지 않는다: 회전·확대·이동이 없어 화소 그대로 놓인다). 둘레가 종이로 번진다
+        // 사진은 틀 자리에 그대로 (멈춘 그림처럼, 움직이지 않는다: 회전·확대·이동이 없어 화소 그대로 놓인다). 눈 바닥 글자 뒤에 빛이 번진다
         resultPaper.animate([{ opacity: 0 }, { opacity: 1 }], { duration: reducedMotion() ? 200 : PAPER_MS, easing: 'ease-out' });
       }
     }
@@ -291,23 +251,17 @@ export function createGuestScreen({
     }
   }
 
-  renderClock();
-  clockTimer = timers.setTimeout(tick, 1000 - (clock() % 1000) + 8);
   stage.dataset.phase = SessionState.IDLE;
 
   return {
-    /** 상태 기계 스냅숏(session.getState())을 화면에 옮긴다: 단계, 머리 시각, 카운트다운, 셔터 빛, 결과 */
+    /** 상태 기계 스냅숏(session.getState())을 화면에 옮긴다: 단계, 카운트다운, 셔터 빛, 결과 */
     renderSession(s) {
       stage.dataset.phase = s.state;
       if (s.state === SessionState.CAPTURING && lastState !== SessionState.CAPTURING) {
-        frozenAt = clock(); // 셔터 순간
         // 촬영 순간: 사진 틀 안에만 짧은 흰 빛 (눈부시지 않게, 동작 줄이기면 더 약하게)
         const peak = reducedMotion() ? 0.3 : 0.7;
         flash.animate([{ opacity: 0 }, { opacity: peak, offset: 0.12 }, { opacity: 0 }], { duration: 320, easing: 'ease-out' });
       }
-      if (s.state === SessionState.RESULT) frozenAt = s.photo?.takenAt ?? frozenAt ?? clock();
-      else if (s.state !== SessionState.CAPTURING) frozenAt = null;
-      renderClock();
       renderCountdown(s);
       renderResult(s);
       cooldownEndsAt = s.state === SessionState.COOLDOWN ? s.endsAt : null;
@@ -328,7 +282,7 @@ export function createGuestScreen({
       status.animate(motion, { duration: 600, easing: SET });
     },
 
-    /** 인식 표시: 사진 틀 네 모서리가 또렷해지며 안으로 모인다 (CSS 전환, transform·opacity) */
+    /** 인식 표시: 9:16 영역의 is-present 클래스 (바닥 진행선이 밝아진다, CSS) */
     setPresence(present) {
       stage.classList.toggle('is-present', present);
     },
@@ -338,15 +292,14 @@ export function createGuestScreen({
       show(guide, visible, lineSets.get(guide), { delay: 120 });
     },
 
-    /** 쿨타임 문구와 틀 아래 선 (쿨타임 남은 시간 동안 차오른다) */
+    /** 쿨타임 문구와 바닥 진행선 (쿨타임 남은 시간 동안 차오른다) */
     setNotice(visible) {
       show(notice, visible, lineSets.get(notice));
       renderCooldownFill(visible);
     },
 
-    /** 머리 시계를 멈춘다 (데모·테스트 정리용) */
+    /** 남은 타이머를 정리한다 (데모·테스트 정리용) */
     dispose() {
-      timers.clearTimeout(clockTimer);
       stopLeaving();
     },
   };

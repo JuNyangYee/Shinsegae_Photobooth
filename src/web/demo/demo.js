@@ -22,6 +22,7 @@ import { EffectStatus, createEffectPreview } from '../effect/effect-preview.js';
 import { IMPRINT_FONT_LOADS } from '../effect/imprint-page.js';
 import { createPhotoEffect } from '../effect/photo-effect.js';
 import { createGuestScreen } from '../ui/guest-screen.js';
+import { createScenePlate } from '../ui/scene-plate.js';
 import { createScene } from './scene.js';
 
 const AUTOPLAY = Object.freeze({ firstArriveMs: 2200, idleMs: 3800, leaveAfterCooldownMs: 1600 });
@@ -110,6 +111,11 @@ const autoStart = createAutoStart({ session, presence, isTuningOpen: () => false
 const guest = createGuestScreen({
   root: document, text: guestText, countdownSeconds: t.countdownSeconds, reducedMotion: () => rootEl.dataset.motion === 'reduce',
 });
+// 장면 (14단계): 앱과 같은 이미지·같은 창 키. 데모 페이지 기준 경로라 앱 루트로 바꿔 읽는다
+createScenePlate({
+  canvas: document.getElementById('scene-plate'), src: new URL(`../${config.scene.plate}`, import.meta.url).href,
+  frame: config.photoFrame, key: config.scene.key, keyMarginFrac: config.scene.keyMarginFrac,
+}).ready.then((r) => { if (!r.ok) console.warn(`[scene] ${r.error}`); });
 
 let printFlow = false;
 let printFlowTimer = null;
