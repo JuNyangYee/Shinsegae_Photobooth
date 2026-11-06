@@ -64,9 +64,9 @@ const guest = createGuestScreen({
 let sceneInfo = 'loading';
 createScenePlate({
   canvas: document.getElementById('scene-plate'), src: config.scene.plate, frame: config.photoFrame,
-  key: config.scene.key, keyMarginFrac: config.scene.keyMarginFrac,
+  key: config.scene.key, keyMarginFrac: config.scene.keyMarginFrac, layout: config.scene.layout,
 }).ready.then((r) => {
-  sceneInfo = r.ok ? `${r.width}x${r.height}, keyed rows ${r.keyed.top}-${r.keyed.top + r.keyed.height} (clear ${r.cleared}, edge ${r.edge}, rim ${r.despilled})`
+  sceneInfo = r.ok ? `${r.width}x${r.height}${r.bands ? `, bands top ${r.bands.topShift} bottom ${r.bands.bottomShift >= 0 ? '+' : ''}${r.bands.bottomShift}` : ''}, keyed rows ${r.keyed.top}-${r.keyed.top + r.keyed.height} (clear ${r.cleared}, edge ${r.edge}, rim ${r.despilled})`
     : `fallback background (${r.error})`;
   if (!r.ok) console.warn(`[scene] ${r.error}`);
 });

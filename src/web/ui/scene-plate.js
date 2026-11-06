@@ -6,6 +6,18 @@
 import { applyGreenKey } from '../core/chroma-key.js';
 import { photoFrameRows } from '../core/photo-frame.js';
 
+/**
+ * 띠 맞춤(config.scene.layout)을 원본 줄 단위로: 위 띠 원본 [0, topCut)을 topShift만큼, 아래 띠 원본 [bottomCut, height)를 bottomShift만큼 옮긴다.
+ * 비율은 장면 높이 height 기준으로 반올림한다. layout이 없으면 null(그대로 그린다). 순수 함수
+ */
+export function bandPlacement(height, layout) {
+  if (!layout) return null;
+  const r = (f) => Math.round(height * f);
+  const topCut = Math.min(height, Math.max(0, r(layout.topCut)));
+  const bottomCut = Math.min(height, Math.max(topCut, r(layout.bottomCut)));
+  return Object.freeze({ topCut, topShift: r(layout.topShift), bottomCut, bottomShift: r(layout.bottomShift) });
+}
+
 /** 장면 높이 height에서 키를 뺄 줄 범위: 사진 틀 줄 ± marginFrac (화면 안으로 자른다) */
 export function keyRows(height, frame, marginFrac) {
   const rows = photoFrameRows(height, frame);
@@ -17,23 +29,34 @@ export function keyRows(height, frame, marginFrac) {
 
 /**
  * @param {{ canvas: HTMLCanvasElement, src: string, frame: { top: number, height: number },
- *   key: { low: number, high: number }, keyMarginFrac: number, loadImage?: (src: string) => Promise<CanvasImageSource & { width: number, height: number }> }} options
+ *   key: { low: number, high: number }, keyMarginFrac: number,
+ *   layout?: { topCut: number, topShift: number, bottomCut: number, bottomShift: number } | null, loadImage?: (src: string) => Promise<CanvasImageSource & { width: number, height: number }> }} options
  * @returns {{ ready: Promise<{ ok: boolean, width?: number, height?: number, keyed?: { top: number, height: number }, cleared?: number, edge?: number, despilled?: number, error?: string }> }}
  */
-export function createScenePlate({ canvas, src, frame, key, keyMarginFrac, loadImage = defaultLoadImage }) {
+export function createScenePlate({ canvas, src, frame, key, keyMarginFrac, layout = null, loadImage = defaultLoadImage }) {
   canvas.hidden = true;
   const ready = loadImage(src).then((image) => {
     const { width, height } = image;
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    ctx.drawImage(image, 0, 0);
+    const bands = bandPlacement(height, layout);
+    if (bands) {
+      // 가운데는 그린(키로 빠진다), 위·아래 띠만 옮겨 그린다 (크기 그대로)
+      ctx.fillStyle = '#00ff00';
+      ctx.fillRect(0, 0, width, height);
+      if (bands.topCut > 0) ctx.drawImage(image, 0, 0, width, bands.topCut, 0, bands.topShift, width, bands.topCut);
+      const rest = height - bands.bottomCut;
+      if (rest > 0) ctx.drawImage(image, 0, bands.bottomCut, width, rest, 0, bands.bottomCut + bands.bottomShift, width, rest);
+    } else {
+      ctx.drawImage(image, 0, 0);
+    }
     const rows = keyRows(height, frame, keyMarginFrac);
     const pixels = ctx.getImageData(0, rows.top, width, rows.height);
     const counts = applyGreenKey(pixels.data, key, width);
     ctx.putImageData(pixels, 0, rows.top);
     canvas.hidden = false;
-    return { ok: true, width, height, keyed: rows, ...counts };
+    return { ok: true, width, height, bands, keyed: rows, ...counts };
   }).catch((error) => ({ ok: false, error: String(error?.message ?? error) }));
   return { ready };
 }

@@ -114,7 +114,7 @@ const guest = createGuestScreen({
 // 장면 (14단계): 앱과 같은 이미지·같은 창 키. 데모 페이지 기준 경로라 앱 루트로 바꿔 읽는다
 createScenePlate({
   canvas: document.getElementById('scene-plate'), src: new URL(`../${config.scene.plate}`, import.meta.url).href,
-  frame: config.photoFrame, key: config.scene.key, keyMarginFrac: config.scene.keyMarginFrac,
+  frame: config.photoFrame, key: config.scene.key, keyMarginFrac: config.scene.keyMarginFrac, layout: config.scene.layout,
 }).ready.then((r) => { if (!r.ok) console.warn(`[scene] ${r.error}`); });
 
 let printFlow = false;
