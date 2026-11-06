@@ -8,13 +8,13 @@ import {sourceFixture} from '../fixtures/filter-source.mjs';
 const source=sourceFixture(),builtin=await extractFilter(source.module,source.gallery);
 const base=normalizeEffectSettings(config.effect,config.effect).settings;
 async function setup(store={revision:0,active:null,previous:null}){
-  let current=base,bundle=null,candidate=null,allowed=true,fail='',network=0;
+  let current=base,bundle=null,candidate=null,allowed=true,fail='',network=0,waitCheck=null;
   const json=data=>({ok:true,json:async()=>structuredClone(data)});
-  const preview={getSettings:()=>current,getBundle:()=>bundle,replaceFilter(b,s){if(b?.port.strokeFns==='bad')throw Error('shader failed');bundle=b;current=s;}};
+  const preview={getSettings:()=>current,setSettings:s=>{current=s;},getBundle:()=>bundle,replaceFilter(b,s){if(b?.port.strokeFns==='bad')throw Error('shader failed');bundle=b;current=s;}};
   const fetcher=async(url,options={})=>{
     const d=options.body?JSON.parse(options.body):null;
     if(url==='/config/filter-builtin.json')return json(builtin);
-    if(url.endsWith('check')){network++;if(fail==='network')throw Error('offline');return json(source);}
+    if(url.endsWith('check')){network++;if(waitCheck)await waitCheck;if(fail==='network')throw Error('offline');if(fail==='compat')return json({...source,gallery:source.gallery.replace('function levelApply(preset) {','function levelApply(preset) { return;')});return json(source);}
     if(url.endsWith('candidate')){candidate=d;return json({id:d.meta.sha256});}
     if(options.method==='GET')return json(store);
     if(fail==='write')throw Error('disk write failed');
@@ -26,7 +26,7 @@ async function setup(store={revision:0,active:null,previous:null}){
     return json(store);
   };
   const make=()=>createFilterUpdates({preview,defaults:config.effect,initial:{settings:base,source:'file',issues:[],note:''},canChange:()=>allowed,fetcher});
-  return {u:await make(),make,preview,store,setFail:v=>{fail=v;},allow:v=>{allowed=v;},network:()=>network};
+  return {u:await make(),make,preview,store,setFail:v=>{fail=v;},allow:v=>{allowed=v;},network:()=>network,holdCheck:()=>{let release;waitCheck=new Promise(r=>release=r);return ()=>{waitCheck=null;release();};}};
 }
 test('확인은 실행판/저장판 무변경, 시험은 메모리만, 닫기 복원',async()=>{
   const x=await setup();assert.equal(x.network(),0);await x.u.check();assert.equal(x.preview.getBundle(),null);assert.equal(x.store.active,null);
@@ -61,4 +61,29 @@ test('저장판과 이전판이 모두 컴파일 실패하면 기본판으로 �
   const x=await setup({revision:5,active:entry,previous:structuredClone(entry)});
   assert.equal(x.preview.getBundle(),null);assert.equal(x.u.getInfo().unavailable,true);assert.equal(x.u.getInfo().definition,null);
   await assert.rejects(x.u.check(),/복구/);assert.equal(x.store.revision,5);
+});
+
+test('검수 P4: 확인 handler가 미저장 수치를 덮어쓰지 않는다',async()=>{
+ const x=await setup();let current={...base,strength:.9};const handler=async()=>{const next=await x.u.check(current);if(next)current=next;};
+ await handler();assert.equal(current.strength,.9);await handler();assert.equal(current.strength,.9);
+ x.setFail('network');await assert.rejects(handler(),/offline/);assert.equal(current.strength,.9);
+});
+
+test('확인 성공·실패·반복이 시험 엔진과 미저장값을 유지하고 재시험 전 적용을 막는다',async()=>{
+ const x=await setup();await x.u.check();const trial=await x.u.trial({...base,strength:.9});x.preview.setSettings(trial);const engine=x.preview.getBundle();
+ for(const failure of ['', 'network','compat','']){
+   x.setFail(failure);if(failure)await assert.rejects(x.u.check(trial));else assert.equal(await x.u.check(trial),undefined);
+   assert.equal(x.preview.getBundle(),engine);assert.equal(x.preview.getSettings().strength,.9);assert.equal(x.u.getInfo().definition,engine);assert.equal(x.u.getInfo().canApply,false);
+   assert.equal(x.u.defaults(trial).strength,.29);
+   await assert.rejects(x.u.apply(trial),/시험/);
+ }
+ const retried=await x.u.trial(trial);assert.equal(retried.strength,.9);assert.equal(x.u.getInfo().canApply,true);await x.u.apply(retried);assert.equal((await x.make()).initial.settings.strength,.9);
+});
+test('확인 중 저장·복원·기본값·중복 작업 경쟁을 거부하고 완료 후 취소 가능',async()=>{
+ const x=await setup();await x.u.check();await x.u.trial({...base,strength:.9});const release=x.holdCheck(),pending=x.u.check();
+ assert.equal(x.u.getInfo().busy,true);await assert.rejects(x.u.save(base),/시험|작업/);await assert.rejects(x.u.check(),/작업/);await assert.rejects(x.u.rollback(),/작업/);assert.throws(()=>x.u.restore(),/작업/);assert.throws(()=>x.u.defaults(base),/작업/);
+ assert.equal(x.preview.getSettings().strength,.9);release();await pending;x.u.restore();assert.deepEqual(x.preview.getSettings(),base);assert.equal(x.u.getInfo().trial,false);
+});
+test('시험하지 않은 상태의 호환 실패도 현재 미저장값을 유지',async()=>{
+ const x=await setup();const current={...base,strength:.9};x.preview.setSettings(current);x.setFail('compat');await assert.rejects(x.u.check(current),/검토 필요/);assert.equal(x.preview.getSettings(),current);
 });

@@ -4,7 +4,7 @@ import { parseStoredEffectSettings, serializeEffectSettings, effectLimits } from
 
 // 상태 변경은 한 번에 하나. 촬영 회차가 진행 중이면 시험·적용·복원을 거절한다.
 export async function createFilterUpdates({ preview, defaults, initial, canChange, fetcher = fetch }) {
-  let state={revision:0,active:null,previous:null}, candidate=null, trial=false, busy=false;
+  let state={revision:0,active:null,previous:null}, candidate=null, tested=null, trial=false, busy=false;
   let saved=initial.settings, note='', changes=[], unavailable=false;
   const builtin=validateBundle(await (await fetcher('/config/filter-builtin.json',{signal:AbortSignal.timeout(3000)})).json());
   const api=async(name,method='GET',data)=>{
@@ -60,46 +60,46 @@ export async function createFilterUpdates({ preview, defaults, initial, canChang
     try{return await fn();} finally{busy=false;}
   };
   const restore=()=>{
-    if(trial){preview.replaceFilter(state.active?.bundle??null,saved,false);trial=false;}
+    if(trial){preview.replaceFilter(state.active?.bundle??null,saved,false);trial=false;tested=null;}
     return saved;
   };
   return {
     initial,
-    getInfo:()=>({busy,trial,note,changes,candidate,unavailable,active:unavailable?null:state.active?.bundle??null,previous:state.previous,definition:unavailable?null:trial?candidate:state.active?.bundle??null}),
-    restore,
+    getInfo:()=>({busy,trial,canApply:trial&&candidate===tested,note,changes,candidate,unavailable,active:unavailable?null:state.active?.bundle??null,previous:state.previous,definition:unavailable?null:trial?tested:state.active?.bundle??null}),
+    restore:()=>{if(busy)throw Error('필터 작업 중입니다');return restore();},
     check:()=>exclusive(async()=>{
-      restore(); candidate=null; changes=[];
+      candidate=null; changes=[];
       try {
         const raw=await api('check','POST',{});
         candidate=await extractFilter(raw.module,raw.gallery,builtin);
         await api('candidate','PUT',candidate);
         changes=state.active?.bundle?bundleChanges(state.active.bundle,candidate):['유화 엔진 개선과 조절값 22개를 가져옵니다'];
         note=state.active?.bundle?.meta.sha256===candidate.meta.sha256&&state.active?.bundle?.meta.htmlSha256===candidate.meta.htmlSha256?'현재와 같은 판입니다':'후보를 받았습니다. 시험한 뒤 적용하세요';
-        return saved;
+        if(trial)note+=' · 현재 시험 화면 유지, 새 후보는 다시 시험하세요';
       } catch(e){candidate=null;note=`확인 실패 · ${e.message} · 현재판 유지`;throw e;}
     }),
     trial:settings=>exclusive(async()=>{
       if(!candidate)throw Error('먼저 업데이트를 확인하세요');
-      const next=migrateFilterValues(candidate,settings,state.active?.bundle??null);
-      preview.replaceFilter(candidate,next,true); trial=true; note='후보 시험 중 · 적용하지 않고 닫으면 저장판으로 돌아갑니다';
+      const next=migrateFilterValues(candidate,settings,trial?tested:state.active?.bundle??null);
+      preview.replaceFilter(candidate,next,true); trial=true; tested=candidate; note='후보 시험 중 · 적용하지 않고 닫으면 저장판으로 돌아갑니다';
       return next;
     }),
-    defaults:settings=>{guard();const b=trial?candidate:state.active?.bundle;if(!b)throw Error('먼저 후보를 시험하세요');return importedDefaults(b,settings);},
+    defaults:settings=>{if(busy)throw Error('필터 작업 중입니다');guard();const b=trial?tested:state.active?.bundle;if(!b)throw Error('먼저 후보를 시험하세요');return importedDefaults(b,settings);},
     apply:settings=>exclusive(async()=>{
-      if(!trial||!candidate)throw Error('먼저 후보를 시험하세요');
+      if(!trial||!candidate||tested!==candidate)throw Error('먼저 후보를 시험하세요');
       // 저장 직전에 현재 설정으로 한 번 더 GPU 시험. 저장 실패는 디스크와 화면 모두 원판으로.
       preview.replaceFilter(candidate,settings,true);
       try {
         const entry={bundle:candidate,settings:JSON.parse(serializeEffectSettings(settings))};
         state=await mutate('apply','POST',{revision:state.revision,id:candidate.meta.sha256+':'+candidate.meta.htmlSha256,settings:entry.settings,before:JSON.parse(serializeEffectSettings(saved))},entry);
-        saved=settings;trial=false;note='필터와 현재 수치를 적용·저장했습니다';return saved;
+        saved=settings;trial=false;tested=null;note='필터와 현재 수치를 적용·저장했습니다';return saved;
       } catch(e){restore();note='적용 실패 · 저장판으로 복원';throw e;}
     }),
     rollback:()=>exclusive(async()=>{
       if(!state.previous)throw Error('이전판이 없습니다');
       const before=preview.getSettings(), old=preview.getBundle(), next=decode(state.previous);
       preview.replaceFilter(state.previous.bundle,next,true);
-      try {state=await mutate('rollback','POST',{revision:state.revision},state.previous);saved=next;trial=false;note='이전판과 당시 수치를 복원했습니다';return saved;}
+      try {state=await mutate('rollback','POST',{revision:state.revision},state.previous);saved=next;trial=false;tested=null;note='이전판과 당시 수치를 복원했습니다';return saved;}
       catch(e){preview.replaceFilter(old,before,false);throw e;}
     }),
     save:async settings=>{

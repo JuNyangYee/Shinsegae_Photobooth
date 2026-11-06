@@ -32,7 +32,7 @@ export function createFilterTuning({panel,updates,getSettings,setSettings,accept
     const active=info.active?.meta.commit??'기본 제공판', candidate=info.candidate?.meta.commit;
     status.textContent=`현재 ${active}${candidate?` · 후보 ${candidate}`:''} · ${waiting?'처리 중…':error||info.note}`;
     details.textContent=info.changes.join(' · ');
-    for(const [action,button]of buttons)button.disabled=info.unavailable||waiting||info.busy||!canChange()||(action==='trial'&&!info.candidate)||(action==='apply'&&!info.trial)||(action==='rollback'&&!info.previous)||(action==='defaults'&&!b);
+    for(const [action,button]of buttons)button.disabled=info.unavailable||waiting||info.busy||!canChange()||(action==='trial'&&!info.candidate)||(action==='apply'&&!info.canApply)||(action==='rollback'&&!info.previous)||(action==='defaults'&&!b);
     // 기존 수치 UI는 이전 기본판에서만 쓴다. 새 판은 같은 값도 받은 정의로 만든다.
     for(const k of ['strength','size','boil','fps','grade','refineThreshold']){
       const input=panel.querySelector(`input[data-key="${k}"]`);if(input)input.closest('label').hidden=!!b;

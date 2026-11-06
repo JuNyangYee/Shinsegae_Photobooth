@@ -131,7 +131,7 @@ export function createEffectTuning({ panel, preview, defaults, initial, saveSett
   preview.setSettings(current);
 
   let filterUI = null;
-  if(updates) filterUI=createFilterTuning({panel,updates,getSettings:()=>current,setSettings:next=>apply(next),acceptSaved:next=>{saved=next; savedSource=SettingsSource.SAVED; savedNote='';apply(next);},canChange,onDone:()=>{if(closeAfterSave){closeAfterSave=false;setOpen(false);}}});
+  if(updates) filterUI=createFilterTuning({panel,updates,getSettings:()=>current,setSettings:next=>apply(next),acceptSaved:next=>{saved=next; savedSource=SettingsSource.SAVED; savedNote='';apply(next);},canChange:()=>canChange()&&!saving,onDone:()=>{if(closeAfterSave){closeAfterSave=false;setOpen(false);}}});
 
   function apply(next) {
     saveFailed = false;
