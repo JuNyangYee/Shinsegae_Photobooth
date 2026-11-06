@@ -3,7 +3,9 @@
 import {readFile,writeFile,rm} from 'node:fs/promises';
 import {resolve,join} from 'node:path';
 import {execFile} from 'node:child_process';
-import {extractFilter} from '../src/web/config/filter-source.js';
+import {extractFilter,validateBundle} from '../src/web/config/filter-source.js';
+import {declarationCases,brushCases,replaceOilPreset} from '../test/fixtures/filter-boundaries.mjs';
+import assert from 'node:assert/strict';
 const root=resolve(import.meta.dirname,'..');
 const sourceDir=resolve(root,process.argv[2]??'runtime/stage13-review');
 if(!sourceDir.startsWith(join(root,'runtime')+'\\'))throw Error('Use ignored runtime source directory');
@@ -61,10 +63,30 @@ const changedModule=slotChange(module),changedHtml=slotChange(gallery);
 add('supported shader slot',changedModule,changedHtml,await extractFilter(changedModule,changedHtml,baseline),200);
 const decorated=gallery.replace('<html','<!-- unrelated presentation -->\n<html');
 add('HTML surrounding presentation',module,decorated,await extractFilter(module,decorated,baseline),200);
-const path=join(sourceDir,'server-cases.json');
+const schemaCases=[];
+for(const c of declarationCases({module,gallery})) {
+  let candidate;
+  if(c.accepted)candidate=await extractFilter(c.module,c.gallery,baseline);
+  else {await assert.rejects(extractFilter(c.module,c.gallery,baseline));candidate=structuredClone(good);}
+  candidate.meta={...candidate.meta,sha256:await hash(c.module),htmlSha256:await hash(c.gallery),bytes:Buffer.byteLength(c.module)};
+  add('N1 '+c.name,c.module,c.gallery,candidate,c.accepted?200:400);cases.at(-1).sourceAccepted=c.accepted;
+}
+for(const [name,change,accepted]of brushCases){
+  const candidate=structuredClone(good);change(candidate.preset);
+  const m=replaceOilPreset(module,candidate.preset),h=replaceOilPreset(gallery,candidate.preset);
+  candidate.meta={...candidate.meta,sha256:await hash(m),htmlSha256:await hash(h),bytes:Buffer.byteLength(m)};
+  if(accepted){validateBundle(candidate);assert.deepEqual((await extractFilter(m,h,baseline)).preset,candidate.preset);}
+  else {assert.throws(()=>validateBundle(candidate));await assert.rejects(extractFilter(m,h,baseline));}
+  add('N2 '+name,m,h,candidate,accepted?200:400);cases.at(-1).sourceAccepted=accepted;
+  schemaCases.push({name,candidate,status:accepted?200:400});
+}
+const path=join(sourceDir,'server-cases.json'),schemaPath=join(sourceDir,'schema-cases.json');
 try {
   await writeFile(path,JSON.stringify(cases));
   const result=await new Promise(r=>execFile('powershell',['-NoProfile','-ExecutionPolicy','Bypass','-File',join(root,'tools/filter-source-check.ps1'),'-CasesPath',path],{cwd:root,windowsHide:true,maxBuffer:8*1024*1024},(error,stdout,stderr)=>r({code:error?.code??0,stdout,stderr})));
   console.log(result.stdout);if(result.code)throw Error(result.stderr);
-} finally { await rm(path,{force:true}); }
+  await writeFile(schemaPath,JSON.stringify(schemaCases));
+  const schema=await new Promise(r=>execFile('powershell',['-NoProfile','-ExecutionPolicy','Bypass','-File',join(root,'tools/filter-source-check.ps1'),'-CasesPath',schemaPath,'-Schema'],{cwd:root,windowsHide:true,maxBuffer:8*1024*1024},(error,stdout,stderr)=>r({code:error?.code??0,stdout,stderr})));
+  console.log(schema.stdout);if(schema.code)throw Error(schema.stderr);
+} finally { await rm(path,{force:true});await rm(schemaPath,{force:true}); }
 async function hash(text){const {createHash}=await import('node:crypto');return createHash('sha256').update(text).digest('hex');}

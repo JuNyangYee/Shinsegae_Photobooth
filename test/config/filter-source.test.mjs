@@ -1,7 +1,8 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {extractFilter} from '../../src/web/config/filter-source.js';
+import {extractFilter,validateBundle} from '../../src/web/config/filter-source.js';
 import {sourceFixture} from '../fixtures/filter-source.mjs';
+import {declarationCases,brushCases,replaceOilPreset} from '../fixtures/filter-boundaries.mjs';
 const src=sourceFixture(),base=await extractFilter(src.module,src.gallery);
 test('합성 원본에서 22개 정의와 모든 preset/layers/refine/level을 추출',async()=>{
   const b=await extractFilter(src.module,src.gallery,base);
@@ -40,4 +41,18 @@ test('검수 P3: HTML 실행규칙 변경은 보류하고 주변 표시 변경�
 
 test('HTML 후속 초기화가 적용 규칙을 덮어써도 보류',async()=>{
  await assert.rejects(extractFilter(src.module,src.gallery.replace('const CFG_TAG = "fixture";','const CFG_TAG = "fixture"; levelApply = () => {};'),base),/검토 필요/);
+});
+
+for(const c of declarationCases(src))test('N1 전체 선언 경계: '+c.name,async()=>{
+ if(c.accepted){const b=await extractFilter(c.module,c.gallery,base);assert.equal(b.controls.length,22);assert.deepEqual(b.controls,base.controls);}
+ else await assert.rejects(extractFilter(c.module,c.gallery,base));
+});
+for(const [name,change,accepted]of brushCases)test('N2 붓 schema 경계: '+name,async()=>{
+ const p=structuredClone(base.preset);change(p);const bundle={...base,preset:p};
+ if(accepted)assert.equal(validateBundle(bundle),bundle);else assert.throws(()=>validateBundle(bundle));
+ const pending=extractFilter(replaceOilPreset(src.module,p),replaceOilPreset(src.gallery,p),base);
+ if(accepted)assert.deepEqual((await pending).preset,p);else await assert.rejects(pending);
+});
+test('N2 유한값 제한: NaN·Infinity는 저장 전 거절',()=>{
+ for(const value of [NaN,Infinity,-Infinity])for(const part of ['layers','refine']){const b=structuredClone(base);if(part==='layers')b.preset.layers[0][0]=value;else b.preset.refine[4]=value;assert.throws(()=>validateBundle(b));}
 });

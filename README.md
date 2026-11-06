@@ -65,6 +65,7 @@ Chrome에서 `http://localhost:8765/`를 연다(`127.0.0.1`은 400). 종료는 �
 
 ```powershell
 npm test                                            # Node 테스트 (Node 22 이상, 설치 필요 없음)
+node tools/filter-api-check.mjs                     # 원문 검산·schema·적용/재시작/복원 HTTP (카메라 없이)
 node tools/filter-browser-check.mjs --capture       # 수동 업데이트·GPU·API·합성 촬영 검증 (확인 때 인터넷 사용)
 node tools/filter-browser-check.mjs --real --capture # 같은 검증 + 실제 카메라 (프레임 파일 저장 없음)
 npm run check:browser                               # 임시 프로필 headless Chrome으로 실제 앱 확인 (가짜 카메라)
@@ -73,7 +74,7 @@ npm run check:browser -- --soak --camera real       # 장시간 실측, 기본 1
 npm run check:browser -- --only "시험 조합|WISHFUL" --screens artifacts\wishful\screens   # 4조합·관람객 화면·데모 PNG (가짜 카메라·합성 장면, Git 제외)
 ```
 
-`check:browser`와 `filter-browser-check.mjs`는 검증 중 `config/*.local.json`에 시험 값을 썼다가 되돌리므로 **현장 키오스크가 도는 PC에서는 실행하지 않는다.** MediaPipe 라이브러리는 `lib/mediapipe/`에 커밋되어 있고, 버전을 바꿀 때만 `npm install` → `npm run vendor:mediapipe`를 쓴다([docs/SYSTEM.md](docs/SYSTEM.md) 5절 "MediaPipe 로컬 라이브러리").
+`check:browser`, `filter-browser-check.mjs`, `filter-api-check.mjs`는 검증 중 `config/*.local.json`에 시험 값을 썼다가 되돌리므로 **현장 키오스크가 도는 PC에서는 실행하지 않는다.** MediaPipe 라이브러리는 `lib/mediapipe/`에 커밋되어 있고, 버전을 바꿀 때만 `npm install` → `npm run vendor:mediapipe`를 쓴다([docs/SYSTEM.md](docs/SYSTEM.md) 5절 "MediaPipe 로컬 라이브러리").
 
 ## 문서
 
