@@ -8,7 +8,7 @@
 // 출력 단계 (6-1, settings.outputMode): 'off' 그대로, 'gray' 회색조·레벨, 'thermal' 회색조·레벨 → 인쇄 해상도로 면적 평균
 //   → 1비트 디더(문턱값은 GPU, 오차 확산은 화소를 읽어 CPU) → 캔버스(결과 크기, 종이색·잉크색). 화면 확대는 정수배 최근접 +
 //   경계 1화소만 넓이 비율로 섞는다(FS_THERMAL_SHOW, 화면 표시 전용).
-// 흑백 스타일 (7-1, settings.bwStyle): 'tone'은 6-1 그대로. 'texture'는 붓 높이 조명(FS_BW_PREP)·국소 대비를 더한 회색에 점 방식,
+// 흑백 스타일 (7-1, settings.bwStyle): 'tone'은 6-1 그대로(14단계: 감열지·유화 켬이면 질감 세기만큼 획 명암을 약하게 섞는다, 아래 TONE_OIL_*). 'texture'는 붓 높이 조명(FS_BW_PREP)·국소 대비를 더한 회색에 점 방식,
 //   'flow'·'stroke'는 회색은 'texture'와 같고 문턱을 인쇄 해상도 전체로 만든다(FS_THERMAL_SCREEN: 흐름장 LIC 또는 획 가로 삼각파).
 // 회색조 유화 (8단계, outputMode 'gray-oil'): 입력 회색조(FS_INPUT_GRAY, Rec.709) → 유화 패스 그대로 → 출력 단계 회색조·레벨(FS_OUTPUT).
 //   결과 사진(output 'pixels')이면 같은 합성 그림에서 인쇄용 1비트(6-1 톤 점 경로: 회색조·레벨 → 면적 평균 → 점 방식)도 만들어 돌려준다.
@@ -23,7 +23,7 @@
 import { filterShaders } from './filter-shaders.js';
 import { filterValues } from '../config/filter-values.js';
 import { createStrokeBuilder, resolveOilDrawing } from '../core/oil-paint.js';
-import { INPUT_LUMA, bwStyleOf, ditherErrorDiffusion, isGpuDither, printSizeFor, screenOf, thresholdMap } from '../core/thermal.js';
+import { INPUT_LUMA, bwStyleOf, ditherErrorDiffusion, isGpuDither, printSizeFor, screenOf, thresholdMap, toneOilBlend } from '../core/thermal.js';
 
 // 카메라 처리 경로 (9-1, oil-shaders.js CAMERA_INPUT): 변환·색 보정 없음
 const IDENTITY_AFFINE = Object.freeze({ x: Object.freeze([1, 0, 0]), y: Object.freeze([0, 1, 0]) });
@@ -66,6 +66,11 @@ const BW_LIC_STEPS = 10; // 흐름 선: 앞뒤로 따라가는 점 수
 // 흐름 선: LIC 평균의 표준편차 (정규 분포 누적함수로 고르게 펴는 데 쓴다). 선 간격이 넓을수록 잡음을 늘려 읽어 이웃 표본이 닮아
 // 커진다. 합성 시험 이미지 두 장에서 선 간격 2~8로 잰 값에 맞춘 식이다
 const licSigma = (lineSpacing) => 0.028 * lineSpacing ** 0.4;
+// 톤 점 × 유화 섞기 (14단계, 가안, core/thermal.js toneOilBlend = 질감 세기 b, 0~2): 회색에 질감 강조 점의 획 볼록 조명·국소 대비를
+// b × TONE_OIL_TEXTURE만큼(질감 강조 점보다 약하게) 더하고, 블루 노이즈면 문턱을 붓 결 선 b × TONE_OIL_LINE : 블루 노이즈 나머지로 섞는다
+// (FS_THERMAL_SCREEN 붓 결, 톤 보존 누적함수 그대로). 점은 여전히 고른 톤 점이고 획 방향으로 조금 모인다. 합성 장면으로 정한 값
+const TONE_OIL_TEXTURE = 0.6;
+const TONE_OIL_LINE = 0.25;
 
 // 감열지 화면 표시 색 기본값 (보통 config.thermalDisplay를 넘겨받는다)
 const DEFAULT_DISPLAY = Object.freeze({ paper: [255, 255, 255], ink: [0, 0, 0] });
@@ -397,7 +402,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
    * 감열지 출력 단계. composed(그리는 해상도) → 인쇄 해상도 Pw×Ph → (canvas면) 화면 크기 Dw×Dh로 확대.
    * canvas: 문턱값 디더는 GPU 마스크(bits)를, 오차 확산은 회색을 읽어 CPU로 디더한 마스크를 올려 FS_THERMAL_SHOW로 그린다.
    * print: 화면은 건드리지 않고 gray·mask(위 줄부터, 1바이트/점)를 돌려준다. 문턱값 디더면 mask는 화면과 같은 bits를 읽는다.
-   *   흐름 선·붓 결 선이면 점별 문턱 thr도 읽어 돌려준다(CPU가 gray ≥ thr로 다시 확인한다, 7-1).
+   *   흐름 선·붓 결 선·톤 점 × 유화(블루 노이즈, 14단계)면 점별 문턱 thr도 읽어 돌려준다(CPU가 gray ≥ thr로 다시 확인한다, 7-1).
    * 흑백 스타일(7-1)이 톤 점이 아니면 먼저 붓 높이 조명을 더한 밝기(bw, 밉)를 만들고 축소에서 국소 대비를 더한다.
    * warm: 화면도 결과도 아닌 준비만(회색조 유화 미리보기, 8단계). 인쇄 대상·문턱 지도를 만들고 축소·디더 패스를 한 번 그린다. 화소는 읽지 않는다.
    */
@@ -407,19 +412,21 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
     const screen = screenOf(settings);
     const { width: Pw, height: Ph } = printSizeFor(settings.paperDots, width, height);
     const P = usePrintTargets(Pw, Ph);
-    const texture = style === 'tone' ? 0 : settings.bwTexture ?? 0;
+    const blend = toneOilBlend(settings); // 톤 점 × 유화 섞기 (14단계). 0이면 6-1 톤 점 그대로
+    const usePrep = style !== 'tone' || blend > 0;
+    const texture = style === 'tone' ? blend * TONE_OIL_TEXTURE : settings.bwTexture ?? 0;
     let prep = T.composed;
-    if (style !== 'tone') {
+    if (usePrep) {
       if (!T.bw) T.bw = tex(width, height, { mip: true });
       pass(PR.prep, T.bw, { uImage: T.composed, uHgt: T.hgt }, { uRelief: texture * BW_RELIEF, uStep: Math.max(1, BW_RELIEF_STEP * D.pxScale) });
       prep = T.bw;
     }
     pass(PR.reduce, P.gray, { uImage: T.composed, uPrep: prep }, {
-      uScale: [width / Pw, height / Ph], uUsePrep: style === 'tone' ? 0 : 1, uLocal: texture * BW_LOCAL,
+      uScale: [width / Pw, height / Ph], uUsePrep: usePrep ? 1 : 0, uLocal: texture * BW_LOCAL,
       uLocalLod: Math.max(0, BW_LOCAL_LOD + Math.log2(D.pxScale)), ...levelUniforms(settings),
     });
     const result = { printWidth: Pw, printHeight: Ph, readMs: null, ditherMs: null, gray: null, mask: null, thr: null };
-    const lines = screen === 'flow-lines' || screen === 'stroke-lines';
+    const lines = screen === 'flow-lines' || screen === 'stroke-lines' || screen === 'stroke-tone';
     const gpu = lines || isGpuDither(screen);
     let shown = null; // 화면에 확대할 마스크 묶음
     if (gpu) {
@@ -428,7 +435,8 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
       if (lines) {
         if (!P.thr) P.thr = tex(Pw / 4, Ph, { nearest: true });
         pass(PR.screen, P.thr, { uHgt: T.hgt, uTFM: T.tfm, uBlue: thresholdTexture('blue-noise') }, {
-          uPrint: [Pw, Ph], uStyle: screen === 'stroke-lines' ? 1 : 0, uLine: settings.lineSpacing ?? 3, uMix: BW_LINE_MIX,
+          uPrint: [Pw, Ph], uStyle: screen === 'flow-lines' ? 0 : 1, uLine: settings.lineSpacing ?? 3,
+          uMix: screen === 'stroke-tone' ? 1 - blend * TONE_OIL_LINE : BW_LINE_MIX,
           uLicSigma: licSigma(settings.lineSpacing ?? 3), uSteps: BW_LIC_STEPS,
         });
         thr = P.thr;

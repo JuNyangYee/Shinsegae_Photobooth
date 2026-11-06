@@ -54,25 +54,24 @@
 :root {
   --stage-ratio-w: 9;
   --stage-ratio-h: 16;
-  /* 사진 틀 (WISHFUL 시안): 화면 높이 대비 위끝·높이 = config.photoFrame (10/64, 45/64) */
-  --frame-top-frac: 0.15625;
+  /* 사진 틀: 화면 높이 대비 위끝·높이 = config.photoFrame (14단계 8/64, 45/64) */
+  --frame-top-frac: 0.125;
   --frame-height-frac: 0.703125;
-  /* 관람객 화면 (WISHFUL HOLIDAY 시안, 가안): 키비주얼의 크리스마스 레드 · 금박 · 눈 */
+  /* 관람객 화면 (14단계 눈 마을 장면, 가안): 생성 장면의 청보라 밤빛·따뜻한 금빛·눈 */
   --font-display: 'Cinzel', 'Times New Roman', serif;
   --font-script: 'Pinyon Script', cursive;
   --font-serif: 'Noto Serif KR', serif;
   --font-sans: 'Pretendard', system-ui, sans-serif;
-  --red-deep: #4e050c; /* 카드 가장자리·창 바탕 */
-  --red-dark: #840b15;
-  --red: #b3121c; /* 카드 가운데 */
-  --red-glow: #dc2f2c; /* 표제 뒤 은은한 빛 */
+  --night: #1c1d52; /* 창 바탕·대체 배경 */
   --gold-hi: #fdf0c8;
-  --gold: #e6c47a; /* 금박 대표색: 가는 선·작은 글자 */
+  --gold: #e6c47a; /* 금빛 대표색: 가는 선 */
   --gold-lo: #a6772c;
   --gold-foil: linear-gradient(178deg, #fff6d8 0%, #f3d995 26%, #d8ad5a 48%, #b9893a 53%, #e3c27a 74%, #fbecbf 100%);
-  --cream: #fbf3e6; /* 붉은 카드 위 한국어 글자 */
-  --snow: #fffdf9; /* 결과의 눈 쌓인 띠 */
-  --ink-red: #7a0b14; /* 눈 띠 위 글자 */
+  --cream: #fbf3e6; /* 준비 중 첫 줄 */
+  --snow-ink: #2c2563; /* 눈 바닥에 새긴 한국어 글자 */
+  --snow-ink-soft: #4d3a78; /* 새긴 영어 줄 */
+  /* 새긴 홈: 아래 가장자리에 흰 빛, 위 가장자리에 그늘 */
+  --carve: 0 0.14cqw 0 rgba(255, 252, 255, 0.6), 0 -0.09cqw 0.12cqw rgba(20, 14, 64, 0.4);
   --charcoal: #1a1a1a; /* 운영자 표시 */
   --white: #f4f2ee; /* 운영자 표시·조절 영역 선 */
   --hairline: 0.0926cqw; /* 1080 폭에서 1px */
@@ -100,7 +99,7 @@ body {
   width: min(100vw, 100vh * var(--stage-ratio-w) / var(--stage-ratio-h));
   aspect-ratio: var(--stage-ratio-w) / var(--stage-ratio-h);
   overflow: hidden;
-  background: var(--red-deep);
+  background: var(--night);
   container-type: inline-size;
 }
 
@@ -131,11 +130,12 @@ body {
   display: none;
 }
 
-/* ---- 관람객 화면 (WISHFUL HOLIDAY 시안, 검토 중 — ui/guest-screen.js). 키비주얼 "A WISHFUL HOLIDAY / Puuvilla Story Begins".
-   화면 = 붉은 크리스마스 카드 한 장. 가운데 사진 창(4:5, --frame-*)이 실제로 찍히는 곳이고, 창 위 띠에 필기체 + 금박 세리프 표제
-   (카운트다운 동안은 큰 3·2·1), 창 아래 띠에 한국어 안내 + 작은 대문자 영어 줄 + 날짜·시각. 창 안에는 글자·눈송이·장식을 두지 않는다
-   (보이는 그대로 찍힌다). 눈송이는 띠 안에서만 내린다. 솜송이(흰 털뭉치)는 창 윗선에 앉아 인식·셔터·결과·준비 중에 반응한다.
-   움직임은 transform·opacity만(결과 때 표제 금박 위로 한 번 지나가는 빛만 예외), 동작 줄이기(:root[data-motion="reduce"])에서는 늘 도는 움직임을 멈춘다. ---- */
+/* ---- 관람객 화면 (14단계 눈 마을 장면, 가안 — ui/guest-screen.js·ui/scene-plate.js).
+   화면 = 생성 장면 한 장(#scene-plate, 1080x1920 기준): 위 띠(0~240) DOF 눈 마을과 위 나무 들보에 걸친 푸빌라·후트, 가운데 사진 창(240~1590, 4:5)은
+   장면의 그린을 빼서 카메라·결과가 비치고, 아래 들보·얼음벽(~1710)에 깨또·포코, 그 아래 눈 바닥(1710~1920, 화면 높이 57/64부터)에 새긴 글씨·3·2·1.
+   위 띠에는 관람객 UI(글자·숫자·진행선·표시)를 두지 않는다.
+   쌓임: 카메라·결과·준비 중 막(z 없음) < 장면(z 1) < 눈송이·글자·진행선·준비 중 글자·D 겹쳐 그리기(z 2). 창 안에는 글자·눈송이를 두지 않는다.
+   제목·날짜·시각은 없다. 움직임은 transform·opacity만, 동작 줄이기(:root[data-motion="reduce"])에서는 늘 도는 움직임을 멈춘다. ---- */
 
 .stage {
   /* 틀 위치 (화면 폭 기준 cqw). --frame-top-frac·--frame-height-frac는 main.js가 config.photoFrame으로 덮어쓴다 */
@@ -143,9 +143,13 @@ body {
   --frame-top: calc(var(--stage-h) * var(--frame-top-frac));
   --frame-h: calc(var(--stage-h) * var(--frame-height-frac));
   --frame-bottom: calc(var(--frame-top) + var(--frame-h));
+  --ground-top: calc(var(--stage-h) * 57 / 64); /* 장면의 얼음벽 아래 눈 바닥 (1920 → 1710) */
+  --band-top: calc(var(--ground-top) + 3.3333cqw); /* 글자 묶음 위끝 (1920 → 1746) */
+  --rule-top: calc(var(--stage-h) - 3.7037cqw); /* 바닥 진행선 (1920 → 1880) */
+  --rule-w: 40cqw;
   --pad: 6.6667cqw; /* 1080 폭 72px */
-  --gap: 3.7037cqw; /* 1080 폭 40px: 창 금선과 글자 사이 */
-  --rule: calc(var(--hairline) * 2);
+  --gap: 3.7037cqw; /* 1080 폭 40px */
+  --rule: calc(var(--hairline) * 3);
 }
 
 .frame,
@@ -156,22 +160,14 @@ body {
 
 .frame {
   inset: 0;
-  transition: opacity 0.5s ease;
 }
 
-/* 카드 띠: 위·아래가 한 장의 카드처럼 이어지게 같은 배경을 화면 크기로 깔고 자리만 옮긴다. 금가루는 고정, 눈은 아래 .snow */
+/* 장면을 못 읽었을 때의 대체 배경: 창 위·아래 띠에 같은 배경 사진을 화면 크기로 깔고 자리만 옮긴다 (장면이 있으면 그 아래에 가려진다) */
 .frame-margin {
   left: 0;
   right: 0;
   overflow: hidden;
-  background:
-    radial-gradient(circle at 31% 37%, rgba(255, 228, 165, 0.85) 0 0.09cqw, transparent 0.17cqw),
-    radial-gradient(circle at 73% 71%, rgba(255, 228, 165, 0.6) 0 0.07cqw, transparent 0.14cqw),
-    radial-gradient(circle at 12% 84%, rgba(255, 244, 214, 0.45) 0 0.06cqw, transparent 0.12cqw),
-    radial-gradient(64% 22% at 50% 7%, rgba(220, 47, 44, 0.75), transparent 72%),
-    radial-gradient(130% 70% at 50% 46%, var(--red) 0%, var(--red-dark) 58%, var(--red-deep) 100%);
-  background-size: 11cqw 9cqw, 17cqw 13cqw, 23cqw 19cqw, 100cqw var(--stage-h), 100cqw var(--stage-h);
-  background-repeat: repeat, repeat, repeat, no-repeat, no-repeat;
+  background: url('assets/scene/snow-village-bg.png') 0 0 / 100cqw var(--stage-h) no-repeat, var(--night);
 }
 
 .frame-margin.is-top {
@@ -182,10 +178,32 @@ body {
 .frame-margin.is-bottom {
   top: var(--frame-bottom);
   bottom: 0;
-  background-position: 0 0, 0 0, 0 0, 0 calc(-1 * var(--frame-bottom)), 0 calc(-1 * var(--frame-bottom));
+  background-position: 0 calc(-1 * var(--frame-bottom)), 0 0;
 }
 
-/* 눈송이 두 겹 (띠 안에서만). 무늬 한 칸(--tile)만큼 내려가면 처음과 같은 그림이라 끊김 없이 되풀이한다 */
+/* 장면: 9:16 전체. 창 줄의 그린은 ui/scene-plate.js가 투명하게 만든다 */
+.scene-plate {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* 장면 위에 놓이는 것 */
+.snow,
+.frame-rule,
+.band,
+.result-paper,
+.result-timer,
+.status,
+.dev-overlay,
+.pause-badge {
+  z-index: 2;
+}
+
+/* 눈송이 두 겹 (창 밖 띠에서만, 장면 위로). 무늬 한 칸(--tile)만큼 내려가면 처음과 같은 그림이라 끊김 없이 되풀이한다 */
 .snow {
   position: absolute;
   left: 0;
@@ -224,33 +242,21 @@ body {
   to { transform: translate3d(0, var(--tile), 0); }
 }
 
-/* 창 위·아래 금선. 위는 두 줄(카드의 이중 괘선), 아래 선은 카운트다운·쿨타임 진행선을 겸한다 (왼쪽에서 차오른다) */
+/* 바닥 진행선: 눈 바닥 맨 아래 가운데 짧은 홈. 카운트다운·쿨타임 동안 따뜻한 빛이 왼쪽에서 차오른다. 사람이 서면 홈이 밝아진다 */
 .frame-rule {
-  left: 0;
-  right: 0;
+  left: calc(50% - var(--rule-w) / 2);
+  width: var(--rule-w);
+  top: var(--rule-top);
   height: var(--rule);
   overflow: hidden;
-  background: rgba(230, 196, 122, 0.5);
+  border-radius: var(--rule);
+  background: rgba(47, 40, 104, 0.22);
+  box-shadow: 0 var(--hairline) 0 rgba(255, 255, 255, 0.45);
+  transition: background-color 0.6s ease;
 }
 
-.frame-rule.is-top {
-  top: calc(var(--frame-top) - var(--rule));
-  overflow: visible;
-  background: var(--gold);
-}
-
-.frame-rule.is-top::before {
-  content: '';
-  position: absolute;
-  left: var(--pad);
-  right: var(--pad);
-  top: -0.8333cqw;
-  height: var(--hairline);
-  background: linear-gradient(90deg, transparent, rgba(230, 196, 122, 0.75) 12%, rgba(230, 196, 122, 0.75) 88%, transparent);
-}
-
-.frame-rule.is-bottom {
-  top: var(--frame-bottom);
+.stage.is-present .frame-rule {
+  background: rgba(255, 244, 214, 0.7);
 }
 
 .frame-rule .rule-fill {
@@ -261,234 +267,24 @@ body {
   transform-origin: left center;
 }
 
-/* 창 네 모서리 금 표시 (창 안쪽 L자). 인식되면 또렷해지며 조금 안으로 모이고, 셔터 순간 제자리로 튄다 */
-.frame-corner {
-  width: 4.6296cqw;
-  height: 4.6296cqw;
-  border: 0 solid var(--gold);
-  opacity: 0.5;
-  transition: transform 0.7s var(--ease-set), opacity 0.6s ease;
-}
-
-.frame-corner.is-tl { left: 3.2407cqw; top: calc(var(--frame-top) + 3.2407cqw); border-width: 0.2778cqw 0 0 0.2778cqw; }
-.frame-corner.is-tr { right: 3.2407cqw; top: calc(var(--frame-top) + 3.2407cqw); border-width: 0.2778cqw 0.2778cqw 0 0; }
-.frame-corner.is-bl { left: 3.2407cqw; top: calc(var(--frame-bottom) - 7.8704cqw); border-width: 0 0 0.2778cqw 0.2778cqw; }
-.frame-corner.is-br { right: 3.2407cqw; top: calc(var(--frame-bottom) - 7.8704cqw); border-width: 0 0.2778cqw 0.2778cqw 0; }
-
-.stage.is-present .frame-corner { opacity: 1; border-color: var(--gold-hi); }
-.stage.is-present .frame-corner.is-tl { transform: translate(1.2963cqw, 1.2963cqw); }
-.stage.is-present .frame-corner.is-tr { transform: translate(-1.2963cqw, 1.2963cqw); }
-.stage.is-present .frame-corner.is-bl { transform: translate(1.2963cqw, -1.2963cqw); }
-.stage.is-present .frame-corner.is-br { transform: translate(-1.2963cqw, -1.2963cqw); }
-
-.stage[data-phase="capturing"] .frame-corner {
-  transform: none;
-  transition-duration: 0.14s, 0.3s;
-}
-
-/* 준비 중·직원 문의: 카드 창을 숨긴다 (바탕 막 위에는 표제·솜송이·날짜와 안내만) */
-.stage:has(#status-veil:not([hidden])) .frame {
-  opacity: 0;
-}
-
-/* ---- 표제: 필기체 한 줄 + 금박 세리프 두 줄 (위 띠). 금박은 줄마다 같은 그라데이션을 글자로 오린다 ---- */
-.title {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  height: var(--frame-top);
-  box-sizing: border-box;
-  padding-bottom: 2.7778cqw;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-end;
-  pointer-events: none;
-  transition: opacity 0.45s ease, transform 0.8s var(--ease-set);
-}
-
-.title p {
-  margin: 0;
-}
-
-.title .title-script {
-  position: relative;
-  z-index: 1;
-  margin-bottom: -0.6481cqw;
-  padding: 0 1.2cqw;
-  color: var(--gold-hi);
-  font: 400 6.1111cqw / 1.2 var(--font-script);
-  white-space: nowrap;
-  text-shadow: 0 0.2cqw 0.6cqw rgba(60, 0, 6, 0.55);
-}
-
-.title-main {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  font: 600 8.7963cqw / 0.98 var(--font-display);
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  filter: drop-shadow(0 0.28cqw 0.32cqw rgba(48, 0, 5, 0.5));
-}
-
-.title-line {
-  display: block;
-  padding: 0 0.1em;
-  white-space: nowrap;
-  color: transparent;
-  background-image: linear-gradient(105deg, transparent 38%, rgba(255, 255, 255, 0.95) 50%, transparent 62%), var(--gold-foil);
-  background-size: 260% 100%, 100% 100%;
-  background-position: 130% 0, 0 0;
-  background-repeat: no-repeat;
-  -webkit-background-clip: text;
-  background-clip: text;
-}
-
-/* 카운트다운·셔터: 표제가 위로 물러나 3·2·1에 자리를 내준다 */
-.stage[data-phase="countdown"] .title,
-.stage[data-phase="capturing"] .title {
-  opacity: 0;
-  transform: translateY(-2.5cqw);
-}
-
-/* 결과: 금박 위로 빛이 한 번 지나간다 (사진이 완성됐다는 신호) */
-.stage[data-phase="result"]:not([data-leaving]) .title-line {
-  animation: foil-sweep 1.8s 0.35s ease-in-out both;
-}
-
-.stage[data-phase="result"]:not([data-leaving]) .title-line + .title-line {
-  animation-delay: 0.5s;
-}
-
-@keyframes foil-sweep {
-  from { background-position: 130% 0, 0 0; }
-  to { background-position: -30% 0, 0 0; }
-}
-
-/* ---- 솜송이: 창 윗선 오른쪽에 앉은 흰 털뭉치 (SVG, 장식) ---- */
-.puff {
-  position: absolute;
-  right: 4.6296cqw;
-  top: calc(var(--frame-top) - 16.6667cqw); /* 상자 아래끝 = 창 윗선 (장식이 창 안으로 들어가지 않게) */
-  width: 16.6667cqw;
-  height: 16.6667cqw;
-  overflow: visible;
-  pointer-events: none;
-  filter: drop-shadow(0 0.7cqw 0.7cqw rgba(48, 0, 6, 0.38));
-}
-
-.puff * {
-  transform-box: fill-box;
-  transform-origin: center;
-}
-
-.puff-bob {
-  animation: puff-float 4.6s ease-in-out infinite alternate;
-}
-
-@keyframes puff-float {
-  from { transform: translateY(0); }
-  to { transform: translateY(-4px); }
-}
-
-.puff .puff-squish {
-  transform-origin: 50% 100%;
-  transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.puff-face {
-  transition: transform 0.7s var(--ease-set);
-}
-
-.puff-eyes-open {
-  animation: puff-blink 5.2s infinite;
-}
-
-@keyframes puff-blink {
-  0%, 94%, 100% { transform: scaleY(1); }
-  96% { transform: scaleY(0.12); }
-}
-
-.puff-eyes-happy,
-.puff-eyes-sleep {
-  opacity: 0;
-}
-
-/* 사람이 서면 창 쪽(왼쪽 아래)을 내려다본다 */
-.stage.is-present .puff-face {
-  transform: translate(-5px, 4px);
-}
-
-/* 셔터: 움찔 */
-.stage[data-phase="capturing"] .puff-squish {
-  transform: scale(1.1, 0.88);
-}
-
-/* 결과: 눈웃음 */
-.stage[data-phase="result"]:not([data-leaving]) .puff-eyes-open { opacity: 0; animation: none; }
-.stage[data-phase="result"]:not([data-leaving]) .puff-eyes-happy { opacity: 1; }
-
-/* 준비 중·직원 문의: 잠든다 (천천히 숨 쉰다) */
-.stage:has(#status-veil:not([hidden])) .puff-eyes-open { opacity: 0; animation: none; }
-.stage:has(#status-veil:not([hidden])) .puff-eyes-sleep { opacity: 1; }
-.stage:has(#status-veil:not([hidden])) .puff-bob { animation-duration: 3.2s; }
-.stage:has(#status-veil:not([hidden])) .puff-face { transform: none; }
-
-/* ---- 날짜·시각: 아래 띠 맨 아래 한 줄 (왼쪽 날짜·요일, 오른쪽 시각) ---- */
-.masthead {
-  position: absolute;
-  left: var(--pad);
-  right: var(--pad);
-  bottom: 2.7778cqw;
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  color: rgba(230, 196, 122, 0.82);
-  font: 500 1.8519cqw / 1 var(--font-sans);
-  letter-spacing: 0.2em;
-  font-variant-numeric: tabular-nums;
-  pointer-events: none;
-  transition: color 0.8s ease;
-}
-
-.masthead p {
-  display: flex;
-  margin: 0 0 -0.1em;
-  padding-bottom: 0.1em;
-  white-space: nowrap;
-}
-
-.masthead-day {
-  margin-left: 1.1em;
-  opacity: 0.7;
-}
-
-/* 시각은 한 글자씩: 바뀐 숫자만 아래에서 올라온다 (ui/guest-screen.js) */
-.masthead-time {
-  overflow: hidden;
-}
-
-.masthead-time > span {
-  display: inline-block;
-}
-
-/* 결과 동안은 눈 쌓인 띠 위라 붉은 먹색. 걷히기 시작하면(data-leaving) 다시 금색으로 */
-.stage[data-phase="result"]:not([data-leaving]) .masthead {
-  color: rgba(122, 11, 20, 0.72);
-}
-
-/* ---- 아래 띠의 글자 묶음 (대기·카운트다운 안내·쿨타임·결과 문구). 가운데 맞춤, 같은 자리에서 바뀐다 ---- */
+/* ---- 눈 바닥의 글자 묶음 (대기·카운트다운 안내·쿨타임·결과 문구). 가운데 맞춤, 같은 자리에서 바뀐다.
+   눈에 새긴 글씨: 짙은 남보라 글자 + 아래쪽 흰 빛(홈 가장자리) + 위쪽 그늘, 바닥 원근으로 살짝 눕힌다 ---- */
 .band {
   position: absolute;
   left: var(--pad);
   right: var(--pad);
-  top: calc(var(--frame-bottom) + var(--rule) + var(--gap));
+  top: var(--band-top);
   margin: 0;
-  color: var(--cream);
+  color: var(--snow-ink);
   text-align: center;
   pointer-events: none;
+}
+
+.guide,
+.notice,
+.result-note {
+  transform: perspective(90cqw) rotateX(24deg);
+  transform-origin: 50% 0;
 }
 
 /* 한 줄 = 글자가 드나드는 창. 글자는 창 아래에서 올라와 자리 잡고(짜 넣기) 위로 빠진다. 받침·영어 꼬리가 잘리지 않게 아래를 조금 넓힌다 */
@@ -502,63 +298,38 @@ body {
 .line > span {
   display: block;
   white-space: nowrap;
+  text-shadow: var(--carve);
 }
 
 .line.is-ko {
-  font: 400 5.7407cqw / 1.24 var(--font-sans);
-  letter-spacing: -0.02em;
+  font: 500 5.1852cqw / 1.24 var(--font-sans);
+  letter-spacing: -0.01em;
   word-break: keep-all;
 }
 
-/* 영어 줄: Cinzel의 소문자는 작은 대문자라 문장이 금박 각인처럼 보인다 */
+/* 영어 줄: Cinzel의 소문자는 작은 대문자라 새긴 글자처럼 보인다 */
 .line.is-en {
   margin-top: 1.2963cqw;
-  color: var(--gold);
-  font: 400 2.5926cqw / 1.4 var(--font-display);
-  letter-spacing: 0.22em;
+  color: var(--snow-ink-soft);
+  font: 400 2.4074cqw / 1.4 var(--font-display);
+  letter-spacing: 0.2em;
 }
 
 .line.is-ko + .line.is-en {
-  margin-top: 1.6667cqw;
-}
-
-/* 대기: 오른쪽에 바닥(발자국 매트) 쪽을 가리키는 금선, 그 안에서 빛이 천천히 흘러내린다 */
-.floor-cue {
-  position: absolute;
-  top: 0.9259cqw;
-  right: -2.7778cqw;
-  width: var(--rule);
-  height: 13.8889cqw;
-  overflow: hidden;
-  background: rgba(230, 196, 122, 0.22);
-}
-
-.floor-cue::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(transparent, var(--gold-hi));
-  transform: translateY(-100%);
-  animation: floor-drip 2.8s cubic-bezier(0.65, 0, 0.35, 1) infinite;
-}
-
-@keyframes floor-drip {
-  0% { transform: translateY(-100%); }
-  55% { transform: translateY(0); }
-  100% { transform: translateY(100%); }
+  margin-top: 1.4815cqw;
 }
 
 /* 쿨타임: 조용한 한 단계 작은 줄 */
 .notice .line.is-ko {
-  color: rgba(251, 243, 230, 0.86);
-  font-size: 4.6296cqw;
+  font-size: 4.4444cqw;
 }
 
 .notice .line.is-en {
-  font-size: 2.3148cqw;
+  font-size: 2.2222cqw;
 }
 
-/* ---- 3·2·1: 큰 금박 숫자는 위 띠 가운데(카메라 가까이, 시선이 위로), 안내 줄은 아래 띠. 숫자는 한 칸 창 안에서 위로 넘어간다 ---- */
+/* ---- 3·2·1: 눈 바닥 가운데에 크게 새긴 숫자 (위 띠에는 관람객 UI를 두지 않는다). 대기 안내와 같은 자리라 숫자 동안은 안내 줄을 숨긴다
+   (안내 문구 요소는 그대로 두고 보이지만 않는다). 숫자는 한 칸 창 안에서 위로 넘어간다. 새긴 홈 = 짙은 남보라 + 아래 흰 빛·위 그늘 ---- */
 .band.countdown {
   left: 0;
   right: 0;
@@ -570,22 +341,21 @@ body {
   position: absolute;
   left: 0;
   right: 0;
-  top: calc(var(--frame-top) / 2 - 0.47em);
+  top: calc(var(--ground-top) + 1.1111cqw);
   height: 0.94em;
   margin: 0;
   overflow: hidden;
-  font: 400 24.0741cqw / 0.94 var(--font-display);
+  color: var(--snow-ink);
+  font: 600 15.7407cqw / 0.94 var(--font-display);
   font-variant-numeric: lining-nums tabular-nums;
   text-align: center;
-  filter: drop-shadow(0 0.4cqw 0.5cqw rgba(48, 0, 5, 0.55));
+  transform: perspective(90cqw) rotateX(24deg);
+  transform-origin: 50% 0;
 }
 
 .countdown-glyph {
   display: block;
-  color: transparent;
-  background: var(--gold-foil);
-  -webkit-background-clip: text;
-  background-clip: text;
+  text-shadow: 0 0.28cqw 0 rgba(255, 252, 255, 0.6), 0 -0.18cqw 0.24cqw rgba(20, 14, 64, 0.45);
 }
 
 .countdown-glyph.is-ghost {
@@ -596,13 +366,10 @@ body {
 }
 
 .countdown-caption {
-  position: absolute;
-  left: var(--pad);
-  right: var(--pad);
-  top: calc(var(--frame-bottom) + var(--rule) + var(--gap));
+  display: none;
 }
 
-/* 촬영 순간: 사진 창 안에만 짧은 따뜻한 빛. ui/guest-screen.js가 투명도를 짧게 움직인다 */
+/* 촬영 순간: 사진 창 안에만 짧은 따뜻한 빛 (장면 아래라 캐릭터는 그대로). ui/guest-screen.js가 투명도를 짧게 움직인다 */
 .flash {
   position: absolute;
   left: 0;
@@ -614,28 +381,22 @@ body {
   pointer-events: none;
 }
 
-/* ---- 결과: 사진은 창 자리 그대로 (화면 폭 = 사진 폭. 1080 화면 1:1, 4K 2:1 정수 배율), 아래 띠가 눈 쌓인 카드 끝으로 덮인다.
+/* ---- 결과: 사진은 창 자리 그대로 (화면 폭 = 사진 폭. 1080 화면 1:1, 4K 2:1 정수 배율), 장면의 창틀·캐릭터가 그 위에 그대로 걸친다.
    사진은 틀로 자른 1080x1350이다. 자르지 못한 9:16 사진이 와도 object-position이 같은 줄을 보이게 한다 (top ÷ (1 − height)).
-   카드 창(.frame)은 이 아래에 그대로 있어, 결과가 걷히면 붉은 띠·금선이 바로 드러난다 ---- */
+   눈 바닥 문구 뒤에 따뜻한 빛(#result-paper)이 번지고, 바닥 진행선 자리에서 남은 시간이 줄어든다 ---- */
 .result-view {
   position: absolute;
   inset: 0;
-  color: var(--ink-red);
 }
 
 .result-paper {
   position: absolute;
   left: 0;
   right: 0;
-  top: var(--frame-bottom);
+  top: var(--ground-top);
   bottom: 0;
-  background:
-    radial-gradient(circle at 22% 30%, rgba(201, 164, 98, 0.5) 0 0.08cqw, transparent 0.15cqw),
-    radial-gradient(circle at 71% 64%, rgba(201, 164, 98, 0.4) 0 0.07cqw, transparent 0.13cqw),
-    radial-gradient(55% 90% at 18% 0%, #ffffff, transparent 70%),
-    radial-gradient(55% 90% at 82% 6%, #ffffff, transparent 70%),
-    linear-gradient(180deg, var(--snow), #f1e8dc);
-  background-size: 13cqw 11cqw, 19cqw 15cqw, auto, auto, auto;
+  background: radial-gradient(42% 60% at 50% 48%, rgba(255, 236, 200, 0.5), transparent 75%);
+  pointer-events: none;
 }
 
 .result-card {
@@ -649,7 +410,7 @@ body {
 .result-photo {
   width: 100%;
   height: 100%;
-  background: var(--red-deep);
+  background: var(--night);
 }
 
 .result {
@@ -660,23 +421,15 @@ body {
   object-position: 50% calc(var(--frame-top-frac) / (1 - var(--frame-height-frac)) * 100%);
 }
 
-.result-note {
-  color: var(--ink-red);
-}
-
-.result-note .line.is-en {
-  color: var(--gold-lo);
-}
-
-/* 남은 시간: 창 바로 아래 금선이 오른쪽에서 줄어든다 (카운트다운 진행선과 같은 자리) */
 .result-timer {
   position: absolute;
-  left: 0;
-  right: 0;
-  top: var(--frame-bottom);
-  height: calc(var(--rule) * 1.5);
+  left: calc(50% - var(--rule-w) / 2);
+  width: var(--rule-w);
+  top: var(--rule-top);
+  height: var(--rule);
   overflow: hidden;
-  background: rgba(166, 119, 44, 0.2);
+  border-radius: var(--rule);
+  background: rgba(47, 40, 104, 0.22);
 }
 
 .result-timer-fill {
@@ -686,14 +439,14 @@ body {
   transform-origin: left center;
 }
 
-/* ---- 준비 중·직원 문의: 깊은 붉은 막 위, 창 자리 가운데에 세리프 첫 줄과 산세리프 둘째 줄. 위 금선 장식이 준비 중이면 숨 쉬고,
-   직원 문의면 멈춰 있다 (기다려도 풀리지 않는다는 뜻). 표제·솜송이(잠듦)·날짜는 막 위에 그대로 ---- */
+/* ---- 준비 중·직원 문의: 사진 창 자리에 깊은 밤빛 막(장면 아래라 창틀·캐릭터는 그대로), 창 가운데에 세리프 첫 줄과 산세리프 둘째 줄.
+   위 가는 빛이 준비 중이면 숨 쉬고, 직원 문의면 멈춰 있다 (기다려도 풀리지 않는다는 뜻) ---- */
 .status-veil {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(64% 22% at 50% 7%, rgba(220, 47, 44, 0.55), transparent 72%),
-    radial-gradient(120% 75% at 50% 45%, #8e0d17 0%, #5a0710 65%, #33030a 100%);
+    radial-gradient(70% 30% at 50% 20%, rgba(120, 110, 200, 0.45), transparent 72%),
+    radial-gradient(120% 75% at 50% 45%, #2c2f78 0%, #1c1d52 65%, #100f33 100%);
 }
 
 .status {
@@ -702,7 +455,7 @@ body {
   right: var(--pad);
   top: calc(var(--frame-top) + var(--frame-h) * 0.4);
   margin: 0;
-  color: rgba(230, 196, 122, 0.88);
+  color: rgba(240, 222, 186, 0.9);
   font: 400 3.5185cqw / 1.75 var(--font-sans);
   letter-spacing: 0.01em;
   text-align: center;
@@ -739,37 +492,10 @@ body {
 }
 
 /* 동작 줄이기 (main.js가 prefers-reduced-motion을 :root[data-motion]으로 옮긴다. 데모는 검토용으로 바꿀 수 있다):
-   늘 도는 움직임(눈·솜송이·바닥 쪽 선·준비 중 선)과 위치 전환을 멈춘다. 정보가 되는 진행선(카운트다운·결과·쿨타임)은 그대로 둔다 */
+   늘 도는 움직임(눈송이·준비 중 선)을 멈춘다. 정보가 되는 진행선(카운트다운·결과·쿨타임)은 그대로 둔다 */
 :root[data-motion="reduce"] .snow,
-:root[data-motion="reduce"] .puff-bob,
-:root[data-motion="reduce"] .puff-eyes-open,
 :root[data-motion="reduce"] .status::before {
   animation: none;
-}
-
-:root[data-motion="reduce"] .floor-cue::before {
-  animation: none;
-  transform: none;
-  opacity: 0.6;
-}
-
-:root[data-motion="reduce"] .stage .title-line {
-  animation: none;
-}
-
-:root[data-motion="reduce"] .frame-corner,
-:root[data-motion="reduce"] .stage.is-present .frame-corner,
-:root[data-motion="reduce"] .puff-face,
-:root[data-motion="reduce"] .stage.is-present .puff-face,
-:root[data-motion="reduce"] .puff .puff-squish,
-:root[data-motion="reduce"] .stage[data-phase="capturing"] .puff-squish {
-  transform: none;
-  transition: opacity 0.3s ease;
-}
-
-:root[data-motion="reduce"] .stage .title {
-  transform: none;
-  transition: opacity 0.3s ease;
 }
 
 /* 개발용 감지 박스·영역 겹쳐 그리기 (D 키). 9:16 영역 좌표 그대로 그린다 (이미 반전 후 좌표). */
@@ -866,11 +592,11 @@ body:has(#operator-panel:not([hidden]) #tuning-panel:not([hidden])) .dev-info {
 .dev-row.is-error { border-left-color: var(--op-error); background: rgba(229, 139, 128, 0.12); }
 .dev-row.is-error .dev-val { color: var(--op-error); }
 
-/* 운영자 표시: 자동 촬영 일시정지(P). 관람객이 봐도 거슬리지 않게 위 여백 오른쪽 위에 작게 (가안, 머리 시각 위) */
+/* 운영자 표시: 자동 촬영 일시정지(P). 관람객이 봐도 거슬리지 않게 눈 바닥 오른쪽 아래에 작게 (가안. 위 두 모서리는 캐릭터 자리) */
 .pause-badge {
   position: absolute;
-  top: 2.7778cqw;
-  left: 3.7037cqw; /* WISHFUL: 오른쪽 위는 표제·솜송이 자리라 왼쪽 위 */
+  bottom: 2.7778cqw;
+  right: 3.7037cqw;
   display: flex;
   align-items: center;
   gap: 0.6em;

@@ -7,7 +7,7 @@ import { deflateSync, inflateSync } from 'node:zlib';
 import {
   INPUT_LUMA, applyLevels, bayerRanks, blueNoiseRanks, bwStyleOf, crc32, dither, ditherErrorDiffusion, ditherThreshold, ditherWithThresholds,
   encodeOneBitPng, grayLevelsInPlace, inputGrayInPlace, inputGrayOf, isGpuDither, levelOf, maskToRgba, packPrintBits, printSizeFor, readPngHeader, reduceToPrintGray,
-  screenOf, sharpAxis, thresholdMap, upscaleSharp,
+  screenOf, sharpAxis, thresholdMap, toneOilBlend, upscaleSharp,
 } from '../../src/web/core/thermal.js';
 
 const NEUTRAL = { brightness: 0, contrast: 1, gamma: 1 };
@@ -297,6 +297,16 @@ describe('흑백 스타일 (7-1)', () => {
     assert.equal(screenOf({ bwStyle: 'texture', dither: 'floyd-steinberg' }), 'floyd-steinberg');
     assert.equal(screenOf({ bwStyle: 'flow', dither: 'atkinson' }), 'flow-lines');
     assert.equal(screenOf({ bwStyle: 'stroke', dither: 'bayer' }), 'stroke-lines');
+    // 톤 점 × 유화 (14단계): 감열지·유화 켬·톤 점이면 질감 세기(0~2)만큼 섞는다. 블루 노이즈면 붓 결 섞은 점별 문턱
+    const tone = { outputMode: 'thermal', bwStyle: 'tone', bwTexture: 1, dither: 'blue-noise' };
+    assert.equal(toneOilBlend(tone), 1);
+    assert.equal(screenOf(tone), 'stroke-tone');
+    assert.equal(screenOf({ ...tone, dither: 'bayer' }), 'bayer');
+    assert.equal(toneOilBlend({ ...tone, bwTexture: 5 }), 2);
+    for (const off of [{ bwTexture: 0 }, { oil: false }, { outputMode: 'gray-oil' }, { bwStyle: 'texture' }]) {
+      assert.equal(toneOilBlend({ ...tone, ...off }), 0, JSON.stringify(off));
+    }
+    assert.equal(screenOf({ ...tone, bwTexture: 0 }), 'blue-noise', '0이면 6-1 톤 점');
   });
 
   it('점별 문턱 디더: g >= t면 흰 점 (알려진 작은 입력), 문턱 255·회색 255는 흰 점, 문턱 1·회색 0은 검은 점, 같은 입력이면 같은 결과', () => {

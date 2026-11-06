@@ -31,7 +31,7 @@ import { resultSizeFor } from '../core/oil-paint.js';
 import { cropRows, isFullFrame, photoFrameRows } from '../core/photo-frame.js';
 import {
   bwStyleOf, dither, ditherThreshold, ditherWithThresholds, encodeOneBitPng, grayLevelsInPlace, inputGrayInPlace, isGpuDither,
-  packPrintBits, printSizeFor, readPngHeader, reduceToPrintGray, screenOf, thresholdMap, upscaleSharp,
+  packPrintBits, printSizeFor, readPngHeader, reduceToPrintGray, screenOf, thresholdMap, toneOilBlend, upscaleSharp,
 } from '../core/thermal.js';
 import { createImprintPage } from './imprint-page.js';
 
@@ -204,7 +204,7 @@ export function createPhotoEffect({
         const { width: Pw, height: Ph } = printSizeFor(settings.paperDots, size.width, size.height);
         const gray = reduceToPrintGray(readRgba(canvas), canvas.width, canvas.height, Pw, Ph, settings);
         const out = await thermalResult(dither(gray, Pw, Ph, settings.dither), Pw, Ph, size.width, size.height, signal, takenAt);
-        const style = bwStyleOf(settings) === 'tone' ? '' : ` (style ${bwStyleOf(settings)} -> tone)`;
+        const style = bwStyleOf(settings) !== 'tone' ? ` (style ${bwStyleOf(settings)} -> tone)` : toneOilBlend(settings) > 0 ? ' (tone oil blend -> tone)' : '';
         last = { status: 'raw', mode, reason: `${reason}${style}`, width: Pw, height: Ph, dither: settings.dither, print: describePrint(out.print), ms: now() - t0 };
         return out;
       }
@@ -308,8 +308,8 @@ export function createPhotoEffect({
 
     // 감열지: 화면에 보이던 점 그림(GPU 디더면 GPU가 만든 마스크)이 정본이다
     const { mask, printWidth: Pw, printHeight: Ph } = still;
-    const method = screenOf(still.settings); // 점 방식, 또는 흐름 선·붓 결 선 (7-1)
-    // 흐름 선·붓 결 선은 GPU가 만든 점별 문턱(thr)으로 비교만 다시 한다(문턱 자체는 획·흐름장에서 GPU로만 만든다)
+    const method = screenOf(still.settings); // 점 방식, 또는 흐름 선·붓 결 선 (7-1)·톤 점 × 유화 (14단계)
+    // 흐름 선·붓 결 선·톤 점 × 유화는 GPU가 만든 점별 문턱(thr)으로 비교만 다시 한다(문턱 자체는 획·흐름장에서 GPU로만 만든다)
     const check = checkGpuDither(still, method, 'thermal');
     try {
       const out = await thermalResult(mask, Pw, Ph, still.width, still.height, signal, takenAt);

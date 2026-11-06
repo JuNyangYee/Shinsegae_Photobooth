@@ -58,7 +58,8 @@ const OIL_KEYS = new Set(['strength', 'size', 'boil', 'grade', 'refineThreshold'
 
 /**
  * 이 값들에서 쓰지 않는 항목인지 (막는다): 감열지가 아니면 흑백 스타일 항목, 회색조·끔이면 점 방식·용지 폭도.
- * 감열지에서는 톤 점이면 질감 세기, 선 스타일이 아니면 선 간격, 선 스타일이면 점 방식
+ * 감열지에서는 선 스타일이 아니면 선 간격(톤 점 × 블루 노이즈는 붓 결을 섞어 쓴다, 14단계), 선 스타일이면 점 방식.
+ * 질감 세기는 톤 점에서도 쓴다(14단계: 획 명암을 약하게 섞는 세기, 0이면 6-1 톤 점)
  */
 export function isUnusedTunable(key, values) {
   const mode = values.outputMode;
@@ -66,8 +67,7 @@ export function isUnusedTunable(key, values) {
   if (!oil && (OIL_KEYS.has(key) || BW_STYLE_KEYS.has(key))) return true; // 유화 끔: 획이 없어 흑백 스타일도 톤 점
   if (BW_STYLE_KEYS.has(key) && mode !== 'thermal') return true;
   if (PRINT_KEYS.has(key) && mode !== 'thermal' && mode !== 'gray-oil') return true;
-  if (key === 'bwTexture') return values.bwStyle === 'tone';
-  if (key === 'lineSpacing') return !LINE_STYLES.has(values.bwStyle);
+  if (key === 'lineSpacing') return !LINE_STYLES.has(values.bwStyle) && !(values.bwStyle === 'tone' && values.dither === 'blue-noise');
   if (key === 'dither') return mode === 'thermal' && oil && LINE_STYLES.has(values.bwStyle);
   return false;
 }

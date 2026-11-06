@@ -26,24 +26,21 @@
     <!-- 사진 효과 미리보기 (유화 · 획). 영상 위를 덮는다. 효과를 쓸 수 없으면 숨기고 원본 미리보기를 보인다. -->
     <canvas id="effect" class="effect" hidden></canvas>
 
-    <!-- ---- 관람객 화면 (WISHFUL HOLIDAY 시안, 검토 중 — ui/guest-screen.js). 문구는 config/guest-text.js.
-         화면 = 붉은 크리스마스 카드 한 장. 가운데 사진 창(4:5, config.photoFrame)이 실제로 찍히는 곳이고, 창 위·아래 카드 띠에
-         금박 표제·3·2·1·안내를 둔다. 창 안에는 글자·눈송이를 두지 않는다(보이는 그대로 찍힌다) ---- -->
-    <!-- 카드: 창 위·아래 붉은 띠(눈송이 두 겹), 창 위·아래 금선(아래 선은 카운트다운·쿨타임 진행선), 창 네 모서리 금 표시(인식되면 또렷하게 안으로) -->
+    <!-- ---- 관람객 화면 (14단계 눈 마을 장면, 가안 — ui/guest-screen.js·ui/scene-plate.js). 문구는 config/guest-text.js.
+         화면 = 생성 장면 한 장(#scene-plate): 위 DOF 눈 마을, 나무 창틀 두 들보, 그 위·앞의 캐릭터, 아래 얼음벽과 눈 바닥.
+         가운데 사진 창(4:5, config.photoFrame)만 단색 그린을 브라우저에서 빼서 카메라·결과가 보인다. 캐릭터가 창에 걸친 부분은 그대로 덮는다
+         (화면 장식일 뿐 사진·인쇄 데이터에는 없다). 안내 글과 3·2·1은 눈 바닥에 새긴 글씨 (위 띠에는 관람객 UI 없음) ---- -->
+    <!-- 대체 배경과 눈송이: 장면 이미지를 못 읽으면 창 밖 띠에 배경 사진(snow-village-bg)이 보인다. 눈송이는 장면 위로 내린다.
+         바닥 진행선 = 카운트다운·쿨타임 진행 (왼쪽에서 차오른다) -->
     <div class="frame" aria-hidden="true">
       <div class="frame-margin is-top"><span class="snow is-far"></span><span class="snow is-near"></span></div>
       <div class="frame-margin is-bottom"><span class="snow is-far"></span><span class="snow is-near"></span></div>
-      <div class="frame-rule is-top"></div>
       <div class="frame-rule is-bottom">
         <span id="countdown-progress-fill" class="rule-fill countdown-progress-fill"></span>
         <span id="cooldown-progress-fill" class="rule-fill cooldown-progress-fill"></span>
       </div>
-      <span class="frame-corner is-tl"></span>
-      <span class="frame-corner is-tr"></span>
-      <span class="frame-corner is-bl"></span>
-      <span class="frame-corner is-br"></span>
     </div>
-    <!-- 결과: 사진은 창 자리 그대로(셔터 순간 그림이 멈춘 것처럼), 아래 띠가 눈 쌓인 카드 끝으로 덮이고 문구, 창 아래 금선이 남은 시간 -->
+    <!-- 결과: 사진은 창 자리 그대로(셔터 순간 그림이 멈춘 것처럼), 눈 바닥에 문구, 바닥 진행선이 남은 시간 -->
     <div id="result-view" class="result-view" hidden>
       <div id="result-paper" class="result-paper" aria-hidden="true"></div>
       <div id="result-card" class="result-card">
@@ -52,68 +49,18 @@
       <div id="result-note" class="band result-note"></div>
       <div id="result-timer" class="result-timer"><span id="result-timer-fill" class="result-timer-fill"></span></div>
     </div>
-    <!-- 준비 중·직원 문의의 바탕 막 (안내 글자는 아래 #status). 표제·솜송이는 이 위에 남는다 -->
+    <!-- 준비 중·직원 문의의 바탕 막 (창 자리, 안내 글자는 아래 #status). 장면·캐릭터는 이 위에 남는다 -->
     <div id="status-veil" class="status-veil" hidden></div>
-    <!-- 표제 (캠페인 타이포): 필기체 한 줄 + 금박 세리프 두 줄. 카운트다운 동안은 3·2·1에 자리를 내준다 -->
-    <div class="title" aria-hidden="true">
-      <p class="title-script">Puuvilla Story Begins</p>
-      <p class="title-main"><span class="title-line">A Wishful</span><span class="title-line">Holiday</span></p>
-    </div>
-    <!-- 솜송이: 창 윗선에 앉아 있다. 사람이 서면 내려다보고, 셔터에 움찔하고, 결과에 눈웃음, 준비 중에는 잔다 (CSS, 장식) -->
-    <svg class="puff" viewBox="-64 -64 128 128" aria-hidden="true" focusable="false">
-      <defs>
-        <filter id="puff-fur" x="-35%" y="-35%" width="170%" height="170%">
-          <feTurbulence type="fractalNoise" baseFrequency="0.11" numOctaves="3" seed="11" result="fur"/>
-          <feDisplacementMap in="SourceGraphic" in2="fur" scale="15" xChannelSelector="R" yChannelSelector="G"/>
-        </filter>
-        <filter id="puff-wisp" x="-40%" y="-40%" width="180%" height="180%">
-          <feTurbulence type="fractalNoise" baseFrequency="0.2" numOctaves="2" seed="4" result="fur"/>
-          <feDisplacementMap in="SourceGraphic" in2="fur" scale="22" xChannelSelector="R" yChannelSelector="G" result="d"/>
-          <feGaussianBlur in="d" stdDeviation="1.2"/>
-        </filter>
-        <radialGradient id="puff-shade" cx="42%" cy="34%" r="72%">
-          <stop offset="0" stop-color="#ffffff"/>
-          <stop offset="0.62" stop-color="#f7f3f0"/>
-          <stop offset="1" stop-color="#d8cdca"/>
-        </radialGradient>
-      </defs>
-      <g class="puff-bob">
-        <g class="puff-squish">
-          <circle class="puff-halo" r="47" fill="#ffffff" opacity="0.55" filter="url(#puff-wisp)"/>
-          <circle class="puff-body" r="43" fill="url(#puff-shade)" filter="url(#puff-fur)"/>
-          <g class="puff-face">
-            <ellipse class="puff-blush" cx="-23" cy="12" rx="7" ry="3.6" fill="#f2a9ad" opacity="0.55"/>
-            <ellipse class="puff-blush" cx="23" cy="12" rx="7" ry="3.6" fill="#f2a9ad" opacity="0.55"/>
-            <g class="puff-eyes-open" fill="#17110f">
-              <ellipse cx="-15" cy="1" rx="3.3" ry="4.1"/>
-              <ellipse cx="15" cy="1" rx="3.3" ry="4.1"/>
-            </g>
-            <g class="puff-eyes-happy" fill="none" stroke="#17110f" stroke-width="2.6" stroke-linecap="round">
-              <path d="M-20 2 Q-15 -4 -10 2"/>
-              <path d="M10 2 Q15 -4 20 2"/>
-            </g>
-            <g class="puff-eyes-sleep" fill="none" stroke="#17110f" stroke-width="2.4" stroke-linecap="round">
-              <path d="M-20 1 Q-15 5 -10 1"/>
-              <path d="M10 1 Q15 5 20 1"/>
-            </g>
-            <path class="puff-nose" d="M0 15.5 C-1.2 13.7 -5.6 11.4 -5.4 8.3 C-5.2 6 -2.4 5.2 0 7.4 C2.4 5.2 5.2 6 5.4 8.3 C5.6 11.4 1.2 13.7 0 15.5 Z" fill="#17110f"/>
-          </g>
-        </g>
-      </g>
-    </svg>
-    <!-- 날짜·시각 (아래 띠 맨 아래 한 줄). 셔터 순간 시각에 멈추고, 결과 동안 그 사진의 촬영 시각(= 인쇄 쪽 꼬리)을 보인다 -->
-    <div class="masthead" aria-hidden="true">
-      <p class="masthead-date"><span id="masthead-date"></span><span id="masthead-day" class="masthead-day"></span></p>
-      <p id="masthead-time" class="masthead-time"></p>
-    </div>
-    <!-- 대기 안내 (아래 띠: 한국어 큰 줄, 영어 작은 대문자 줄, 바닥 발자국 쪽을 가리키는 금선) -->
+    <!-- 장면 (창 밖 배경·창틀·캐릭터). 창 줄의 그린만 투명. 나중에 알파 없는 캐릭터 영상도 같은 자리·같은 키로 바꿔 끼운다 -->
+    <canvas id="scene-plate" class="scene-plate" aria-hidden="true" hidden></canvas>
+    <!-- 대기 안내 (눈 바닥에 새긴 글씨: 한국어 큰 줄, 영어 작은 대문자 줄) -->
     <div id="guide" class="band guide" hidden></div>
-    <!-- 3·2·1: 큰 금박 숫자는 위 띠(카메라 가까이, 시선이 위로)에서 한 칸 창 안으로 넘어가고, 안내 줄은 아래 띠. 진행선은 창 아래 금선 -->
+    <!-- 3·2·1: 눈 바닥 가운데에 크게 새긴 숫자가 한 칸 창 안에서 넘어간다. 안내 줄(#countdown-caption)은 문구만 두고 화면에는 숨긴다. 진행선은 바닥 진행선 -->
     <div id="countdown" class="band countdown" hidden>
       <p class="countdown-digit"><span id="countdown-ghost" class="countdown-glyph is-ghost" aria-hidden="true"></span><span id="countdown-number" class="countdown-glyph"></span></p>
       <div id="countdown-caption" class="countdown-caption"></div>
     </div>
-    <!-- 쿨타임 문구 (대기 안내와 같은 자리). 진행선은 창 아래 금선 (#cooldown-progress-fill) -->
+    <!-- 쿨타임 문구 (대기 안내와 같은 자리). 진행선은 바닥 진행선 (#cooldown-progress-fill) -->
     <div id="notice" class="band notice" hidden></div>
     <!-- 촬영 순간: 사진 창 안에만 짧은 빛 -->
     <div id="flash" class="flash"></div>
@@ -474,17 +421,17 @@
               <option value="stroke">붓 결 선 (획마다 획 방향 선)</option>
               <option value="flow">흐름 선 (흐름을 따라 번진 결)</option>
               <option value="texture">질감 강조 점 (획 볼록 + 점 방식)</option>
-              <option value="tone">톤 점 (질감 강조 없음)</option>
+              <option value="tone">톤 점 (질감 세기만큼 유화 획을 섞음, 0이면 순수 톤 점)</option>
             </select>
             <span class="op-value"><output data-key="bwStyle"></output></span>
           </label>
           <label class="op-row">
-            <span class="op-label">질감 세기<small>획 볼록 조명·국소 대비 (톤 점 제외)</small></span>
+            <span class="op-label">질감 세기<small>획 볼록 조명·국소 대비 (톤 점은 그 절반 + 붓 결 조금)</small></span>
             <input type="range" data-key="bwTexture">
             <span class="op-value"><output data-key="bwTexture"></output><span class="op-unit">세기</span></span>
           </label>
           <label class="op-row">
-            <span class="op-label">선 간격<small>붓 결 선·흐름 선의 주기</small></span>
+            <span class="op-label">선 간격<small>붓 결 선·흐름 선·톤 점 붓 결의 주기</small></span>
             <input type="range" data-key="lineSpacing">
             <span class="op-value"><output data-key="lineSpacing"></output><span class="op-unit">점</span></span>
           </label>
