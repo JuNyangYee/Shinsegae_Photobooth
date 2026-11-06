@@ -68,10 +68,6 @@
   --gold-lo: #a6772c;
   --gold-foil: linear-gradient(178deg, #fff6d8 0%, #f3d995 26%, #d8ad5a 48%, #b9893a 53%, #e3c27a 74%, #fbecbf 100%);
   --cream: #fbf3e6; /* 준비 중 첫 줄 */
-  --snow-ink: #2c2563; /* 눈 바닥에 새긴 한국어 글자 */
-  --snow-ink-soft: #4d3a78; /* 새긴 영어 줄 */
-  /* 새긴 홈: 아래 가장자리에 흰 빛, 위 가장자리에 그늘 */
-  --carve: 0 0.14cqw 0 rgba(255, 252, 255, 0.6), 0 -0.09cqw 0.12cqw rgba(20, 14, 64, 0.4);
   --charcoal: #1a1a1a; /* 운영자 표시 */
   --white: #f4f2ee; /* 운영자 표시·조절 영역 선 */
   --hairline: 0.0926cqw; /* 1080 폭에서 1px */
@@ -268,14 +264,22 @@ body {
 }
 
 /* ---- 눈 바닥의 글자 묶음 (대기·카운트다운 안내·쿨타임·결과 문구). 가운데 맞춤, 같은 자리에서 바뀐다.
-   눈에 새긴 글씨: 짙은 남보라 글자 + 아래쪽 흰 빛(홈 가장자리) + 위쪽 그늘, 바닥 원근으로 살짝 눕힌다 ---- */
+   15단계: 발자국처럼 눈에 파인 홈. 글자 색은 그리지 않고 모양만 SVG 조명 필터(#snow-carve, index.html)에 넣어 홈 벽 그늘·밝은 벽·
+   바닥 그늘·눈 알갱이·둘레의 밝은 테를 얻는다. 바닥 원근으로 살짝 눕힌다(필터 다음에 변환) ---- */
+.snow-carve-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
 .band {
   position: absolute;
   left: var(--pad);
   right: var(--pad);
   top: var(--band-top);
   margin: 0;
-  color: var(--snow-ink);
+  color: #000; /* 모양(알파)만 쓰인다 */
   text-align: center;
   pointer-events: none;
 }
@@ -283,6 +287,7 @@ body {
 .guide,
 .notice,
 .result-note {
+  filter: url(#snow-carve);
   transform: perspective(90cqw) rotateX(24deg);
   transform-origin: 50% 0;
 }
@@ -298,7 +303,6 @@ body {
 .line > span {
   display: block;
   white-space: nowrap;
-  text-shadow: var(--carve);
 }
 
 .line.is-ko {
@@ -310,8 +314,7 @@ body {
 /* 영어 줄: Cinzel의 소문자는 작은 대문자라 새긴 글자처럼 보인다 */
 .line.is-en {
   margin-top: 1.2963cqw;
-  color: var(--snow-ink-soft);
-  font: 400 2.4074cqw / 1.4 var(--font-display);
+  font: 600 2.5926cqw / 1.4 var(--font-display); /* 가는 획은 홈이 얕아 보여 600 */
   letter-spacing: 0.2em;
 }
 
@@ -329,7 +332,7 @@ body {
 }
 
 /* ---- 3·2·1: 눈 바닥 가운데에 크게 새긴 숫자 (위 띠에는 관람객 UI를 두지 않는다). 대기 안내와 같은 자리라 숫자 동안은 안내 줄을 숨긴다
-   (안내 문구 요소는 그대로 두고 보이지만 않는다). 숫자는 한 칸 창 안에서 위로 넘어간다. 새긴 홈 = 짙은 남보라 + 아래 흰 빛·위 그늘 ---- */
+   (안내 문구 요소는 그대로 두고 보이지만 않는다). 숫자는 한 칸 창 안에서 위로 넘어간다. 15단계: 큰 글자용 같은 필터(#snow-carve-lg)로 눈에 파인 홈 ---- */
 .band.countdown {
   left: 0;
   right: 0;
@@ -345,7 +348,8 @@ body {
   height: 0.94em;
   margin: 0;
   overflow: hidden;
-  color: var(--snow-ink);
+  color: #000; /* 모양(알파)만 쓰인다 */
+  filter: url(#snow-carve-lg);
   font: 600 15.7407cqw / 0.94 var(--font-display);
   font-variant-numeric: lining-nums tabular-nums;
   text-align: center;
@@ -355,7 +359,6 @@ body {
 
 .countdown-glyph {
   display: block;
-  text-shadow: 0 0.28cqw 0 rgba(255, 252, 255, 0.6), 0 -0.18cqw 0.24cqw rgba(20, 14, 64, 0.45);
 }
 
 .countdown-glyph.is-ghost {

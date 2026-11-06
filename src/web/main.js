@@ -29,6 +29,7 @@ import { renderDevPanel } from './ui/dev-panel.js';
 import { guestText } from './config/guest-text.js';
 import { createGuestScreen } from './ui/guest-screen.js';
 import { createScenePlate } from './ui/scene-plate.js';
+import { createScenePainter } from './effect/scene-paint.js';
 import { clipRegionToFrame, photoFrameAspect, photoFrameRows } from './core/photo-frame.js';
 import { IMPRINT_FONT_LOADS } from './effect/imprint-page.js';
 
@@ -65,10 +66,12 @@ let sceneInfo = 'loading';
 createScenePlate({
   canvas: document.getElementById('scene-plate'), src: config.scene.plate, frame: config.photoFrame,
   key: config.scene.key, keyMarginFrac: config.scene.keyMarginFrac, layout: config.scene.layout,
+  size: config.scene.size, paint: config.scene.paint ? createScenePainter() : null,
 }).ready.then((r) => {
-  sceneInfo = r.ok ? `${r.width}x${r.height}${r.bands ? `, bands top ${r.bands.topShift} bottom ${r.bands.bottomShift >= 0 ? '+' : ''}${r.bands.bottomShift}` : ''}, keyed rows ${r.keyed.top}-${r.keyed.top + r.keyed.height} (clear ${r.cleared}, edge ${r.edge}, rim ${r.despilled})`
+  sceneInfo = r.ok ? `${r.width}x${r.height}${r.bands ? `, bands top ${r.bands.topShift} bottom ${r.bands.bottomShift >= 0 ? '+' : ''}${r.bands.bottomShift}` : ''}, keyed rows ${r.keyed.top}-${r.keyed.top + r.keyed.height} (clear ${r.cleared}, edge ${r.edge}, rim ${r.despilled}), ${r.painted ? `oil painted ${r.paintMs}ms` : `not painted${r.paintError ? ` (${r.paintError})` : ''}`}`
     : `fallback background (${r.error})`;
   if (!r.ok) console.warn(`[scene] ${r.error}`);
+  else if (r.paintError) console.warn(`[scene] oil paint failed, plain scene: ${r.paintError}`);
 });
 
 // 기다려도 스스로 풀리기 어려운 카메라 상태는 바로 직원 문의 문구를 보인다. 감지기는 장애(fault)가 그렇다.
@@ -418,7 +421,20 @@ function applyLayout() {
   document.documentElement.style.setProperty('--stage-ratio-h', String(height));
   document.documentElement.style.setProperty('--frame-top-frac', String(config.photoFrame.top));
   document.documentElement.style.setProperty('--frame-height-frac', String(config.photoFrame.height));
+  scaleSnowCarve();
   updateOperatorRoom();
+}
+
+// 눈 바닥 글씨 필터(15단계, index.html #snow-carve)의 길이 값은 1080 폭 기준이다. 4K 등 다른 화면 폭에서도 홈 모양이 같게 곱한다
+function scaleSnowCarve() {
+  const k = stage.getBoundingClientRect().width / 1080;
+  if (!(k > 0)) return;
+  for (const el of document.querySelectorAll('.snow-carve-defs [data-base]')) {
+    el.setAttribute(el.localName === 'feMorphology' ? 'radius' : 'stdDeviation', String(Number(el.dataset.base) * k));
+  }
+  for (const el of document.querySelectorAll('.snow-carve-defs [data-base-scale]')) {
+    el.setAttribute('surfaceScale', String(Number(el.dataset.baseScale) * k));
+  }
 }
 
 // 운영자 패널(E)을 9:16 영역 옆 빈 곳에 세울 공간이 실제로 있는지 (6단계 검수 2). 화면 비율만 보면 좁은 가로 창
@@ -910,7 +926,7 @@ applyLayout();
 // 인쇄 쪽 글자(IMPRINT 시안, effect/imprint-page.js)는 캔버스에 그리므로 서체가 미리 불려 있어야 한다 (관람객 화면에는 아직 안 쓰인 크기도)
 Promise.all(IMPRINT_FONT_LOADS.map(([font, sample]) => document.fonts.load(font, sample)))
   .catch((error) => console.warn('[imprint] print fonts not loaded; print type uses system fonts', error));
-window.addEventListener('resize', updateOperatorRoom);
+window.addEventListener('resize', () => { scaleSnowCarve(); updateOperatorRoom(); });
 camera.subscribe(() => {
   session.setCameraReady(camera.isReady());
   renderStatus();

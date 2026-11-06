@@ -38,14 +38,15 @@ describe('chroma-key: 단색 그린 전경 키', () => {
 });
 
 describe('chroma-key: 키 둘레의 초록 번짐', () => {
-  it('폭을 주면 키가 빠진 화소에서 2화소 안의 불투명 화소만 G를 누른다 (먼 곳의 같은 색은 그대로)', () => {
-    // 한 줄 6화소: 그린 | 연두 테두리(d 40) ×2 | 거리 3의 같은 색 | 흰색 ×2
-    const rim = [150, 190, 120, 255];
-    const data = new Uint8ClampedArray([0, 255, 0, 255, ...rim, ...rim, ...rim, 240, 240, 240, 255, 240, 240, 240, 255]);
-    const counts = applyGreenKey(data, key, 6);
-    assert.deepEqual(counts, { cleared: 1, edge: 0, despilled: 2 });
-    assert.deepEqual([data[5], data[9], data[13]], [150, 150, 190], '거리 1·2는 누르고 거리 3은 그대로');
-    assert.deepEqual([data[7], data[11]], [255, 255], '알파는 그대로');
+  it('폭을 주면 키가 빠진 화소에서 3화소 안의 불투명 화소만 평균 기준으로 알파를 줄이고 G를 (R+B)/2로 (먼 곳의 같은 색은 그대로, 15단계)', () => {
+    // 한 줄 7화소: 그린 | 노란 빛 테(e 46.5) ×3 | 거리 4의 같은 색 | 주황 털 | 흰 털
+    const rim = [224, 190, 63, 255];
+    const data = new Uint8ClampedArray([0, 255, 0, 255, ...rim, ...rim, ...rim, ...rim, 220, 110, 40, 255, 240, 240, 235, 255]);
+    const counts = applyGreenKey(data, key, 7);
+    assert.deepEqual(counts, { cleared: 1, edge: 0, despilled: 3 });
+    assert.deepEqual([data[5], data[9], data[13], data[17]], [144, 144, 144, 190], '거리 1~3은 G = (R+B)/2, 거리 4는 그대로');
+    assert.deepEqual([data[7], data[11], data[15], data[19]], [158, 158, 158, 255], 'e 46.5 → 알파 158 (RIM_KEY 20~90)');
+    assert.deepEqual([...data.slice(20, 28)], [220, 110, 40, 255, 240, 240, 235, 255], '털 색은 둘레가 아니어도 둘레여도 그대로');
   });
 
   it('폭이 없으면 둘레 처리를 하지 않는다', () => {
