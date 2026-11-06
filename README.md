@@ -46,10 +46,16 @@ Chrome에서 `http://localhost:8765/`를 연다(`127.0.0.1`은 400). 종료는 �
 
 `Ctrl`·`Alt` 등과 함께 누르면 무시한다. `R`은 9-2부터 없다(인식 범위는 `E` 인식 섹션). 조절 화면은 섹션마다 **저장**을 눌러야 파일에 남고, 닫으면 저장하지 않은 섹션만 저장된 값으로 돌아간다. "기본값으로"는 그 섹션 값만 바꾼다. 카운트다운·결과·쿨타임을 바꾸면 다음 회차부터 쓰인다(진행 중인 회차는 그대로). 자세한 규칙은 [docs/SYSTEM.md](docs/SYSTEM.md) 4절 "운영자 단축키".
 
+## 카메라 유화 업데이트
+
+`E` → 필터 → **업데이트 확인 → 후보 시험 → 필터 적용·저장**. 확인만으로 실행판은 바뀌지 않는다. 22개 조절 항목과 원본 수치·범위를 함께 받으며 기존 현장값을 보존한다. 원본 수치 전체는 **가져온 기본값 적용**, 복원은 **이전판 복원**이다. 시험 중 닫으면 저장판으로 돌아간다.
+
+확인할 때만 공식 서버에 접속하고 사진·프레임은 보내지 않는다. 평상시 촬영과 저장판 재시작은 오프라인으로 동작한다. 지원하지 않는 원본 변경은 기존판을 유지하며 검토 필요로 안내한다. [지원 범위·전체 수치·복원 절차](docs/SYSTEM.md#카메라-유화-수동-업데이트-13단계).
+
 ## 설정 파일
 
 - `settings.ini` — 현장 실행 설정(포트, Chrome·OBS 경로, 키오스크 등). 첫 실행 때 `settings.example.ini`에서 만들어지고 Git에서 제외된다. 키 표는 [docs/SYSTEM.md](docs/SYSTEM.md) 1절 "현장 실행 스크립트".
-- `config/camera.local.json`, `config/presence.local.json`, `config/timing.local.json`, `config/effect.local.json` — `E`의 카메라·인식·시간·필터 섹션에서 저장한 값(Git 제외). **현장 PC를 옮길 때 네 파일을 복사한다.** 없으면 기본값으로 시작한다. 형식은 [docs/SYSTEM.md](docs/SYSTEM.md) 1절 "조절값 파일 API", 3절 "카메라 처리 경로", 4절 "시간 설정", 5·6절.
+- `config/camera.local.json`, `config/presence.local.json`, `config/timing.local.json`, `config/effect.local.json` — `E`의 카메라·인식·시간·필터 섹션에서 저장한 값(Git 제외). **현장 PC를 옮길 때 이 파일들과, 있다면 `config/filter.local.json`도 복사한다.** 필터 업데이트 적용 후에는 `filter.local.json`의 엔진·수치·이전판이 효과 파일보다 우선한다. 없으면 기본값으로 시작한다. 형식은 [docs/SYSTEM.md](docs/SYSTEM.md) 1절 "조절값 파일 API", 3절 "카메라 처리 경로", 4절 "시간 설정", 5·6절.
   - 예전에 `E`에서 저장한 좌우 반전은 처음 시작할 때 카메라 파일로 옮겨진다.
   - 예전 인식 파일의 반응 속도·카메라 회복 시간(9단계까지)은 처음 시작할 때 시간 파일로 옮겨지고 인식 파일에서는 빠진다. 옮기지 못하면 그 값으로 돌고 시간 섹션에 "저장 필요"가 보인다(시간 섹션에서 저장하면 된다).
   - 크롭·회전·색 보정은 OBS와 웹(`E` 카메라 섹션) 중 **한 곳에서만** 한다. 권장은 웹(OBS는 원본만 넘김). OBS 가상카메라의 해상도는 `auto`.
@@ -59,13 +65,15 @@ Chrome에서 `http://localhost:8765/`를 연다(`127.0.0.1`은 400). 종료는 �
 
 ```powershell
 npm test                                            # Node 테스트 (Node 22 이상, 설치 필요 없음)
+node tools/filter-browser-check.mjs --capture       # 수동 업데이트·GPU·API·합성 촬영 검증 (확인 때 인터넷 사용)
+node tools/filter-browser-check.mjs --real --capture # 같은 검증 + 실제 카메라 (프레임 파일 저장 없음)
 npm run check:browser                               # 임시 프로필 headless Chrome으로 실제 앱 확인 (가짜 카메라)
 npm run check:browser -- --camera real              # 실제 카메라 (OBS 가상카메라 우선)
 npm run check:browser -- --soak --camera real       # 장시간 실측, 기본 10분 (--soak 60 처럼 분 지정)
 npm run check:browser -- --only "시험 조합|WISHFUL" --screens artifacts\wishful\screens   # 4조합·관람객 화면·데모 PNG (가짜 카메라·합성 장면, Git 제외)
 ```
 
-`check:browser`는 몇 초 동안 `config/*.local.json`에 시험 값을 썼다가 되돌리므로 **현장 키오스크가 도는 PC에서는 실행하지 않는다.** MediaPipe 라이브러리는 `lib/mediapipe/`에 커밋되어 있고, 버전을 바꿀 때만 `npm install` → `npm run vendor:mediapipe`를 쓴다([docs/SYSTEM.md](docs/SYSTEM.md) 5절 "MediaPipe 로컬 라이브러리").
+`check:browser`와 `filter-browser-check.mjs`는 검증 중 `config/*.local.json`에 시험 값을 썼다가 되돌리므로 **현장 키오스크가 도는 PC에서는 실행하지 않는다.** MediaPipe 라이브러리는 `lib/mediapipe/`에 커밋되어 있고, 버전을 바꿀 때만 `npm install` → `npm run vendor:mediapipe`를 쓴다([docs/SYSTEM.md](docs/SYSTEM.md) 5절 "MediaPipe 로컬 라이브러리").
 
 ## 문서
 

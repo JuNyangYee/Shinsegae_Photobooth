@@ -27,7 +27,7 @@
                                                                      (이후) ─▶ 로컬 인쇄 서비스
 ```
 
-- 서버는 파일 제공과 조절값 파일 API만 맡고, 촬영 진행 상태는 브라우저 안에서 관리한다. WebSocket·게임 서버·원격 제어는 없다. `file://`로 열지 않는다(카메라 권한·WASM 로딩이 막힌다).
+- 서버는 파일 제공·조절값 API·명시적 필터 다운로드만 맡고, 촬영 진행 상태는 브라우저 안에서 관리한다. WebSocket·게임 서버·원격 제어는 없다. `file://`로 열지 않는다(카메라 권한·WASM 로딩이 막힌다).
 - 이전 프로젝트 PickPod_FaceReading의 로컬 실행 구조에서 최소 뼈대(bat → PowerShell, `settings.ini`, 정적 서버, OBS·Chrome 실행, 시작 프로그램 바로가기, 저장소 안 MediaPipe, 빌드 없는 ES 모듈)만 이 저장소에 새로 작성했다. 참고 저장소 경로에 의존하지 않는다. Git 자동 업데이트, NAS·AI·결제·Firebase, 워치독·자동 재시작, 야간 스케줄, 지점 인증, 다중 실행 모드·레인, 보정용 패널, 단일 거대 `main.js`는 가져오지 않았다.
 
 ### 폴더 구성
@@ -35,9 +35,9 @@
 ```text
 Launch.bat · Shutdown.bat · Setup-Startup.bat   현장 실행·종료·시작 프로그램 등록 → bin/launch.ps1 · shutdown.ps1 · setup-startup.ps1
 settings.example.ini        현장 설정 예시. settings.ini는 여기서 만들어지고 Git 제외
-config/*.local.json         운영자 조절값 파일(E 섹션마다 하나: camera·presence·timing·effect). 서버 API만 쓴다. Git 제외. src/web/config/와 다른 폴더
+config/*.local.json         운영자 조절값 파일(E 섹션마다 하나: camera·presence·timing·effect·filter). 서버 API만 쓴다. Git 제외. src/web/config/와 다른 폴더
 bin/common.ps1              실행 스크립트 공용 (로그, 설정, 프로그램 탐색, 프로세스 식별·종료)
-bin/server/serve.ps1        정적 서버, 조절값 파일 API
+bin/server/serve.ps1        정적 서버, 조절값 파일 API · filter-api.ps1(수동 필터 갱신)
 src/web/                    index.html(진입점 /) · main.js(화면 조립·단축키·D 정보·연결) · style.css
   assets/fonts/             서체 부분 집합과 OFL 라이선스 (3절 "서체")
   config/   config.js(바꿀 수 있는 값) · presence-settings.js · effect-settings.js · camera-settings.js · timing-settings.js(검증·정규화·저장 형식)
@@ -690,7 +690,7 @@ const detector = await FaceDetector.createFromOptions(fileset, {
 - **캐시:** 고정 획 순서는 해상도와 관계없으므로 (층, 획 수, boil)마다 한 번만 정렬하고(캐시 16개) 해상도가 다르면 위치만 다시 계산한다. 바뀌는 획만 새로 만들어 합친다. 결과는 전부 새로 만든 것과 같다(Node 테스트).
 - 획은 흐름장을 따라 휘고 양 끝이 가늘어지며, 세부 문턱이 있는 층은 평평한 곳의 획을 버린다(작은 붓은 세밀한 곳에만). 원본의 거꾸로 된 `smoothstep` 하나는 명세상 정의된 같은 뜻으로 바꿨다.
 
-**매개변수** (`config.effect`, 범위·단계 `config/effect-settings.js`, px는 짧은 변 1080 그림 기준)
+**기본 제공판 매개변수** (수동 업데이트 적용 뒤에는 아래 받은 정의가 우선. `config.effect`, 범위·단계 `config/effect-settings.js`, px는 짧은 변 1080 그림 기준)
 
 | 값 | 기본값 | 범위 (단계) | 뜻 |
 |---|---|---|---|
@@ -740,7 +740,82 @@ const detector = await FaceDetector.createFromOptions(fileset, {
 - 출력 모드 첫 선택지는 회색조 유화. 감열지가 아니면 흑백 스타일을, 회색조·끔이면 점 방식·용지 폭도, 끔이면 레벨도 막는다(회색조 유화에서 점 방식·용지 폭은 인쇄 데이터용으로 열림). 질감 세기는 톤 점에서, 선 간격은 선 스타일이 아니면 막힌다.
 - 즉시 반영. 저장·취소·기본값(필터 값만)·저장 없이 닫으면 되돌리기·저장 중 닫기는 인식·카메라 섹션과 같은 규칙이고, 패널이 열려 있는 동안 자동 촬영을 막는다.
 - **파일** `config/effect.local.json`: `{ "version": 1, "settings": { strength, size, boil, fps, grade, refineThreshold, previewScale, outputMode, dither, brightness, contrast, gamma, paperDots, bwStyle, bwTexture, lineSpacing, oil, monoMode } }`(조절하는 값만. 끝의 `oil`·`monoMode`는 WISHFUL 시안의 시험 조합 선택 키로, 없으면 알리지 않고 채운다 — 아래 "시험 조합"). 파일 값이 있으면 그 값이다(예: 예전에 `thermal`로 저장한 파일은 감열지로 시작하므로 회색조 유화로 바꾸려면 `E`에서 고르고 저장). 일부 키만 있으면 나머지를 기본값으로 채우고 알린다(`adjusted`). 예전 파일(2026-10-26 ~ 9-1)에 남은 `mirror`는 읽지 않고 알리지도 않는다(카메라 파일이 없을 때 카메라 설정으로 한 번 옮기고 이 파일에서 그 키를 뺀다, 3절).
-- **불러오기: 파일 → 기본값**(`localStorage` 없음). 404·읽기 실패·`effectSettingsFile.timeoutMs`(3초, 가안) 초과·형식 오류면 기본값이고 파일은 그대로. 불러오는 동안은 기본값으로 그리고 **자동 촬영을 막지 않는다**(판정과 무관, 그사이 촬영돼도 미리보기와 결과는 같은 값). D `values`에 값과 출처(`file`·`saved`·`defaults (no file)`·`+ unsaved changes`).
+- **불러오기: 파일 → 기본값**(`localStorage` 없음). 404·읽기 실패·`effectSettingsFile.timeoutMs`(3초, 가안) 초과·형식 오류면 기본값이고 파일은 그대로. 불러오는 동안은 기본값으로 그리고 **13단계부터 로컬 필터 복원이 끝날 때까지 새 촬영을 막는다**. 업데이트 적용 뒤의 파일/우선순위는 다음 절을 따른다. D `values`에 값과 출처(`file`·`saved`·`defaults (no file)`·`+ unsaved changes`).
+
+### 카메라 유화 수동 업데이트 (13단계)
+
+운영자 `E` → **필터**에서 `oil2f`만 갱신한다. 기존 기본 제공판(`oil-shaders.js`)은 첫 명시 적용 전까지 유지하며, 받은 판을 적용하면 엔진과 수치 정의를 함께 쓴다. 관람객 디자인·감지·카메라 보정·출력 경로는 공통이다. 인식은 계속 필터 전 원본을 읽는다.
+
+**운영 순서**
+
+1. 촬영 회차가 끝난 뒤 `E` 필터 → **업데이트 확인**. 후보 버전과 변경 항목만 표시하며 실행판/저장판은 바뀌지 않는다.
+2. **후보 시험**. 현재 카메라로 결과 해상도까지 GPU 시험한 후 미리보기에 쓴다. 기존 현장값은 보존한다. 처음 생긴 항목만 원본 기본값으로 채운다. 시험 중에는 자동·수동 새 촬영을 막는다.
+3. 원본 수치 전체를 비교하려면 **가져온 기본값 적용**. 이 버튼만으로 저장되지는 않는다. 출력 모드·인쇄·카메라 값은 유지한다.
+4. **필터 적용·저장**. 엔진·정의·현재값·이전판을 한 파일로 저장한다. 이후 일반 **저장**은 이 파일의 현재값만 갱신한다. 일반 **기본값으로**는 해당 필터의 받은 기본 수치와 프로젝트 출력 기본값을 함께 시험한다.
+5. 시험을 취소하거나 `E`/`Esc`로 닫으면 저장된 엔진·수치로 돌아간다. **이전판 복원**은 직전 엔진과 당시 수치를 즉시 시험·저장하고, 재시작에도 유지한다. 직전판 한 개를 보존하며 다시 누르면 양쪽을 바꾼다. 처음 적용의 이전판은 기존 기본 제공 엔진과 기존 현장값이다.
+
+시작할 때 로컬 필터 복원이 끝나기 전, 업데이트 처리 중에는 새 촬영을 막는다. 회차 진행 중의 확인·시험·적용·복원·조절은 거절한다. 저장/다운로드 도중 닫기를 누르면 작업이 끝난 뒤 닫고 미저장값을 되돌린다.
+
+**출처와 지원 경계**
+
+- 고정 출처: [공식 모듈](https://nau-filter-gallery.vercel.app/nau-filter/nau-filter.js), [공식 갤러리 UI](https://nau-filter-gallery.vercel.app/). `/show/`는 모듈 소비 화면이라 정의 추출에는 루트 UI를 쓴다. 2026-11-06 실제 HTTP 재확인: `7f58eaa`(원본 표기 2026-11-05), JS 135462바이트, SHA-256 `51816e9146ea1d90af0cd89a0faf2078a4b68ea023784b7ac3da70e495bde4ae`. UI SHA-256 `a84c03395506577aef92c023dfe0a06f40be9c79f282a35d5917ce0bad87965e`.
+- 공식 manifest/서명은 없다. SHA-256은 동일판 식별·무결성 확인용이다. `filter-builtin.json`에 이 판의 필수 정의·GLSL 조각을 포함하므로 다른 프로젝트 폴더가 없어도 동작한다. 원본 JS/HTML을 eval/import/script 태그로 실행하지 않는다.
+- 지원 GLSL 슬롯은 방향장 본문, 획 경로, 획 폭, 획 도움 함수, 합성 본문, 덩이 지도 셰이더/함수의 7개다(viewer port spec2의 6개 역할에서 덩이 셰이더·함수를 분리). 슬롯 밖 실행코드는 정규화 fingerprint로 고정한다. 범위·기본값·preset·level·지원 슬롯만 자동 갱신 가능하다.
+- 모듈과 UI의 preset·OIL/PER/SLIDER 기본값·level 행·관련 GLSL을 대조한다. 혼합 배포, 알려지지 않은 조절 키/삭제/중복, 리터럴 아닌 표현식, 잘린 응답, 지원 밖 코드 변경은 **검토 필요**로 보류한다. 받은 범위 밖의 현장값도 잘라 저장하지 않고 보류한다. 기존판을 유지한 채 현장값을 조절하거나 원본 변경을 검토해야 한다.
+- 제외: 다른 재료 프리셋, 별도 색 톤 후처리 `MOODS`/`moodK`, 소스 관리·재생·내보내기·split. 캐릭터 `normal`과 마스크·조명은 사전 캐릭터 번호 마스크가 필요한 별도 경로이며 카메라 원본에는 없다. `CR.nosilw` 행은 원본 그대로 보존하지만 마스크 없는 카메라에서 사용하지 않는다. `state.style`은 마스크 없이도 level 기준점을 바꾸므로 포함한다. 갤러리는 소스 메타데이터로 그림체를 선택하며, 카메라의 초기 그림체는 공식 모듈 `state.style=flat`이다.
+
+**원본 조절 항목 대응표**
+
+총 **22개 = 숫자 21개 + 선택 1개**. `OIL.w` 벡터는 세 성분을 각각 센다. 숫자 21개는 공통 6개 + 유화 14개 + 색 보정 1개다. 원본에서 level 아래 숨기는 strength/size도 기존 현장 조절 호환을 위해 노출한다. 숫자 범위·간격·라벨은 `CTRL_BASE` + `CTRL.oil2f` 및 `TUNE_ROWS.oil` + `GRADE_ROW`, 선택은 UI option에서 추출한다. 기본값은 `PRESETS.oil2f`/`.tune`, 없으면 `PER_DEF`/`SLIDER_DEF`이고 style은 모듈 state다. HTML input의 임시 value를 기본값으로 쓰지 않는다.
+
+| 원본 식별자 | 원본 라벨 | 범위 / step 또는 options | 받은 기본값 | 앱 연결 |
+|---|---|---|---|---|
+| `state.strength` | 강도 | 0~1.6 / 0.01 | `0.29` | strength · 합성 요철/광택/결과 획 색 |
+| `state.size` | 붓·코 크기 | 0.6~1.8 / 0.01 | `1.23` | size · 붓 굵기/간격/길이 |
+| `state.boil` | 획 다시 놓기 | 0~1 / 0.01 | `0.02` | boil · seed에 따른 획 재배치 |
+| `state.fps` | 초당 그림 | 2~30 / 1 | `15` | fps · 그림 tick |
+| `state.grade` | 색 보정 | 0~1 / 0.01 | `1` | grade · FS_GRADE |
+| `state.level` | 필터 세기 | 0~100 / 1 | `50` | gallery.level · LEVELS.oil2f |
+| `OIL.w.0` | 굵은 붓 굵기 | 0.4~2 / 0.05 | `1.01` | gallery.values의 같은 원본 키 → 해당 uniform/붓 배율 |
+| `OIL.w.1` | 중간 붓 굵기 | 0.4~2 / 0.05 | `1.23` | gallery.values의 같은 원본 키 → 해당 uniform/붓 배율 |
+| `OIL.w.2` | 가는 붓 굵기 | 0.4~2 / 0.05 | `0.72` | gallery.values의 같은 원본 키 → 해당 uniform/붓 배율 |
+| `OIL.len` | 획 길이 | 0.4~2 / 0.05 | `1.68` | gallery.values의 같은 원본 키 → 해당 uniform/붓 배율 |
+| `OIL.jit` | 획 색 흔들림 | 0~0.3 / 0.01 | `0.096` | gallery.values의 같은 원본 키 → 해당 uniform/붓 배율 |
+| `OIL.bump` | 물감 요철 | 0~20 / 0.5 | `5.3` | gallery.values의 같은 원본 키 → 해당 uniform/붓 배율 |
+| `OIL.spec` | 광택 | 0~0.5 / 0.01 | `0.178` | gallery.values의 같은 원본 키 → 해당 uniform/붓 배율 |
+| `OIL.canvas` | 캔버스 결 | 0~0.1 / 0.005 | `0.023` | gallery.values의 같은 원본 키 → 해당 uniform/붓 배율 |
+| `OIL.refineT` | 세부 보존 문턱 | 0.05~0.6 / 0.01 | `0.1` | refine[4] · 보완 층 문턱 |
+| `OIL.eye` | 눈·코 테 정리 | 0~1 / 0.05 | `1` | gallery.values의 같은 원본 키 → 해당 uniform/붓 배율 |
+| `OIL.edge` | 경계 밖 잔획 정리 | 0~1 / 0.05 | `1` | gallery.values의 같은 원본 키 → 해당 uniform/붓 배율 |
+| `OIL.spill` | 경계 옆 번짐 띠 정리 | 0~1 / 0.05 | `1` | gallery.values의 같은 원본 키 → 해당 uniform/붓 배율 |
+| `OIL.slope` | 그늘 띠 붓 방향 | 0~1 / 0.05 | `1` | gallery.values의 같은 원본 키 → 해당 uniform/붓 배율 |
+| `OIL.halo` | 경계 둘레 테 정리 | 0~1 / 0.05 | `0` | gallery.values의 같은 원본 키 → 해당 uniform/붓 배율 |
+| `GRADE.keepW` | 흰색 지키기 | 0~1 / 0.05 | `1` | gallery.values의 같은 원본 키 → 해당 uniform/붓 배율 |
+| `state.style` | 소스 그림체 | flat(평면 그림책), 3d(3D) | `flat` | gallery.style · flat/3d level 기준점 |
+
+추가 데이터(독립 UI 항목 수에는 세지 않음): 붓 층 `[[36,15,84,3.8,0,1],[18,8,44,2.6,0.02,1],[8,4,20,1.4,0.06,1]]`, 보완 층 `[3.5,3,10,0.6,0.22]`. 원본 `OIL.refineT=0.10`이 보완 문턱 0.22보다 우선한다. `CR.tfmE` 기본 `0.00004`도 원본에서 받는다. 업데이트마다 붓 층과 보완 층 앞 네 값을 새 엔진과 함께 가져오고 현장 문턱은 보존한다.
+
+| LEVELS.oil2f.rows 키 | flat 0 / 50 / 100 | 3d 0 / 50 / 100 |
+|---|---|---|
+| state.strength | 0.12 / preset(0.29) / 0.75 | 0.10 / 0.22 / 0.55 |
+| state.size | 1 / preset(1.23) / 1.7 | flat과 같음 |
+| OIL.canvas | 0.01 / preset(0.023) / 0.05 | 0.01 / 0.02 / 0.04 |
+| OIL.jit | 0.04 / preset(0.096) / 0.15 | 0.03 / 0.07 / 0.11 |
+| CR.nosilw | 10 / 원본 기준 / 17 | flat과 같음(마스크 전용, 적용 안 함) |
+| CR.tfmE | 0.00004 / CR 기본(0.00004) / 0.00004 | 0.001 / 0.001 / 0.001 |
+
+원본 `applyTune`: 초기 tune snapshot → preset.tune → levelApply → 사용자가 기억한 tune. level은 0~50·50~100 사이를 선형 보간하고 null 중간값은 해당 preset 기본값을 참조한다. 앱도 이 순서를 따른다. level/style을 움직이면 strength/size를 다시 계산하고, OIL.jit/canvas의 명시 세부값은 level보다 우선한다. 현장 호환상 strength/size 직접 조절은 다음 level/style 조절까지 유지한다. 새 기본값이 바뀌어도 기존 유효 세부값은 현장 덮어쓰기로 보존하며, 받은 기본값 적용이 이를 지운다.
+
+**파일·API·실패 처리**
+
+- `config/filter.local.json` 한 문서: `{revision,active:{bundle,settings},previous:{bundle,settings}}`. settings는 기존 version 1 형식 + 선택 `gallery:{level,style,values}`다. 필터 파일이 있으면 effect.local.json보다 우선한다(기본 엔진으로 복원한 상태도 포함). 예전 effect.local.json은 지우거나 덮지 않는다. 카메라·인식·시간 파일은 별도 그대로다.
+- 같은 폴더 임시 파일→flush→File.Replace/Move로 엔진/정의/현장값/이전판이 함께 바뀐다. 모듈 hash와 UI hash를 묶은 후보 ID를 사용하며 revision 충돌은 409. 파일 잠금/쓰기 실패면 원판 유지, 응답만 끊기면 state를 다시 읽어 저장 여부를 확인한다. 서버 연결도 잃으면 화면은 이전 저장판으로 되돌리고 재시작 때 디스크 판을 검증한다. 전원 차단 자체의 실장 시험은 미검증이다.
+- 시작 시 저장판 컴파일에 실패하면 저장된 이전판을 시험해 자동 복원한다. 둘 다 손상되면 기본 제공판으로 열고 저장을 보류한다. 이 경우 앱 종료 후 filter.local.json을 백업한 다음 제거하면 예전 effect.local.json + 기본 제공 엔진으로 시작한다. 복원 전 파일은 폐기하지 않는다.
+- GET `/local-api/filter-state`, POST `filter-check`(본문 `{}`만), PUT `filter-candidate`, POST `filter-apply`/`filter-rollback`, PUT `filter-state`. 변경 요청은 기존 Host/Origin/Sec-Fetch-Site/X-Photobooth/JSON 방어를 공유한다. 후보 128KiB·기타 32KiB 상한, 정확한 고정 경로만 허용한다. 후보의 22개 정의·숫자·곡선·층·GLSL 크기/슬롯·출처 hash/fingerprint를 서버도 검사하고 GLSL은 받은 소스에 실제 포함된 문자열만 허용한다.
+- 서버 다운로드는 운영자의 확인 요청 때만 고정 HTTPS 두 곳으로 GET한다. redirect 거절, 타입·UTF-8·길이·500KB/800KB·시간 상한을 검사한다. 후보/원본은 서버·브라우저 메모리에만 있고 서버 재시작 시 다시 확인한다. 사진/프레임/현장값을 원격 요청에 싣지 않는다. CSP connect-src self는 그대로이고 평상시·재시작·복원·촬영에는 인터넷이 필요 없다.
+- 책임: `config/filter-source.js` 비실행 판독/검증, `filter-values.js` 수치 매핑/이행, `filter-builtin.json` 동봉 데이터, `effect/filter-shaders.js` 지원 GLSL 연결, `filter-updates.js` GPU와 저장 흐름, `ui/filter-tuning.js` 데이터 기반 UI, `bin/server/filter-api.ps1` 고정 다운로드/원자 저장.
+
+검증 명령: `node tools/filter-browser-check.mjs --capture`(합성), `--real --capture`(실제 장치, OBS 우선). 자기 서버·임시 프로필에서 시험하고 작업 폴더 설정을 백업/복원한다. 실제 프레임은 파일에 쓰지 않는다. 개발용 Node만 필요하며 현장 실행에는 Node가 필요 없다. 자세한 실측·한계는 [13단계 로그](logs/2026-11-06-01-filter-updates.md).
 
 ### 시험 조합: 유화 켬/끔 × 흑백 켬/끔 (WISHFUL HOLIDAY)
 
