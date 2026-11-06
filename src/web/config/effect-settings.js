@@ -56,7 +56,7 @@ export const BW_STYLES = Object.freeze(['tone', 'texture', 'flow', 'stroke']);
 /** 흑백 방식 (시험 조합의 "흑백 켬"이 쓰는 출력 모드). 'off'(컬러)를 뺀 출력 모드 */
 export const MONO_MODES = Object.freeze(['gray-oil', 'thermal', 'gray']);
 /** 파일에 없어도 알리지 않는 선택 키 (시험 조합). 없으면 기본값·outputMode에서 채운다 */
-export const EFFECT_OPTIONAL_KEYS = Object.freeze(['oil', 'monoMode']);
+export const EFFECT_OPTIONAL_KEYS = Object.freeze(['oil', 'monoMode', 'gallery']);
 
 const isFiniteNumber = (value) => typeof value === 'number' && Number.isFinite(value);
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
@@ -75,7 +75,7 @@ const isRefine = (refine) => Array.isArray(refine) && refine.length === 5 && ref
  * - 붓 층·보완 층은 모양이 맞지 않으면 기본값. 보완 층 오차 문턱만 범위로 맞춘다. refine이 null이면 보완 층 없음.
  * @returns {{ settings: object, issues: string[] }} issues는 바꾼 항목 설명 (운영자 확인용)
  */
-export function normalizeEffectSettings(input, defaults) {
+export function normalizeEffectSettings(input, defaults, limits = effectLimits) {
   const source = input !== null && typeof input === 'object' ? input : {};
   const issues = [];
 
@@ -108,7 +108,7 @@ export function normalizeEffectSettings(input, defaults) {
   else if (source.refine === null) refine = null;
   else if (!isRefine(source.refine)) issues.push('refine: invalid -> default');
   else {
-    const { min, max } = effectLimits.refineThreshold;
+    const { min, max } = limits.refineThreshold;
     const threshold = clamp(source.refine[4], min, max);
     if (threshold !== source.refine[4]) issues.push(`refine threshold: ${source.refine[4]} -> ${threshold}`);
     refine = [...source.refine.slice(0, 4), threshold];
@@ -126,11 +126,11 @@ export function normalizeEffectSettings(input, defaults) {
   else if (source.monoMode !== undefined) issues.push(`monoMode: ${JSON.stringify(source.monoMode)} -> default`);
 
   const settings = Object.freeze({
-    strength: number('strength', effectLimits.strength),
-    size: number('size', effectLimits.size),
-    boil: number('boil', effectLimits.boil),
-    fps: number('fps', effectLimits.fps, Math.round),
-    grade: number('grade', effectLimits.grade),
+    strength: number('strength', limits.strength),
+    size: number('size', limits.size),
+    boil: number('boil', limits.boil),
+    fps: number('fps', limits.fps, limits.fps.step>=1?Math.round:v=>v),
+    grade: number('grade', limits.grade),
     layers: Object.freeze(layers.map((layer) => Object.freeze([...layer]))),
     refine: refine === null ? null : Object.freeze([...refine]),
     previewScale: number('previewScale', effectLimits.previewScale),
@@ -145,6 +145,7 @@ export function normalizeEffectSettings(input, defaults) {
     lineSpacing: number('lineSpacing', effectLimits.lineSpacing),
     oil,
     monoMode,
+    ...(source.gallery ? { gallery: normalizeGallery(source.gallery) } : {}),
   });
   return { settings, issues };
 }
@@ -157,7 +158,7 @@ export const EFFECT_SETTINGS_VERSION = 1;
 export const EFFECT_TUNABLE_KEYS = Object.freeze([
   'strength', 'size', 'boil', 'fps', 'grade', 'refineThreshold', 'previewScale',
   'outputMode', 'dither', 'brightness', 'contrast', 'gamma', 'paperDots',
-  'bwStyle', 'bwTexture', 'lineSpacing', 'oil', 'monoMode',
+  'bwStyle', 'bwTexture', 'lineSpacing', 'oil', 'monoMode', 'gallery',
 ]);
 
 /** 정규화된 설정에서 조절값만 꺼낸다. 보완 층이 없으면 refineThreshold는 null */
@@ -181,6 +182,7 @@ export function effectTunables(settings) {
     lineSpacing: settings.lineSpacing,
     oil: settings.oil,
     monoMode: settings.monoMode,
+    ...(settings.gallery ? { gallery: settings.gallery } : {}),
   };
 }
 
@@ -204,14 +206,14 @@ export function comboTunables(settings, { oil, mono } = {}) {
  * base 설정(정규화된 것)에 조절값을 덮어 정규화한다. tunables에 없는 키는 base 값을 그대로 쓴다.
  * @returns {{ settings: object, issues: string[] }}
  */
-export function applyEffectTunables(base, tunables, defaults) {
+export function applyEffectTunables(base, tunables, defaults, limits = effectLimits) {
   const input = { ...base };
   for (const key of EFFECT_TUNABLE_KEYS) {
     if (key === 'refineThreshold' || !(key in tunables)) continue;
     input[key] = tunables[key];
   }
   if (base.refine && 'refineThreshold' in tunables) input.refine = [...base.refine.slice(0, 4), tunables.refineThreshold];
-  return normalizeEffectSettings(input, defaults);
+  return normalizeEffectSettings(input, defaults, limits);
 }
 
 export function serializeEffectSettings(settings) {
@@ -222,8 +224,8 @@ export function serializeEffectSettings(settings) {
  * 저장된 문자열을 읽는다. 어떤 값이 들어 있어도 예외를 던지지 않는다. 없는 키는 기본값으로 채우고 issues에 남긴다.
  * @returns {{ settings: object, issues: string[], source: 'stored' | 'default' }}
  */
-export function parseStoredEffectSettings(text, defaults) {
-  const base = normalizeEffectSettings(defaults, defaults).settings;
+export function parseStoredEffectSettings(text, defaults, limits = effectLimits) {
+  const base = normalizeEffectSettings(defaults, defaults, limits).settings;
   const fallback = (issue) => ({ settings: base, issues: issue ? [issue] : [], source: 'default' });
   if (text === null || text === undefined) return fallback(null);
   let parsed;
@@ -239,10 +241,17 @@ export function parseStoredEffectSettings(text, defaults) {
   const stored = parsed.settings !== null && typeof parsed.settings === 'object' ? parsed.settings : {};
   const missing = EFFECT_TUNABLE_KEYS.filter((key) => !(key in stored) && !EFFECT_OPTIONAL_KEYS.includes(key))
     .map((key) => `${key}: missing -> default`);
-  const { settings, issues } = applyEffectTunables(base, stored, defaults);
+  const { settings, issues } = applyEffectTunables(base, stored, defaults, limits);
   return { settings, issues: [...missing, ...issues], source: 'stored' };
 }
 
 export function sameEffectSettings(a, b) {
   return JSON.stringify(effectTunables(a)) === JSON.stringify(effectTunables(b));
+}
+
+function normalizeGallery(g) {
+  const keys=['OIL.w.0','OIL.w.1','OIL.w.2','OIL.len','OIL.jit','OIL.bump','OIL.spec','OIL.canvas','OIL.eye','OIL.edge','OIL.spill','OIL.slope','OIL.halo','GRADE.keepW'];
+  const values={};
+  for(const k of keys) if(Number.isFinite(g.values?.[k]) && g.values[k]>=-100 && g.values[k]<=100)values[k]=g.values[k];
+  return {style:['flat','3d'].includes(g.style)?g.style:'flat',level:Number.isFinite(g.level)?Math.max(0,Math.min(100,g.level)):50,values};
 }

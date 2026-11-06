@@ -24,6 +24,8 @@ import { drawingTick, resultSizeFor, seedForTick } from '../core/oil-paint.js';
 import {
   cameraColorKey, cameraColorMatrix, cameraGeometryKey, computeCameraView, shaderColorUniforms, shaderSourceAffine,
 } from '../core/camera-view.js';
+import { filterLimits } from '../config/filter-values.js';
+import { effectLimits } from '../config/effect-settings.js';
 import { EffectError, EffectFault, createOilRenderer } from './oil-renderer.js';
 
 // 결과 사진 준비를 브라우저가 한가할 때까지 기다리는 최대 시간 (가안). 넘으면 바로 한다
@@ -98,6 +100,7 @@ export function createEffectPreview({
   const enabled = initialSettings.enabled !== false;
   let settings = normalizeEffectSettings(initialSettings, config.effect).settings;
   let renderer = null;
+  let filterBundle = null;
   let status = enabled ? EffectStatus.WAITING_CAMERA : EffectStatus.DISABLED;
   let fault = '';
   let contextLosses = 0;
@@ -190,7 +193,7 @@ export function createEffectPreview({
   function createNow() {
     forgetPrepared();
     try {
-      renderer = createRenderer({ canvas, display });
+      renderer = createRenderer({ canvas, display, bundle: filterBundle });
       log.clear('effect');
       return true;
     } catch (error) {
@@ -352,13 +355,32 @@ export function createEffectPreview({
      * @returns {string[]} 범위로 맞추거나 기본값으로 바꾼 항목
      */
     setSettings(partial) {
-      const { settings: next, issues } = normalizeEffectSettings({ ...settings, ...partial }, config.effect);
+      const { settings: next, issues } = normalizeEffectSettings({ ...settings, ...partial }, config.effect, filterLimits(filterBundle,effectLimits));
       settings = next;
       dirty = true;
       onChange();
       return issues;
     },
     getSettings: () => settings,
+    getBundle: () => filterBundle,
+    replaceFilter(bundle, nextSettings, requireCamera = true) {
+      const next = createRenderer({ canvas, display, bundle });
+      try {
+        if (requireCamera && !camera.isReady()) throw Error('카메라가 준비되어야 시험할 수 있습니다');
+        if(camera.isReady()) {
+          const trialView=computeEffectView({cameraView:cameraFrame.getView(video.videoWidth,video.videoHeight),color:cameraFrame.getColor(),previewScale:nextSettings.previewScale});
+          if(!trialView)throw Error('카메라 프레임을 준비하지 못했습니다');
+          next.render(video,{settings:{...nextSettings,oil:true},width:trialView.resultWidth,height:trialView.resultHeight,seed:0,output:'warm',sourceAffine:trialView.sourceAffine,sourceColor:trialView.sourceColor});
+        }
+      } catch(error) { next.dispose(); throw error; }
+      const old=renderer;
+      renderer=next; filterBundle=bundle;
+      settings=normalizeEffectSettings(nextSettings,config.effect,filterLimits(bundle,effectLimits)).settings;
+      forgetPrepared(); lastDrawing=null; lastTick=null; lastSeed=null; dirty=true;
+      setStatus(EffectStatus.WAITING_CAMERA, '');
+      old?.dispose();
+      onChange();
+    },
     /** config.effect.enabled. false면 결과 사진에도 효과를 입히지 않는다 */
     isEnabled: () => enabled,
     renderStill,

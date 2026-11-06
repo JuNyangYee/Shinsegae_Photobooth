@@ -1,0 +1,352 @@
+{
+  "schema": 1,
+  "meta": {
+    "commit": "7f58eaa",
+    "date": "2026-11-05",
+    "sha256": "51816e9146ea1d90af0cd89a0faf2078a4b68ea023784b7ac3da70e495bde4ae",
+    "htmlSha256": "a84c03395506577aef92c023dfe0a06f40be9c79f282a35d5917ce0bad87965e",
+    "bytes": 135462,
+    "source": "https://nau-filter-gallery.vercel.app/nau-filter/nau-filter.js"
+  },
+  "fingerprint": "78c9ed0c457c5db3ff47b9bbd5bf4b6a9ac5ee7b9b079eb6d8e4dff23414ce2b",
+  "controls": [
+    {
+      "id": "state.strength",
+      "kind": "number",
+      "label": "강도",
+      "min": 0,
+      "max": 1.6,
+      "step": 0.01,
+      "default": 0.29
+    },
+    {
+      "id": "state.size",
+      "kind": "number",
+      "label": "붓·코 크기",
+      "min": 0.6,
+      "max": 1.8,
+      "step": 0.01,
+      "default": 1.23
+    },
+    {
+      "id": "state.boil",
+      "kind": "number",
+      "label": "획 다시 놓기",
+      "min": 0,
+      "max": 1,
+      "step": 0.01,
+      "default": 0.02
+    },
+    {
+      "id": "state.fps",
+      "kind": "number",
+      "label": "초당 그림",
+      "min": 2,
+      "max": 30,
+      "step": 1,
+      "default": 15
+    },
+    {
+      "id": "state.grade",
+      "kind": "number",
+      "label": "색 보정",
+      "min": 0,
+      "max": 1,
+      "step": 0.01,
+      "default": 1
+    },
+    {
+      "id": "state.level",
+      "kind": "number",
+      "label": "필터 세기",
+      "min": 0,
+      "max": 100,
+      "step": 1,
+      "default": 50
+    },
+    {
+      "id": "OIL.w.0",
+      "kind": "number",
+      "label": "굵은 붓 굵기",
+      "min": 0.4,
+      "max": 2,
+      "step": 0.05,
+      "help": "첫 층(밑칠 굵은 붓) 굵기 배율.",
+      "default": 1.01
+    },
+    {
+      "id": "OIL.w.1",
+      "kind": "number",
+      "label": "중간 붓 굵기",
+      "min": 0.4,
+      "max": 2,
+      "step": 0.05,
+      "help": "둘째 층 붓 굵기 배율.",
+      "default": 1.23
+    },
+    {
+      "id": "OIL.w.2",
+      "kind": "number",
+      "label": "가는 붓 굵기",
+      "min": 0.4,
+      "max": 2,
+      "step": 0.05,
+      "help": "셋째 층(가는 붓) 굵기 배율.",
+      "default": 0.72
+    },
+    {
+      "id": "OIL.len",
+      "kind": "number",
+      "label": "획 길이",
+      "min": 0.4,
+      "max": 2,
+      "step": 0.05,
+      "help": "모든 붓 획의 길이 배율. 길수록 형태를 따라 길게 휜다.",
+      "default": 1.68
+    },
+    {
+      "id": "OIL.jit",
+      "kind": "number",
+      "label": "획 색 흔들림",
+      "min": 0,
+      "max": 0.3,
+      "step": 0.01,
+      "help": "획마다 색을 조금씩 다르게(× 강도).",
+      "default": 0.096
+    },
+    {
+      "id": "OIL.bump",
+      "kind": "number",
+      "label": "물감 요철",
+      "min": 0,
+      "max": 20,
+      "step": 0.5,
+      "help": "획 높이로 생기는 음영(× 강도). 클수록 두껍게 바른 물감.",
+      "default": 5.3
+    },
+    {
+      "id": "OIL.spec",
+      "kind": "number",
+      "label": "광택",
+      "min": 0,
+      "max": 0.5,
+      "step": 0.01,
+      "help": "물감 표면의 반짝임(× 강도).",
+      "default": 0.178
+    },
+    {
+      "id": "OIL.canvas",
+      "kind": "number",
+      "label": "캔버스 결",
+      "min": 0,
+      "max": 0.1,
+      "step": 0.005,
+      "help": "캔버스 천의 격자 결(× 강도).",
+      "default": 0.023
+    },
+    {
+      "id": "OIL.refineT",
+      "kind": "number",
+      "label": "세부 보존 문턱",
+      "min": 0.05,
+      "max": 0.6,
+      "step": 0.01,
+      "help": "작을수록 눈·입처럼 원본과 달라진 곳을 가는 붓으로 더 많이 다시 칠한다.",
+      "default": 0.1
+    },
+    {
+      "id": "OIL.eye",
+      "kind": "number",
+      "label": "눈·코 테 정리",
+      "min": 0,
+      "max": 1,
+      "step": 0.05,
+      "help": "눈·코 같은 작은 검정 덩이 둘레에 굵은 붓이 남긴 회갈색 고리(눈두덩이 테)를 원본 색으로 걷는다. 눈송이·전구 같은 작은 흰 점 둘레의 짙은 테·번짐도(11/03). 눈 안의 획·물감 요철은 그대로.",
+      "default": 1
+    },
+    {
+      "id": "OIL.edge",
+      "kind": "number",
+      "label": "경계 밖 잔획 정리",
+      "min": 0,
+      "max": 1,
+      "step": 0.05,
+      "help": "귀 끝 · 검은 옷처럼 센 경계 둘레에서 굵은 붓이 바탕 쪽으로 넘쳐 남긴 짙은 점 · 짧은 획을 원본 색으로 걷는다(11/05). 원본이 평평한 바탕에서 칠이 원본과 크게 다른 화소만 — 붓결 · 물감 요철 · 경계 안쪽은 그대로.",
+      "default": 1
+    },
+    {
+      "id": "OIL.spill",
+      "kind": "number",
+      "label": "경계 옆 번짐 띠 정리",
+      "min": 0,
+      "max": 1,
+      "step": 0.05,
+      "help": "흰 곰 둘레 분홍 · 붉은 테, 탁자 위 주황 무늬처럼 굵은 · 중간 붓이 경계의 섞인 색을 바탕 쪽으로 펴 바른 띠를 막는다(11/05). 붓이 평평한 다른 색 바탕으로 넘어가면 길이 · 폭을 거기서 멈춤. 작을수록 덜 멈춤.",
+      "default": 1
+    },
+    {
+      "id": "OIL.slope",
+      "kind": "number",
+      "label": "그늘 띠 붓 방향",
+      "min": 0,
+      "max": 1,
+      "step": 0.05,
+      "help": "탁자 그림자 띠처럼 부드럽지만 뚜렷한 그러데이션에서 붓을 띠를 따라 눕힌다(11/05). 기본 60도 사선 획이 띠를 가로질러 짙은 색을 끌고 내려가던 빗금을 막음. 얼굴 같은 옅은 음영은 그대로.",
+      "default": 1
+    },
+    {
+      "id": "OIL.halo",
+      "kind": "number",
+      "label": "경계 둘레 테 정리",
+      "min": 0,
+      "max": 1,
+      "step": 0.05,
+      "help": "흰 곰 둘레처럼 센 경계 바깥에 원본보다 넓게 번진 분홍 · 밝은 띠와, 그 사이에 끼어 짙은 테로 보이는 줄을 없앤다(11/05). 센 경계 가까이에서만 칠의 흐린 평균을 원본에 맞춤 — 붓결 · 잔무늬는 그대로.",
+      "default": 0
+    },
+    {
+      "id": "GRADE.keepW",
+      "kind": "number",
+      "label": "흰색 지키기",
+      "min": 0,
+      "max": 1,
+      "step": 0.05,
+      "help": "색 보정이 흰 털·종이를 크림색으로 물들이지 않게 밝은 무채색만 원본 흰색으로(푸빌라 가이드: 따뜻한 빛에서도 순백). 색 보정 > 0일 때.",
+      "default": 1
+    },
+    {
+      "id": "state.style",
+      "kind": "select",
+      "label": "소스 그림체",
+      "options": [
+        {
+          "value": "flat",
+          "label": "평면 그림책"
+        },
+        {
+          "value": "3d",
+          "label": "3D"
+        }
+      ],
+      "default": "flat"
+    }
+  ],
+  "preset": {
+    "label": "유화 v3",
+    "sbr": 1,
+    "layers": [
+      [
+        36,
+        15,
+        84,
+        3.8,
+        0,
+        1
+      ],
+      [
+        18,
+        8,
+        44,
+        2.6,
+        0.02,
+        1
+      ],
+      [
+        8,
+        4,
+        20,
+        1.4,
+        0.06,
+        1
+      ]
+    ],
+    "refine": [
+      3.5,
+      3,
+      10,
+      0.6,
+      0.22
+    ],
+    "strength": 0.29,
+    "size": 1.23,
+    "boil": 0.02,
+    "fps": 15,
+    "tune": {
+      "GRADE.keepW": 1,
+      "OIL.w.0": 1.01,
+      "OIL.w.1": 1.23,
+      "OIL.w.2": 0.72,
+      "OIL.len": 1.68,
+      "OIL.jit": 0.096,
+      "OIL.bump": 5.3,
+      "OIL.spec": 0.178,
+      "OIL.canvas": 0.023,
+      "OIL.refineT": 0.1,
+      "OIL.eye": 1,
+      "OIL.edge": 1,
+      "OIL.spill": 1,
+      "OIL.slope": 1,
+      "OIL.halo": 0
+    }
+  },
+  "levels": [
+    [
+      "state.strength",
+      0.12,
+      null,
+      0.75,
+      0.1,
+      0.22,
+      0.55
+    ],
+    [
+      "state.size",
+      1,
+      null,
+      1.7
+    ],
+    [
+      "OIL.canvas",
+      0.01,
+      null,
+      0.05,
+      0.01,
+      0.02,
+      0.04
+    ],
+    [
+      "OIL.jit",
+      0.04,
+      null,
+      0.15,
+      0.03,
+      0.07,
+      0.11
+    ],
+    [
+      "CR.nosilw",
+      10,
+      null,
+      17
+    ],
+    [
+      "CR.tfmE",
+      0.00004,
+      null,
+      0.00004,
+      0.001,
+      0.001,
+      0.001
+    ]
+  ],
+  "flowDefault": 0.00004,
+  "port": {
+    "tfmBody": "\n  // 그늘 띠 붓 방향(11/05 재연 님 결함 후보 2 — 탁자 그림자 띠에서 짙은 굵은 획이 사선으로 아래로 늘어진 빗금, OIL.slope): 3D 소스는 결 문턱(tfmE 1e-3)이 높아\n  // 부드러운 그림자 띠도 '결 없음'이라 기본 60도로 칠하고, 사선 획이 가로 띠를 가로질러 짙은 색을 끌고 내려간다. 결이 약한 곳의 기본 방향을\n  // 크게 흐린 원본(밉 5)의 밝기 등고선 쪽으로 — 그러데이션이 .08~.16 넘게 뚜렷한 곳(그림자 띠 가운데)만. 얼굴 음영(대개 .06 안팎)은 그대로 둬\n  // 10/22에 막은 얼굴 붓 방향 흔들림이 돌아오지 않게(정지 얼굴 반짝임 +15%, 낮은 문턱 .03~.08은 +44%)\n  if (uSlopeK > 0.) {\n    vec2 tx = 32./vec2(textureSize(uGr, 0));\n    float gx = lum(textureLod(uGr, vUV + vec2(tx.x, 0.), 5.).rgb) - lum(textureLod(uGr, vUV - vec2(tx.x, 0.), 5.).rgb);\n    float gy = lum(textureLod(uGr, vUV + vec2(0., tx.y), 5.).rgb) - lum(textureLod(uGr, vUV - vec2(0., tx.y), 5.).rgb);\n    float mg = length(vec2(gx, gy));\n    if (mg > 1e-5) { vec2 tc = vec2(-gy, gx)/mg; d2 = mix(d2, vec2(tc.x*tc.x - tc.y*tc.y, 2.*tc.x*tc.y), uSlopeK*smoothstep(.08, .16, mg)); }\n  }\n  ",
+    "strokeStep": "    // 눈·코 테 정리(11/02 재연 님 '눈 주위를 원형으로 둘러싼 잡티'): 중간 붓(굵기 27 · 길이 90px)이 눈 안에서 짙은 색을 집어 눈 밖으로 뻗고,\n    // 뒤 층에 대부분 덮인 뒤 남은 조각이 눈 둘레 고리 모양 잡티가 된다(영상에서는 그림마다 반짝여 테두리처럼 읽힘). 작은 검정 덩이 경계를 넘어\n    // 밝기가 .3 넘게 다른 곳으로 가는 획만 거기서 멈춘다(짙은 획이 밖으로 · 흰 획이 눈 안으로). 다른 자리 획은 그대로\n    if (uEyeK > 0.) { vec2 nq = (p + dcur*s)/uRes;\n      if (max(blb(p/uRes), blb(nq)) > .3 && abs(lum(textureLod(uGrade, nq, .6).rgb) - lum(col)) > .3) break; }\n    if (uSpillK > 0. && uErrT <= 0. && spillTo((p + dcur*s)/uRes, col)) break;   // 경계 옆 번짐 띠(OIL.spill, 아래 spillTo)\n    ",
+    "strokeWidth": "\n  float wv = W*.5*taper;                                         // 폭도: 옆 꼭짓점이 평평한 다른 색 바탕에 떨어지면 반씩(최대 ⅛까지) 줄인다\n  if (uSpillK > 0. && uErrT <= 0.) for (int k = 0; k < 3; k++) { if (!spillTo((p + nrm*side*wv)/uRes, col)) break; wv *= .5; }\n  p += nrm*side*wv;\n  ",
+    "strokeFns": "bool spillTo(vec2 q, vec3 col){\n  vec3 g = textureLod(uGrade, q, 1.).rgb; if (distance(g, col) <= .04/uSpillK) return false;   // 값 1 = .04, 작을수록 문턱이 높아(0.5 = .08) 덜 멈춘다\n  vec2 tq = 10./vec2(textureSize(uGrade, 0));\n  return max(max(distance(textureLod(uGrade, q + vec2(tq.x, 0.), 1.).rgb, g), distance(textureLod(uGrade, q - vec2(tq.x, 0.), 1.).rgb, g)),\n             max(distance(textureLod(uGrade, q + vec2(0., tq.y), 1.).rgb, g), distance(textureLod(uGrade, q - vec2(0., tq.y), 1.).rgb, g))) < .02;\n}",
+    "finishBody": "\n    // 눈·코 테 정리(11/02 고객 '눈두덩이에 검은 뜬 테두리', OIL.eye): 굵은 붓은 흐린 원본(밉 1.4~3.8)에서 색을 집어 형태를 감싸 돌므로\n    // 작은 검정 덩이(눈·코) 둘레에 털과 눈 사이 회갈색 획이 고리로 남는다(작은 흰 점 — 눈송이·전구 — 둘레도 같은 까닭으로 짙은 테, 11/03). 덩이 지도(FS_BLOB)를 붓 크기만큼 넓힌 자리에서만\n    // 원본이 밝은 곳(털)은 원본 색으로, 원본이 어두운 곳(눈 안)은 원본보다 밝게 칠한 회색만 원본으로 되돌린다 — 눈 안의 획·하이라이트와\n    // 물감 요철(아래 높이 음영)은 그대로. 다른 자리는 화소 하나 바뀌지 않는다\n    if (uEyeK > 0.) {\n      vec2 tv = uEyeR/vec2(textureSize(uGrade, 0));\n      float bw = blb(uv);\n      for (int i = 0; i < 8; i++) { vec2 d = vec2(cos(float(i)*.7854), sin(float(i)*.7854))*tv;\n        bw = max(bw, max(.95*blb(uv + d*8.), .7*blb(uv + d*16.))); }\n      vec3 sg = textureLod(uGrade, uv, 0.).rgb;\n      float og = smoothstep(.3, .6, max(sg.r, max(sg.g, sg.b)));\n      og = max(og, (1. - og)*smoothstep(.06, .18, lum(c) - lum(sg)));\n      c = mix(c, sg, uEyeK*bw*og);\n      // 눈 둘레 잡티(11/02 재연 님 '눈 주위를 원형으로 둘러싼 잡티'): 짙은 점(눈)이 있으면 둘레 수십 px까지 '세밀한 곳'으로 판정돼 중간 · 가는 붓이\n      // 몰리고, 털의 잔잔한 음영을 짧고 짙은 획으로 옮겨 그린다(영상에서는 그림마다 반짝여 테두리처럼 읽힘). 덩이 둘레 넓은 띠(붓 크기 × 10~70px)에서\n      // 원본이 밝은 곳의 '원본보다 .04 넘게 짙은 칠'만 원본 쪽으로 — 붓결 · 물감 요철(아래)은 그대로\n      float dk = smoothstep(.04, .12, lum(sg) - lum(c))*smoothstep(.3, .6, max(sg.r, max(sg.g, sg.b)));\n      if (dk > 0.) {\n        float bo = 0.;\n        for (int i = 0; i < 8; i++) { vec2 d = vec2(cos(float(i)*.7854 + .39), sin(float(i)*.7854 + .39))*tv;\n          for (int k = 1; k <= 7; k++) bo = max(bo, (1. - .09*float(k - 1))*blb(uv + d*10.*float(k))); }\n        c = mix(c, sg, uEyeK*smoothstep(.2, .5, bo)*dk);\n      }\n    }\n    // 경계 밖 잔획 정리(11/05 재연 님 '깨또 귀 끝 둘레 붉은 바탕에 검은 점 · 짧은 획', OIL.edge): 굵은 붓(굵기 약 50px · 흐린 원본 밉 3.8)이 센 경계 둘레에서\n    // 짙은 쪽 색을 집거나 폭만큼 경계 밖으로 넘쳐 칠하고, 뒤 층이 대부분 덮은 뒤 남은 조각이 바탕 위 점 · 짧은 획이 된다(획 경로를 경계에서 끊어도 폭으로 넘쳐 남음).\n    // 원본이 평평한 바탕(둘레 6 · 14px 여덟 방향 중 다섯 이상이 이 자리와 .03 안 — 경계 바로 바깥도 바탕 쪽 절반이 평평해 들어간다)에서\n    // 칠이 원본과 .07 넘게 다른 화소만 원본 쪽으로. 평평한 바탕의 붓결 색 차는 .05 안팎이라 그대로, 뜨개 · 털 · 체크처럼 무늬가 있는 곳과\n    // 경계 위(어느 쪽도 평평하지 않음)는 손대지 않는다(밉 2와 한 점만 비교하면 무늬 속 중간 톤도 평평으로 잡혀 붓결이 지워졌다). 물감 요철(아래)은 그대로\n    if (uEdgeK > 0.) {\n      vec3 sg = textureLod(uGrade, uv, 0.).rgb, s1 = textureLod(uGrade, uv, 1.).rgb;\n      vec2 tv = 6./vec2(textureSize(uGrade, 0));\n      float nf = 0.;\n      for (int i = 0; i < 8; i++) { vec2 d = vec2(cos(float(i)*.7854), sin(float(i)*.7854))*tv;\n        nf += 1. - smoothstep(.03, .06, max(distance(textureLod(uGrade, uv + d, 1.).rgb, s1), distance(textureLod(uGrade, uv + d*2.3, 1.).rgb, s1))); }\n      c = mix(c, sg, uEdgeK*smoothstep(4.5, 6., nf)*smoothstep(.07, .14, distance(c, sg)));\n    }\n    // 경계 둘레 테(11/05 메인 · 재연 님 — 흰 곰 실루엣 바로 바깥 약 10px '짙은 붉은 테', OIL.halo): 짙은 칠이 아니다. 굵은 붓이 경계의 섞인 색으로\n    // 원본보다 두 배쯤 넓은 분홍 · 장밋빛 띠(바탕보다 밝기 +2~+27, 원본 +2~+9)를 남기고, 그 사이에 낀 바탕색 줄이 짙은 테로 읽힌다(1px 단위 단면 · 4배로 확인,\n    // 물감 요철 · 광택 · 캔버스 결 · 층 끄기와 상관없음). 센 경계(둘레 24px 안에 .06~.12 넘는 색 차) 가까이에서만 칠의 흐린 평균을 원본의 흐린 평균에\n    // 맞춘다(±.08 안 — 그보다 큰 붓결 차는 남는다), 넓은 바탕 안쪽의 붓 얼룩은 그대로. 밉 1(2~3px). 밉 3으로 넓게 맞추면 칠 판(실제 크기)과 원본(가상 크기)의\n    // 흐림 모양이 달라 경계 9~12px 바깥이 바탕보다 어두워져(−3.6) 오히려 짙은 테가 생겼다. 영상 반짝임은 같거나 조금 준다\n    if (uHaloK > 0.) {\n      vec3 s1 = textureLod(uGrade, uv, 1.).rgb; vec2 tv = 24./vec2(textureSize(uGrade, 0));\n      float ne = 0.;\n      for (int i = 0; i < 8; i++) ne = max(ne, smoothstep(.06, .12, distance(textureLod(uGrade, uv + vec2(cos(float(i)*.7854), sin(float(i)*.7854))*tv, 1.).rgb, s1)));\n      float pl = 1. + log2(float(textureSize(uPaint, 0).x)/float(textureSize(uGrade, 0).x));   // 칠 판은 실제 크기, 원본은 가상 크기 — 같은 넓이로 흐리게\n      c += uHaloK*ne*clamp(textureLod(uGrade, uv, 1.).rgb - textureLod(uPaint, uv, pl).rgb, -.08, .08);\n    }\n    ",
+    "blobFragment": "\nuniform sampler2D uTex;\nfloat vmx(vec2 uv){ vec3 c = textureLod(uTex, uv, 2.).rgb; return max(c.r, max(c.g, c.b)); }\nfloat lmb(vec2 uv){ return lum(textureLod(uTex, uv, 1.).rgb); }\nvoid main(){\n  vec2 ts = 1./vec2(textureSize(uTex, 0));\n  float v = vmx(vUV), dk = 1. - smoothstep(.14, .3, v), sm = 0.;\n  if (dk > 0.) for (int k = 0; k < 4; k++) { float R = k == 0 ? 20. : k == 1 ? 34. : k == 2 ? 52. : 80., n = 0.;\n    for (int i = 0; i < 12; i++) { float a = float(i)*.5236 + float(k)*.13; n += step(v + .4, vmx(vUV + vec2(cos(a), sin(a))*R*ts)); }\n    sm = max(sm, smoothstep(8.5, 10.5, n)); }\n  float l = lmb(vUV), bk = smoothstep(.4, .52, l), sb = 0.;\n  if (bk > 0.) for (int k = 0; k < 4; k++) { float R = k == 0 ? 8. : k == 1 ? 12. : k == 2 ? 20. : 34., n = 0.;\n    for (int i = 0; i < 12; i++) { float a = float(i)*.5236 + float(k)*.13; n += step(lmb(vUV + vec2(cos(a), sin(a))*R*ts) + .16, l); }\n    sb = max(sb, smoothstep(8.5, 10.5, n)); }\n  o = vec4(dk*sm, bk*sb, 0., 0.);\n}",
+    "blb": "float blb(vec2 q){ vec2 b = texture(uBlob, q).rg; return max(b.r, b.g); }"
+  }
+}

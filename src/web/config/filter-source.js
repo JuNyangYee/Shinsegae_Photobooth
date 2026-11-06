@@ -1,0 +1,189 @@
+// 원격 JS를 실행하지 않는 제한된 리터럴 판독기. 표현식·호출·접근자·spread는 받지 않는다.
+export function tokens(text) {
+  const out = [];
+  const re = /\s+|\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|-?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?|[A-Za-z_$][\w$]*|./gy;
+  let m;
+  while ((m = re.exec(text))) {
+    const v = m[0];
+    if (/^\s|^\/\//.test(v) || v.startsWith('/*')) continue;
+    out.push({ v, start: m.index, end: re.lastIndex });
+  }
+  return out;
+}
+
+export function literalAt(text, marker) {
+  const at = text.indexOf(marker);
+  if (at < 0 || text.indexOf(marker, at + marker.length) >= 0) throw Error(`검토 필요: ${marker}`);
+  const offset = at + marker.length;
+  const ts = tokens(text.slice(offset));
+  let i = 0;
+  const take = () => { if (!ts[i]) throw Error('잘린 원본'); return ts[i++].v; };
+  const read = (depth = 0) => {
+    if (depth > 12 || i > 10000) throw Error('리터럴 한도');
+    const t = take();
+    if (t === '[' || t === '{') {
+      const obj = t === '{', end = obj ? '}' : ']', result = obj ? {} : [];
+      while (ts[i]?.v !== end) {
+        if (obj) {
+          const key = take();
+          const k = key.startsWith('"') ? JSON.parse(key) : key;
+          if (!/^[\w. -]+$/.test(k) || ['__proto__', 'constructor', 'prototype'].includes(k) || Object.hasOwn(result, k)) throw Error('잘못된 키');
+          if (take() !== ':') throw Error('객체 값이 아님');
+          result[k] = read(depth + 1);
+        } else result.push(read(depth + 1));
+        if (ts[i]?.v === end) break;
+        if (take() !== ',') throw Error('표현식은 허용하지 않음');
+      }
+      take(); return result;
+    }
+    if (t.startsWith('"')) return JSON.parse(t);
+    if (t === 'null') return null;
+    if (t === 'true' || t === 'false') return t === 'true';
+    if (/^-?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(t) && Number.isFinite(+t)) return +t;
+    throw Error(`허용하지 않는 리터럴: ${t.slice(0,40)}`);
+  };
+  const value = read();
+  return { value, start: offset + ts[0].start, end: offset + ts[i - 1].end };
+}
+
+// 특정 선언의 최상위 속성만 읽는다. 다른 선언의 같은 키나 줄바꿈에 영향받지 않는다.
+function propertyAt(text,declaration,key) {
+  const at=text.indexOf(declaration);if(at<0)throw Error('선언 없음: '+declaration);
+  const ts=tokens(text.slice(at+declaration.length));let depth=0;
+  for(let i=0;i<ts.length;i++){
+    const t=ts[i].v;
+    if(t===key&&depth===1&&ts[i+1]?.v===':'){
+      const start=at+declaration.length+ts[i+2].start;
+      const parsed=literalAt('VALUE='+text.slice(start),'VALUE=');
+      return {value:parsed.value,start,end:start+parsed.end-6};
+    }
+    if(t==='{'||t==='[')depth++;else if(t==='}'||t===']'){depth--;if(depth===0)break;}
+  }
+  throw Error('속성 없음: '+key);
+}
+
+export const SOURCE_URLS = Object.freeze({ module: 'https://nau-filter-gallery.vercel.app/nau-filter/nau-filter.js', gallery: 'https://nau-filter-gallery.vercel.app/' });
+export const OIL_KEYS = Object.freeze(['OIL.w.0','OIL.w.1','OIL.w.2','OIL.len','OIL.jit','OIL.bump','OIL.spec','OIL.canvas','OIL.refineT','OIL.eye','OIL.edge','OIL.spill','OIL.slope','OIL.halo','GRADE.keepW']);
+export const TOP_KEYS = Object.freeze(['strength','size','boil','fps','grade','level']);
+export const PORT_KEYS = Object.freeze(['tfmBody','strokeStep','strokeWidth','strokeFns','finishBody','blobFragment','blb']);
+export async function digest(text) {
+  const bytes = typeof text === 'string' ? new TextEncoder().encode(text) : text;
+  return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(v => v.toString(16).padStart(2,'0')).join('');
+}
+
+function shader(text, name) {
+  const t = tokens(text), at = t.findIndex((x,i) => x.v === 'const' && t[i+1]?.v === name && t[i+2]?.v === '=');
+  if (at < 0) throw Error(`셰이더 없음: ${name}`);
+  let i = at + 3;
+  while (t[i] && !t[i].v.startsWith('`') && t[i].v !== ';') i++;
+  if (!t[i]?.v.startsWith('`') || t[i].v.includes('${')) throw Error('셰이더 구조 변경');
+  return { value: t[i].v.slice(1,-1), start:t[i].start+1, end:t[i].end-1 };
+}
+function slot(src, a, b) {
+  const start = src.indexOf(a), end = src.indexOf(b, start + a.length);
+  if (start < 0 || end < 0) throw Error(`이식 위치 변경: ${a}`);
+  return src.slice(start+a.length,end);
+}
+const clean = text => tokens(text).map(t => t.v.startsWith('`') ? '`'+t.v.slice(1,-1).replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g,'').replace(/\s+/g,'')+'`' : t.v).join(' ');
+
+// 원본 전체 실행 코드를 지문화한다. 허용한 수치와 GLSL 조각 밖의 변경은 자동 이식하지 않는다.
+export async function extractFilter(module, html, baseline = null) {
+  if (typeof module !== 'string' || typeof html !== 'string' || module.length > 500000 || html.length > 800000 || !html.trimEnd().endsWith('</html>')) throw Error('잘못되거나 잘린 원본');
+  const meta = /갤러리 ([0-9a-f]{7,40}) (\d{4}-\d{2}-\d{2})/.exec(module.slice(0,600));
+  if (!meta || !module.trimEnd().endsWith('}')) throw Error('원본 버전 또는 끝 구조 없음');
+  const preset = propertyAt(module,'const PRESETS =','oil2f');
+  const rootPreset = propertyAt(html,'const PRESETS =','oil2f');
+  const levels = literalAt(module, 'oil2f: { rows:');
+  const rootLevels = literalAt(html, 'oil2f: { rows:');
+  const oil = literalAt(module, 'const OIL = ');
+  const per = literalAt(module, 'const SLIDER_DEF = ');
+  if(JSON.stringify(per.value)!==JSON.stringify(literalAt(html,'const SLIDER_DEF = ').value))throw Error('검토 필요: 공통 기본값 배포 불일치');
+  // PER_DEF의 spread는 실행하지 않고, 알려진 참조 하나만 명시적으로 펼친다.
+  const flowDefault=literalAt(module,'const CR = ').value.tfmE;
+  if(flowDefault!==literalAt(html,'const CR = ').value.tfmE)throw Error('검토 필요: 방향장 기본값 배포 불일치');
+  const pd = literalAt(module.replace('...SLIDER_DEF,', ''), 'const PER_DEF = ').value;
+  const rootPd=literalAt(html.replace('...SLIDER_DEF,', ''),'const PER_DEF = ').value;
+  if(JSON.stringify(pd)!==JSON.stringify(rootPd) || JSON.stringify(oil.value)!==JSON.stringify(literalAt(html,'const OIL = ').value))throw Error('검토 필요: 기본값 배포 불일치');
+  if (JSON.stringify(preset.value) !== JSON.stringify(rootPreset.value) || JSON.stringify(levels.value) !== JSON.stringify(rootLevels.value)) throw Error('검토 필요: 모듈과 갤러리의 preset/level 배포 불일치');
+  const rows = literalAt(html, 'const TUNE_ROWS = {\n  oil: ').value;
+  const gradeRow = literalAt(html,'const GRADE_ROW = ').value;
+  const tune = [...rows, gradeRow];
+  if(rows.some(r=>r.length>7 || (r[6] && r[6]!=='oil2f')))throw Error('검토 필요: 유화 조절 표시 조건 변경');
+  if (tune.some(r => !OIL_KEYS.includes(r[0])) || OIL_KEYS.some(k => !tune.some(r => r[0] === k)) || tune.length !== OIL_KEYS.length) throw Error('검토 필요: 조절 항목 추가·삭제·중복');
+  if (Object.keys(preset.value.tune).some(k=>!OIL_KEYS.includes(k))) throw Error('검토 필요: 알 수 없는 preset 항목');
+  if (JSON.stringify(Object.keys(oil.value).sort()) !== JSON.stringify(['w','len','jit','bump','spec','canvas','refineT','eye','edge','spill','slope','halo'].sort())) throw Error('검토 필요: OIL 구조 변경');
+  const ctrlBase=literalAt(html,'const CTRL_BASE = ').value;
+  const ctrl=propertyAt(html,'const CTRL =','oil2f').value;
+  if(Object.keys(ctrl).some(k=>!TOP_KEYS.includes(k)&&k!=='note'))throw Error('검토 필요: 공통 조절 항목 변경');
+  const controls = TOP_KEYS.map(k => {
+    const raw=ctrlBase[k], override=ctrl[k];
+    if(!Array.isArray(raw)||raw.length!==4||(override!==undefined&&override!==null&&!Array.isArray(override)))throw Error('공통 조절 정의 오류');
+    // oil2f에서 숨긴 strength/size도 기존 현장 조절 호환을 위해 기반 범위를 받는다.
+    const [label,min,max,step]=raw.map((v,i)=>override?.[i]??v);
+    return {id:'state.'+k,kind:'number',label,min,max,step,default:preset.value[k]??pd[k]??per.value[k]};
+  });
+  for (const [id,label,min,max,step,help] of tune) controls.push({ id,kind:'number',label,min,max,step,help,default:preset.value.tune[id] });
+  const styleHtml=/<label>([^<]+)<\/label><select id="style">([\s\S]*?)<\/select>/.exec(html);
+  const styleDefault=/style:\s*"([^"]+)"/.exec(module)?.[1];
+  // 갤러리는 소스 종류에 따라 style을 고른다. 카메라 기본은 공개 모듈의 state.style이다.
+  const rootStyle=/style:\s*"([^"]+)"/.exec(html.slice(html.indexOf('const state ='),html.indexOf('};',html.indexOf('const state ='))))?.[1];
+  const stylePolicy='state.style = spec?.style || (SOURCES.find(s => s[1] === path)?.[0].startsWith("3D") ? "3d" : "flat");';
+  if(rootStyle?rootStyle!==styleDefault:!clean(html).includes(clean(stylePolicy)))throw Error('검토 필요: 그림체 선택 정책 변경');
+  if(!styleHtml || !styleDefault)throw Error('그림체 정의 없음');
+  const options=[...styleHtml[2].matchAll(/<option value="([^"]+)">([^<]+)<\/option>/g)].map(m=>({value:m[1],label:m[2]}));
+  if(options.map(o=>o.value).join(',')!=='flat,3d'||!options.some(o=>o.value===styleDefault))throw Error('검토 필요: 그림체 선택 변경');
+  controls.push({id:'state.style',kind:'select',label:styleHtml[1],options,default:styleDefault});
+  for (const c of controls.filter(c=>c.kind==='number')) if (![c.min,c.max,c.step,c.default].every(Number.isFinite) || c.min >= c.max || c.step <= 0 || c.default < c.min || c.default > c.max) throw Error(`잘못된 정의: ${c.id}`);
+  const vs = shader(module,'VS_STROKE'), tfm = shader(module,'FS_TFM'), compose = shader(module,'FS_COMPOSE'), blob = shader(module,'FS_BLOB');
+  for(const [name,part]of [['VS_STROKE',vs],['FS_TFM',tfm],['FS_COMPOSE',compose],['FS_BLOB',blob]])if(clean(part.value)!==clean(shader(html,name).value))throw Error('검토 필요: 셰이더 배포 불일치');
+  const path = slot(vs.value,'dcur = normalize(mix(dcur, nd, .7));','p += dcur*s; trav += s;');
+  const silEnd = path.indexOf('\n', path.indexOf('uNOSil > 0.'));
+  if (silEnd < 0) throw Error('획 경로 구조 변경');
+  const fnStart = vs.value.indexOf('bool spillTo('), fnEnd = vs.value.indexOf('\n}',fnStart);
+  if (fnStart<0 || fnEnd<0) throw Error('획 도움 함수 없음');
+  const port = {
+    tfmBody:slot(tfm.value,'d2 = vec2(d.x*d.x - d.y*d.y, 2.*d.x*d.y);','vec2 m2 = mix(d2, t2, w);'),
+    strokeStep:path.slice(silEnd+1),
+    strokeWidth:slot(vs.value,'float taper = mix(.55, 1., 1. - pow(abs(t)*2., 2.));','gl_Position = vec4(p/uRes*2. - 1., 0., 1.);'),
+    strokeFns:vs.value.slice(fnStart,fnEnd+2),
+    finishBody:slot(compose.value,'if (uMedium == 1) {','float h0 = texture(uHgt, uv).r'),
+    blobFragment:blob.value,
+    blb:/float blb\(vec2 q\)\{[^\n]*?\}/.exec(compose.value)?.[0],
+  };
+  if (!port.blb) throw Error('덩이 지도 함수 없음');
+  let skeleton = module;
+  const cuts = [preset,levels,oil,per].sort((a,b)=>b.start-a.start);
+  for(const c of cuts) skeleton = skeleton.slice(0,c.start)+'DATA'+skeleton.slice(c.end);
+  // 기본값 변경도 동기화 대상이다.
+  skeleton = skeleton.replace(/const PER_DEF = \{[^\n]*?\};/, 'const PER_DEF = DATA;');
+  skeleton=skeleton.replace(/tfmE:\s*[\d.e+-]+/g,'tfmE:DATA').replace(/style:\s*"[^"]+"/g,'style:DATA');
+  for (const s of Object.values(port)) skeleton = skeleton.replace(s,'SLOT');
+  for (const k of PORT_KEYS) port[k] = port[k].replace(/\s*&&\s*uMedium == 1\b/g,'').replace(/\buMedium == 1\s*&&\s*/g,'');
+  const fingerprint = await digest(clean(skeleton));
+  if (baseline && fingerprint !== baseline.fingerprint) throw Error('검토 필요: 지원 이식 위치 밖의 엔진 코드가 바뀌었습니다');
+  const bundle = { schema:1, meta:{ commit:meta[1],date:meta[2],sha256:await digest(module),htmlSha256:await digest(html),bytes:new TextEncoder().encode(module).length,source:SOURCE_URLS.module }, fingerprint,controls,preset:preset.value,levels:levels.value,flowDefault,port };
+  validateBundle(bundle);
+  return bundle;
+}
+
+export function validateBundle(b) {
+  if (!b || b.schema!==1 || b.meta?.source!==SOURCE_URLS.module || !/^[a-f0-9]{64}$/.test(b.meta?.sha256) || !/^[a-f0-9]{64}$/.test(b.fingerprint) || !/^[a-f0-9]{64}$/.test(b.meta?.htmlSha256)) throw Error('잘못된 필터 묶음');
+  const ids=[...TOP_KEYS.map(k=>'state.'+k),...OIL_KEYS,'state.style'];
+  if (!Array.isArray(b.controls) || b.controls.length!==ids.length || new Set(b.controls.map(c=>c.id)).size!==ids.length) throw Error('조절 항목 수 불일치');
+  if(b.controls.some(c=>c.id!=='state.style'&&c.kind!=='number'))throw Error('조절 종류 오류');
+  for(const c of b.controls.filter(c=>c.kind!=='select')) if(!ids.includes(c.id)||c.kind!=='number'||typeof c.label!=='string'||c.label.length>100||![c.min,c.max,c.step,c.default].every(Number.isFinite)||c.min>=c.max||c.step<=0||c.min< -100||c.max>100||c.default<c.min||c.default>c.max) throw Error('조절 정의 오류');
+  const style=b.controls.find(c=>c.id==='state.style');
+  if(style?.kind!=='select'||style.options?.map(o=>o.value).join(',')!=='flat,3d'||!['flat','3d'].includes(style.default)||!Number.isFinite(b.flowDefault)||b.flowDefault<=0||b.flowDefault>1||typeof style.label!=='string'||style.label.length>100||style.options.some(o=>typeof o.label!=='string'||o.label.length>100))throw Error('그림체 정의 오류');
+  for(const k of PORT_KEYS) if(typeof b.port?.[k]!=='string'||b.port[k].length>30000||/`|\$\{|#extension|#include/.test(b.port[k])) throw Error('셰이더 조각 오류');
+  if (!Array.isArray(b.preset?.layers)||b.preset.layers.length!==3||!b.preset.layers.every(l=>Array.isArray(l)&&l.length===6&&l.every(n=>Number.isFinite(n)&&n>=0&&n<200)&&l.slice(0,3).every(n=>n>0&&n<200))||!Array.isArray(b.preset.refine)||b.preset.refine.length!==5||!b.preset.refine.every(n=>Number.isFinite(n)&&n>=0&&n<200)||!b.preset.refine.slice(0,4).every(n=>n>0)) throw Error('붓 층 오류');
+  if (!Array.isArray(b.levels)||b.levels.length!==6||new Set(b.levels.map(r=>r?.[0])).size!==6||!b.levels.every(r=>Array.isArray(r)&&['state.strength','state.size','OIL.canvas','OIL.jit','CR.nosilw','CR.tfmE'].includes(r[0])&&[4,7].includes(r.length)&&r.slice(1).every((n,i)=>n===null?i===1:Number.isFinite(n)&&n>=0&&n<=100))) throw Error('세기 곡선 오류');
+  return b;
+}
+
+export function bundleChanges(a,b) {
+  const changes=[];
+  for(const c of b.controls){const p=a.controls.find(x=>x.id===c.id); if(!p)changes.push(`${c.label}: 새 항목 (기본 ${c.default})`); else for(const k of ['min','max','step','default'])if(c[k]!==p[k])changes.push(`${c.label} ${k}: ${p[k]} → ${c[k]}`);}
+  for(const c of a.controls)if(!b.controls.some(x=>x.id===c.id))changes.push(`${c.label}: 삭제`);
+  for(const k of ['preset','levels','port','flowDefault'])if(JSON.stringify(a[k])!==JSON.stringify(b[k]))changes.push(({preset:'붓 층·기본 수치',levels:'세기 곡선',port:'유화 엔진',flowDefault:'방향장 기준 수치'})[k]+' 변경');
+  return changes;
+}

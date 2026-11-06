@@ -104,7 +104,7 @@ describe('효과 조절값 (E 화면·파일, 5-2)', () => {
   const base = normalizeEffectSettings(defaults, defaults).settings;
 
   it('조절값은 18개(5-2의 7개 + 출력 단계 6개 + 흑백 스타일 3개 + 시험 조합 2개(WISHFUL), 좌우 반전은 9-1에 카메라 설정으로), 보완 층 문턱은 refine[4]', () => {
-    assert.deepEqual(Object.keys(effectTunables(base)), [...EFFECT_TUNABLE_KEYS]);
+    assert.deepEqual(Object.keys(effectTunables(base)), EFFECT_TUNABLE_KEYS.filter(k => k !== 'gallery'));
     assert.deepEqual(effectTunables(base), {
       strength: 0.3, size: 1.3, boil: 0.05, fps: 12, grade: 1, refineThreshold: 0.3, previewScale: 0.5,
       outputMode: 'gray-oil', dither: defaults.dither, brightness: -0.05, contrast: 1.5, gamma: 1.3, paperDots: 576,

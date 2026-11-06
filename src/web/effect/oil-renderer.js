@@ -20,12 +20,10 @@
 // GPU 자원은 만드는 즉시 owned에 넣는다. 만들다 실패하면(텍스처·프레임버퍼·셰이더) 그때까지 만든 것을 지우고,
 // dispose()는 owned 전체를 지운다 (5단계 검수 2·3). 그림마다 GL 오류·컨텍스트 손실을 확인해 실패를 성공으로 넘기지 않는다 (검수 1).
 
+import { filterShaders } from './filter-shaders.js';
+import { filterValues } from '../config/filter-values.js';
 import { createStrokeBuilder, resolveOilDrawing } from '../core/oil-paint.js';
 import { INPUT_LUMA, bwStyleOf, ditherErrorDiffusion, isGpuDither, printSizeFor, screenOf, thresholdMap } from '../core/thermal.js';
-import {
-  FS_BLUR, FS_BW_PREP, FS_COMPOSE, FS_GRADE, FS_INPUT_GRAY, FS_OUTPUT, FS_SST, FS_STROKE, FS_TFM, FS_THERMAL_DITHER, FS_THERMAL_REDUCE,
-  FS_THERMAL_SCREEN, FS_THERMAL_SHOW, FS_UNDER, VS, VS_STROKE,
-} from './oil-shaders.js';
 
 // 카메라 처리 경로 (9-1, oil-shaders.js CAMERA_INPUT): 변환·색 보정 없음
 const IDENTITY_AFFINE = Object.freeze({ x: Object.freeze([1, 0, 0]), y: Object.freeze([0, 1, 0]) });
@@ -77,7 +75,8 @@ const DEFAULT_DISPLAY = Object.freeze({ paper: [255, 255, 255], ink: [0, 0, 0] }
  *   display?: { paper: number[], ink: number[] } }} options
  *   canvas의 크기는 render()가 그리는 해상도(감열지면 인쇄 해상도)로 맞춘다. display: 감열지 화면의 종이색·잉크색 (화면 전용)
  */
-export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUTES, display = DEFAULT_DISPLAY }) {
+export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUTES, display = DEFAULT_DISPLAY, bundle = null }) {
+  const { FS_BLUR, FS_BW_PREP, FS_COMPOSE, FS_GRADE, FS_INPUT_GRAY, FS_OUTPUT, FS_SST, FS_STROKE, FS_TFM, FS_THERMAL_DITHER, FS_THERMAL_REDUCE, FS_THERMAL_SCREEN, FS_THERMAL_SHOW, FS_UNDER, VS, VS_STROKE, FS_BLOB } = filterShaders(bundle);
   const paperColor = [...display.paper]; // 0~255 (셰이더가 정수로 섞는다)
   const inkColor = [...display.ink];
   const gl = canvas.getContext('webgl2', contextAttributes);
@@ -119,6 +118,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
     gl.bindVertexArray(null);
 
     PR = {
+      ...(bundle ? { blob: compile(FS_BLOB) } : {}),
       grade: compile(FS_GRADE), sst: compile(FS_SST), blur: compile(FS_BLUR), tfm: compile(FS_TFM),
       stroke: compile(FS_STROKE, VS_STROKE), under: compile(FS_UNDER), compose: compile(FS_COMPOSE), output: compile(FS_OUTPUT),
       reduce: compile(FS_THERMAL_REDUCE), dither: compile(FS_THERMAL_DITHER), show: compile(FS_THERMAL_SHOW),
@@ -247,7 +247,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
     }
   }
 
-  const TARGET_KEYS = ['inputGray', 'grade', 'sst', 'sst2', 'tfm', 'paint', 'hgt', 'paintC', 'composed', 'out', 'bw'];
+  const TARGET_KEYS = ['blob', 'inputGray', 'grade', 'sst', 'sst2', 'tfm', 'paint', 'hgt', 'paintC', 'composed', 'out', 'bw'];
 
   function freeTargets(set) {
     for (const key of TARGET_KEYS) {
@@ -286,6 +286,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
     const set = { mrt: null, out: null, bw: null, inputGray: null };
     try {
       set.grade = tex(W, H, { mip: true });
+      if(bundle) set.blob=tex(Math.max(1,Math.round(W/4)),Math.max(1,Math.round(H/4)));
       set.sst = tex(fw, fh, { float: true });
       set.sst2 = tex(fw, fh, { float: true });
       set.tfm = tex(fw, fh, { float: true });
@@ -533,6 +534,7 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
   // 원본 paintStrokes()의 oil2f 경로 (sbr 1 = 유화)
   function paintStrokes(D, seed, linePx) {
     const { width: W, height: H } = D;
+    if(bundle) pass(PR.blob,T.blob,{uTex:T.grade});
     gl.bindFramebuffer(gl.FRAMEBUFFER, T.mrt);
     gl.viewport(0, 0, W, H);
     gl.useProgram(PR.under.p);
@@ -558,6 +560,10 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
     gl.uniform1i(U(pr, 'uCanvas'), 2);
     gl.uniform2f(U(pr, 'uRes'), W, H);
     gl.uniform1f(U(pr, 'uJit'), D.jitter);
+    if(bundle) {
+      gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D,T.blob.t); gl.uniform1i(U(pr,'uBlob'),3);
+      gl.uniform1f(U(pr,'uEyeK'),D.values['OIL.eye']); gl.uniform1f(U(pr,'uSpillK'),D.values['OIL.spill']);
+    }
     gl.uniform1f(U(pr, 'uLinePx'), linePx); // 붓 결 선 주기 (그리는 해상도 px, 7-1). 색 그림에는 영향이 없다
     gl.bindVertexArray(strokeVAO);
     let count = 0;
@@ -629,7 +635,12 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
     }
     useTargets(width, height);
     if (output === 'canvas' && mode !== 'thermal') resizeCanvas(width, height);
-    const D = resolveOilDrawing(settings, { width, height, referenceShortSide });
+    const D = { ...resolveOilDrawing(settings, { width, height, referenceShortSide }) };
+    if(bundle) {
+      D.values=filterValues(bundle,settings);
+      D.jitter=D.values['OIL.jit']*settings.strength;
+      D.layers=D.layers.map((l,i)=>({...l,width:l.width*D.values['OIL.w.'+i],brisWidth:l.brisWidth*D.values['OIL.w.'+i],length:l.length*D.values['OIL.len'],brisLength:l.brisLength*D.values['OIL.len']}));
+    }
     let query = null;
     if (timer && output === 'canvas') { // GPU 시간은 미리보기 그림만 잰다
       pollTimer();
@@ -656,18 +667,18 @@ export function createOilRenderer({ canvas, contextAttributes = CONTEXT_ATTRIBUT
         // 회색조 유화 (8단계): 입력을 먼저 회색 한 장으로. 색 보정 이후는 원본 그대로이고, 회색 그림을 크롭·반전 없이 읽는다
         if (!T.inputGray) T.inputGray = tex(width, height);
         pass(PR.inputGray, T.inputGray, { uSrc: srcTex }, { uLuma: INPUT_LUMA, ...cameraUniforms(sourceAffine, sourceColor) });
-        pass(PR.grade, T.grade, { uSrc: T.inputGray }, { uAmt: D.grade, ...cameraUniforms(IDENTITY_AFFINE, IDENTITY_COLOR) });
+        pass(PR.grade, T.grade, { uSrc: T.inputGray }, { uAmt: D.grade, uKeepW: D.values?.['GRADE.keepW'] ?? 0, ...cameraUniforms(IDENTITY_AFFINE, IDENTITY_COLOR) });
       } else {
-        pass(PR.grade, T.grade, { uSrc: srcTex }, { uAmt: D.grade, ...cameraUniforms(sourceAffine, sourceColor) });
+        pass(PR.grade, T.grade, { uSrc: srcTex }, { uAmt: D.grade, uKeepW: D.values?.['GRADE.keepW'] ?? 0, ...cameraUniforms(sourceAffine, sourceColor) });
       }
       if (settings.oil !== false) {
         pass(PR.sst, T.sst, { uTex: T.grade });
         pass(PR.blur, T.sst2, { uTex: T.sst }, { uDir: [1 / T.sst.w, 0], uSigma: D.flowSigma });
         pass(PR.blur, T.sst, { uTex: T.sst2 }, { uDir: [0, 1 / T.sst.h], uSigma: D.flowSigma });
-        pass(PR.tfm, T.tfm, { uTex: T.sst });
+        pass(PR.tfm, T.tfm, { uTex: T.sst, ...(bundle?{uGr:T.grade}:{}) }, {uStrE:D.values?.['CR.tfmE']??4e-5,uSlopeK:D.values?.['OIL.slope']??0});
         // 붓 결 선 주기: 선 간격(인쇄 점) × 인쇄 점 하나의 그리는 해상도 px (감열지가 아니어도 같은 식, 색에는 영향 없음)
         count = paintStrokes(D, seed, (settings.lineSpacing ?? 3) * (width / (settings.paperDots ?? 576)));
-        pass(PR.compose, T.composed, { uPaint: T.paint, uHgt: T.hgt }, { uStr: D.strength, uRelief: D.relief, uPxScale: D.pxScale });
+        pass(PR.compose, T.composed, { uPaint: T.paint, uHgt: T.hgt, ...(bundle?{uGrade:T.grade,uBlob:T.blob}:{}) }, { uStr: D.strength, uRelief: D.relief, uPxScale: D.pxScale, ...(bundle?{uEyeK:D.values['OIL.eye'],uEyeR:settings.size,uEdgeK:D.values['OIL.edge'],uHaloK:D.values['OIL.halo'],uBumpK:D.values['OIL.bump'],uSpecK:D.values['OIL.spec'],uCanvasK:D.values['OIL.canvas']}:{}) });
       }
       if (mode === 'gray-oil' && output === 'canvas') warmGrayOilPrint(settings, D);
       // 회색조·회색조 유화는 회색조·레벨. 회색조 유화는 이것으로 색 보정·획 색 흔들림의 색을 없앤다(무채색, 8단계)
