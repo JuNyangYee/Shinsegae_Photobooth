@@ -4,7 +4,9 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { config } from '../../src/web/config/config.js';
-import { clipRegionToFrame, cropRows, isFullFrame, photoFrameAspect, photoFrameRows } from '../../src/web/core/photo-frame.js';
+import {
+  clipRegionToFrame, cropRect, cropRows, isFullFrame, padColumns, photoFrameAspect, photoFrameCols, photoFrameRect, photoFrameRows,
+} from '../../src/web/core/photo-frame.js';
 import { STAGE_MAPPING, classifyFaces, initialPresenceState, stepPresence } from '../../src/web/core/presence.js';
 
 const frame = config.photoFrame;
@@ -12,18 +14,28 @@ const frame = config.photoFrame;
 const IMPRINT_FRAME = Object.freeze({ top: 7 / 64, height: 45 / 64 });
 
 describe('photo-frame: 줄 범위', () => {
-  it('기본 틀(14단계 8/64 ~ 53/64)은 9:16 화면에서 4:5이고 결과·인쇄·4K·감지 입력에서 모두 정수 줄이다', () => {
-    assert.equal(photoFrameAspect(9 / 16, frame), 0.8);
-    assert.deepEqual(photoFrameRows(1920, frame), { top: 240, height: 1350 });
-    assert.deepEqual(photoFrameRows(1024, frame), { top: 128, height: 720 });
-    assert.deepEqual(photoFrameRows(3840, frame), { top: 480, height: 2700 });
-    assert.deepEqual(photoFrameRows(640, frame), { top: 80, height: 450 });
-    for (const H of [1920, 1024, 3840, 640]) {
+  it('기본 틀(16단계 가로 1/8~7/8 · 세로 3/16~3/4)은 9:16 화면에서 정확한 3:4이고 결과·인쇄·4K·감지 입력에서 모두 정수 열·줄이다', () => {
+    assert.equal(photoFrameAspect(9 / 16, frame), 0.75);
+    assert.deepEqual(photoFrameRect(1080, 1920, frame), { left: 135, top: 360, width: 810, height: 1080 });
+    assert.deepEqual(photoFrameRect(576, 1024, frame), { left: 72, top: 192, width: 432, height: 576 });
+    assert.deepEqual(photoFrameRect(2160, 3840, frame), { left: 270, top: 720, width: 1620, height: 2160 });
+    assert.deepEqual(photoFrameRect(360, 640, frame), { left: 45, top: 120, width: 270, height: 360 });
+    for (const [W, H] of [[1080, 1920], [576, 1024], [2160, 3840], [360, 640]]) {
       assert.ok(Number.isInteger(H * frame.top) && Number.isInteger(H * (frame.top + frame.height)), `${H}`);
+      assert.ok(Number.isInteger(W * frame.left) && Number.isInteger(W * (frame.left + frame.width)), `${W}`);
+      const r = photoFrameRect(W, H, frame);
+      assert.equal(r.width * 4, r.height * 3, `${W}x${H} 3:4`);
     }
-    // 결과 줄과 인쇄 줄이 같은 화면 줄을 덮는다 (1080 → 576은 1.875배)
-    assert.equal(240 / 1920, 128 / 1024);
-    assert.equal(1350 / 1920, 720 / 1024);
+    // 결과 직사각형과 인쇄 직사각형이 같은 화면 영역을 덮는다 (1080 → 576은 1.875배)
+    assert.equal(135 / 1080, 72 / 576);
+    assert.equal(360 / 1920, 192 / 1024);
+  });
+
+  it('left·width가 없는 예전 틀(14단계)은 화면 폭 전체', () => {
+    const old = { top: 8 / 64, height: 45 / 64 };
+    assert.deepEqual(photoFrameCols(1080, old), { left: 0, width: 1080 });
+    assert.deepEqual(photoFrameRect(1080, 1920, old), { left: 0, top: 240, width: 1080, height: 1350 });
+    assert.equal(photoFrameAspect(9 / 16, old), 0.8);
   });
 
   it('정수로 안 떨어지는 높이(58mm 384점 → 683줄)는 위·아래 끝을 각각 반올림한다', () => {
@@ -41,14 +53,19 @@ describe('photo-frame: 줄 범위', () => {
 });
 
 describe('photo-frame: 인식 영역을 틀 안으로', () => {
-  it('기본 인식 영역(0.1~0.9)은 틀 위·아래 끝에 맞춰 줄어든다 (가로는 그대로)', () => {
+  it('기본 인식 영역(0.1~0.9)은 틀 가로·세로 끝에 맞춰 줄어든다 (16단계: 가로도)', () => {
     const { region, clipped } = clipRegionToFrame({ x: 0.1, y: 0.1, width: 0.8, height: 0.8 }, frame);
     assert.equal(clipped, true);
+    assert.deepEqual(region, { x: 1 / 8, y: 3 / 16, width: 3 / 4, height: 9 / 16 });
+  });
+
+  it('예전 틀(화면 폭 전체)이면 가로는 그대로', () => {
+    const { region } = clipRegionToFrame({ x: 0.1, y: 0.1, width: 0.8, height: 0.8 }, { top: 8 / 64, height: 45 / 64 });
     assert.deepEqual(region, { x: 0.1, y: 8 / 64, width: 0.8, height: 45 / 64 });
   });
 
   it('이미 틀 안이면 그대로 (같은 객체, 줄이지 않음)', () => {
-    const inside = { x: 0.2, y: 0.2, width: 0.6, height: 0.5 };
+    const inside = { x: 0.2, y: 0.25, width: 0.6, height: 0.4 };
     const result = clipRegionToFrame(inside, frame);
     assert.equal(result.region, inside);
     assert.equal(result.clipped, false);
@@ -65,6 +82,16 @@ describe('photo-frame: 인식 영역을 틀 안으로', () => {
   it('틀이 화면 전체면 줄이지 않는다', () => {
     const region = { x: 0.1, y: 0.1, width: 0.8, height: 0.8 };
     assert.equal(clipRegionToFrame(region, null).region, region);
+  });
+});
+
+describe('photo-frame: 직사각형 자르기·용지 가운데 넣기 (16단계)', () => {
+  it('cropRect: 열·줄 범위만 새 배열로, padColumns: 좁은 사진을 넓은 폭 가운데에 (나머지 fill)', () => {
+    const data = Uint8Array.from({ length: 4 * 3 }, (_, i) => i); // 4x3
+    const crop = cropRect(data, 4, { left: 1, top: 1, width: 2, height: 2 });
+    assert.deepEqual([...crop], [5, 6, 9, 10]);
+    assert.deepEqual([...padColumns(crop, 2, 2, 4, 1, 1)], [1, 5, 6, 1, 1, 9, 10, 1]);
+    assert.equal(padColumns(crop, 2, 2, 2, 0, 1), crop, '같은 폭이면 그대로');
   });
 });
 
