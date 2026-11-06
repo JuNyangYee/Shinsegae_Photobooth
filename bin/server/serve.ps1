@@ -294,6 +294,8 @@ function Invoke-SettingsApi($request) {
     return New-ApiResult 204 "saved $($bytes.Length) bytes"
 }
 
+. (Join-Path $PSScriptRoot 'filter-api.ps1')
+
 function Send-Response($context) {
     $request = $context.Request
     $response = $context.Response
@@ -306,7 +308,7 @@ function Send-Response($context) {
         $status = 403
     }
     elseif ($request.RawUrl.StartsWith('/local-api', [StringComparison]::OrdinalIgnoreCase)) {
-        $result = Invoke-SettingsApi $request
+        $result = if ($request.RawUrl.StartsWith('/local-api/filter', [StringComparison]::OrdinalIgnoreCase)) { Invoke-FilterApi $request } else { Invoke-SettingsApi $request }
         $status = $result.Status
         $contentType = $result.ContentType
         $body = $result.Body

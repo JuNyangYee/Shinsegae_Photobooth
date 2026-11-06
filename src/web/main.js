@@ -20,6 +20,7 @@ import { normalizeTimingSettings, serializeTimingSettings } from './config/timin
 import { createTimingTuning } from './ui/timing-tuning.js';
 import { effectCombo, effectTunables, serializeEffectSettings } from './config/effect-settings.js';
 import { EffectStatus, createEffectPreview } from './effect/effect-preview.js';
+import { createFilterUpdates } from './effect/filter-updates.js';
 import { createPhotoEffect } from './effect/photo-effect.js';
 import { createEffectTuning } from './ui/effect-tuning.js';
 import { createCameraTuning } from './ui/camera-tuning.js';
@@ -272,11 +273,13 @@ let timingTuning = null; // 시간 섹션. 불러오기가 끝나면 만든다
 // 인식 판정값과 시간 설정을 모두 불러와야 자동 시작한다 (기본값으로 잠깐 판정하거나, 기본 카운트다운으로 시작하지 않게)
 let presenceLoaded = false;
 let timingLoaded = false;
-const settingsReady = () => presenceLoaded && timingLoaded;
-// 효과 조절값 파일 (서버 config/effect.local.json). 불러오기 전에는 config.effect 기본값으로 그린다 (판정과 무관하므로 막지 않는다)
+let filterLoaded = false;
+const settingsReady = () => presenceLoaded && timingLoaded && filterLoaded;
+// 효과 조절값 파일 (서버 config/effect.local.json). 불러오기 전에는 config.effect 기본값으로 그린다 (필터와 수치를 함께 복원할 때까지 새 촬영은 대기)
 const effectSettingsFile = createSettingsFileClient(config.effectSettingsFile);
 // 카메라 조절값 파일 (서버 config/camera.local.json, 9-1). 카메라를 열기 전에 읽는다
 const cameraSettingsFile = createSettingsFileClient(config.cameraSettingsFile);
+let filterUpdates = null;
 let effectTuning = null; // 필터 섹션. 불러오기가 끝나면 만든다
 let cameraTuning = null; // 카메라 섹션. 불러오기가 끝나면 만든다
 // 운영자 조절 화면 (9-2, E): 섹션 넷(10단계에 시간). 섹션 모듈은 각 조절값을 불러온 뒤 붙는다(다 붙어야 열린다)
@@ -844,21 +847,30 @@ async function loadTimingSettings() {
 // 효과 조절값: 파일 → 기본값 (settings-file.js). 끝나면 조절 화면을 만들고 그 값을 미리보기에 넣는다.
 async function loadEffectSettings() {
   try {
-    const initial = await loadInitialEffectSettings({ file: effectSettingsFile, defaults: config.effect });
+    let initial = await loadInitialEffectSettings({ file: effectSettingsFile, defaults: config.effect });
     if (initial.note && initial.note !== 'no file') console.warn('[effect-settings]', `${initial.source}: ${initial.note}`);
+    const canChange = () => session.getState().state === SessionState.IDLE;
+    const updates = await createFilterUpdates({preview:effect,defaults:config.effect,initial,canChange});
+    filterUpdates=updates;
+    initial=updates.initial;
     effectTuning = createEffectTuning({
+      updates, canChange,
       panel: document.getElementById('effect-panel'),
       preview: effect,
       defaults: config.effect,
       initial,
-      saveSettings: (settings) => effectSettingsFile.write(serializeEffectSettings(settings)),
+      saveSettings: async (settings) => {
+        if(!await updates.save(settings))await effectSettingsFile.write(serializeEffectSettings(settings));
+        updates.remember(settings);
+      },
       onOpenChange: handleSectionOpenChange,
     });
     operatorPanel.attach(PanelSection.EFFECT, effectTuning);
   } catch (error) {
     console.error('[effect-settings] setup failed; continuing with defaults', error);
   }
-  if (!devInfo.hidden) renderDevInfo();
+  filterLoaded=true;
+  settingsLoaded();
 }
 
 function toggleDevInfo() {
@@ -876,7 +888,7 @@ window.addEventListener('keydown', (event) => {
   if (event.repeat || event.ctrlKey || event.altKey || event.metaKey) return;
   if (event.code === Keys.devInfo) toggleDevInfo();
   else if (event.code === Keys.operatorPanel) operatorPanel.toggle();
-  else if (event.code === Keys.start) session.request('start', 'key');
+  else if (event.code === Keys.start && filterLoaded && !filterUpdates?.getInfo().busy && !filterUpdates?.getInfo().trial) session.request('start', 'key');
   else if (event.code === Keys.reset) session.request('reset', 'key');
   else if (event.code === Keys.pause) togglePause();
   else if (event.code === 'Escape' && operatorPanel.isOpen()) operatorPanel.close();

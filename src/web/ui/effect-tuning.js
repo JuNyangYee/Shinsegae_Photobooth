@@ -21,6 +21,8 @@ import {
   normalizeEffectSettings,
   sameEffectSettings,
 } from '../config/effect-settings.js';
+import { filterLimits, importedDefaults } from '../config/filter-values.js';
+import { createFilterTuning } from './filter-tuning.js';
 import { SettingsSource } from '../config/settings-file.js';
 import { loadedSaveState, saveStateOf, showSaveState } from './save-state.js';
 
@@ -92,7 +94,7 @@ const DITHER_LABELS = Object.freeze({
  *   onOpenChange?: (open: boolean) => void, timers?: { setInterval: Function, clearInterval: Function } }} options
  *   defaults: config.effect
  */
-export function createEffectTuning({ panel, preview, defaults, initial, saveSettings, onOpenChange, timers = globalThis }) {
+export function createEffectTuning({ panel, preview, defaults, initial, saveSettings, onOpenChange, updates = null, canChange = () => true, timers = globalThis }) {
   const liveText = panel.querySelector('[data-live]');
   const stateText = panel.querySelector('[data-state]');
   const messageText = panel.querySelector('[data-message]');
@@ -127,6 +129,9 @@ export function createEffectTuning({ panel, preview, defaults, initial, saveSett
   let active = false; // 패널에서 이 섹션이 보이는지
   let liveTimer = null;
   preview.setSettings(current);
+
+  let filterUI = null;
+  if(updates) filterUI=createFilterTuning({panel,updates,getSettings:()=>current,setSettings:next=>apply(next),acceptSaved:next=>{saved=next; savedSource=SettingsSource.SAVED; savedNote='';apply(next);},canChange,onDone:()=>{if(closeAfterSave){closeAfterSave=false;setOpen(false);}}});
 
   function apply(next) {
     saveFailed = false;
@@ -173,6 +178,7 @@ export function createEffectTuning({ panel, preview, defaults, initial, saveSett
   }
 
   function renderLive() {
+    filterUI?.render();
     const e = preview.getState();
     const ms = e.cpuAvgMs === null ? '-' : `${e.cpuAvgMs.toFixed(1)}ms`;
     const fmt = (value) => (value === null || value === undefined ? '-' : `${value.toFixed(1)}ms`);
@@ -200,11 +206,12 @@ export function createEffectTuning({ panel, preview, defaults, initial, saveSett
 
   function setOpen(next) {
     if (open === next) return;
-    if (!next && saving) {
+    if (!next && (saving || filterUI?.isBusy())) {
       closeAfterSave = true;
       showMessage('저장 중입니다. 저장이 끝나면 닫습니다.');
       return;
     }
+    if(!next && updates?.getInfo().trial){current=updates.restore();preview.setSettings(current);}
     open = next;
     if (open) {
       render();
@@ -229,13 +236,15 @@ export function createEffectTuning({ panel, preview, defaults, initial, saveSett
 
   for (const [key, { input }] of sliders) {
     input.addEventListener('input', () => {
-      apply(applyEffectTunables(current, { [key]: Number(input.value) }, defaults).settings);
+      if(!canChange()||filterUI?.isBusy())return;
+      apply(applyEffectTunables(current, { [key]: Number(input.value) }, defaults, filterLimits(updates?.getInfo().definition,effectLimits)).settings);
       showMessage('');
     });
   }
 
   function setCombo(combo) {
-    apply(applyEffectTunables(current, comboTunables(current, combo), defaults).settings);
+    if(!canChange()||filterUI?.isBusy())return;
+    apply(applyEffectTunables(current, comboTunables(current, combo), defaults, filterLimits(updates?.getInfo().definition,effectLimits)).settings);
     showMessage('');
   }
 
@@ -245,7 +254,8 @@ export function createEffectTuning({ panel, preview, defaults, initial, saveSett
 
   for (const [key, { select, parse }] of selects) {
     select.addEventListener('change', () => {
-      apply(applyEffectTunables(current, { [key]: parse(select.value) }, defaults).settings);
+      if(!canChange()||filterUI?.isBusy())return;
+      apply(applyEffectTunables(current, { [key]: parse(select.value) }, defaults, filterLimits(updates?.getInfo().definition,effectLimits)).settings);
       showMessage('');
     });
   }
@@ -253,6 +263,7 @@ export function createEffectTuning({ panel, preview, defaults, initial, saveSett
   panel.addEventListener('click', async (event) => {
     const action = event.target.closest('button[data-action]')?.dataset.action;
     if (!action) return;
+    if(filterUI?.isBusy() || !canChange()){showMessage('촬영 또는 필터 작업이 끝난 뒤 조절하세요');return;}
     if (action === 'combo') {
       const { oil, mono } = event.target.closest('button[data-action]').dataset;
       setCombo({ oil: oil === 'true', mono: mono === 'true' });
@@ -288,11 +299,13 @@ export function createEffectTuning({ panel, preview, defaults, initial, saveSett
         }
       }
     } else if (action === 'revert') {
+      if(updates?.getInfo().trial)updates.restore();
       apply(saved);
       showMessage('저장된 값으로 되돌렸습니다.');
     } else if (action === 'defaults') {
       // 이 섹션의 값만 (효과·출력·흑백 스타일·미리보기). 카메라·인식 섹션은 그대로
-      apply(baseDefaults);
+      const definition=updates?.getInfo().definition;
+      apply(definition?importedDefaults(definition,baseDefaults):baseDefaults);
       showMessage('필터 기본값을 적용했습니다. 유지하려면 저장하세요.');
     }
   });
@@ -310,9 +323,10 @@ export function createEffectTuning({ panel, preview, defaults, initial, saveSett
       active = next;
       syncLive();
     },
-    isDirty: () => !sameEffectSettings(current, saved),
+    isDirty: () => !!updates?.getInfo().trial || !sameEffectSettings(current, saved),
     /** 저장하지 않은 변경을 저장된 값으로 되돌린다 (패널이 닫히는 순간, operator-panel.js) */
     discardUnsaved() {
+      if(updates?.getInfo().trial){current=updates.restore();preview.setSettings(current);}
       if (!sameEffectSettings(current, saved)) apply(saved);
     },
     /** D 화면용: 지금 효과에 쓰는 값의 출처. 예: 'file', 'saved', 'defaults (no file)', 'file + unsaved changes' */
