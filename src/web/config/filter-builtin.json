@@ -9,6 +9,7 @@
     "source": "https://nau-filter-gallery.vercel.app/nau-filter/nau-filter.js"
   },
   "fingerprint": "78c9ed0c457c5db3ff47b9bbd5bf4b6a9ac5ee7b9b079eb6d8e4dff23414ce2b",
+  "uiFingerprint": "4df48c3e79c63c97cdc79bcc02ee022ad377e8bf20391da58af825242056881b",
   "controls": [
     {
       "id": "state.strength",

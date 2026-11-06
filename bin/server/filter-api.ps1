@@ -5,6 +5,8 @@ $filterGalleryUrl = 'https://nau-filter-gallery.vercel.app/'
 $filterRoutes = @('/local-api/filter-state', '/local-api/filter-check', '/local-api/filter-candidate', '/local-api/filter-apply', '/local-api/filter-rollback')
 $filterSource = $null
 $filterCandidate = $null
+$filterExpected = $null
+$filterParserPath = Join-Path $PSScriptRoot 'filter-source.cs'
 $filterSerializer = New-Object Web.Script.Serialization.JavaScriptSerializer
 $filterSerializer.MaxJsonLength = 2097152
 
@@ -73,7 +75,7 @@ function Test-FilterBundle($b) {
     if (-not (Test-FilterNumber $b.flowDefault 0.000000000001 1)) { throw 'invalid flow default' }
     $slots = @('tfmBody','strokeStep','strokeWidth','strokeFns','finishBody','blobFragment','blb')
     if ($b.port.Count -ne $slots.Count) { throw 'invalid slots' }
-    foreach ($key in $slots) { if ($b.port[$key] -isnot [string] -or $b.port[$key].Length -gt 30000 -or $b.port[$key] -match '`|\$\{|#extension|#include') { throw 'invalid shader data' } }
+    foreach ($key in $slots) { if ($b.port[$key] -isnot [string] -or [string]::IsNullOrWhiteSpace($b.port[$key]) -or $b.port[$key].Length -gt 30000 -or $b.port[$key] -match '`|\$\{|#extension|#include') { throw 'invalid shader data' } }
     if ($b.preset.layers.Count -ne 3 -or $b.preset.refine.Count -ne 5 -or $b.levels.Count -ne 6) { throw 'invalid mapping' }
     $rowIds = @('state.strength','state.size','OIL.canvas','OIL.jit','CR.nosilw','CR.tfmE')
     $rowsSeen = @{}
@@ -108,6 +110,7 @@ function Invoke-FilterApi($request) {
     if ($request.RawUrl -ceq '/local-api/filter-check') {
         if ($data.Count -ne 0) { return New-ApiResult 400 'check accepts no urls or data' }
         $script:filterCandidate = $null
+        $script:filterExpected = $null
         try {
             $module = Receive-FilterSource $filterSourceUrl 'module' 500000
             $gallery = Receive-FilterSource $filterGalleryUrl 'gallery' 800000
@@ -119,12 +122,18 @@ function Invoke-FilterApi($request) {
         try {
             Test-FilterBundle $data
             if ($null -eq $script:filterSource -or $data.meta.sha256 -cne (Get-FilterHash $script:filterSource.module) -or $data.meta.htmlSha256 -cne (Get-FilterHash $script:filterSource.gallery)) { throw 'source mismatch; check again' }
-            $builtin = $filterSerializer.DeserializeObject([IO.File]::ReadAllText((Join-Path $webRoot 'config\filter-builtin.json')))
-            if ($data.fingerprint -cne $builtin.fingerprint) { throw 'unsupported engine fingerprint' }
-            # Only literal GLSL present in the downloaded source can enter a candidate.
-            $source = $script:filterSource.module -replace '\s*&&\s*uMedium == 1\b','' -replace '\buMedium == 1\s*&&\s*',''
-            foreach ($s in $data.port.Values) { if (-not $source.Contains($s)) { throw 'shader source mismatch' } }
-            $script:filterCandidate = $data
+            if ($null -eq $script:filterExpected) {
+                if (-not ('FilterSourceParser' -as [type])) { Add-Type -Path $filterParserPath -ReferencedAssemblies 'System.Web.Extensions','System.Core' }
+                $baselineJson = [IO.File]::ReadAllText((Join-Path $webRoot 'config\filter-builtin.json'))
+                $expectedJson = [FilterSourceParser]::Extract($script:filterSource.module, $script:filterSource.gallery, $baselineJson)
+                $expected = $filterSerializer.DeserializeObject($expectedJson)
+                Test-FilterBundle $expected
+                $script:filterExpected = $expected
+            }
+            # Compare every property, type, array position, number and shader byte.
+            # Persist only the server-derived object, never the submitted candidate.
+            if (-not [FilterSourceParser]::Equal($data, $script:filterExpected)) { throw 'candidate differs from independently parsed source' }
+            $script:filterCandidate = $script:filterExpected
             return Filter-Json @{ id = ($data.meta.sha256 + ':' + $data.meta.htmlSha256) }
         } catch { return New-ApiResult 400 $_.Exception.Message }
     }

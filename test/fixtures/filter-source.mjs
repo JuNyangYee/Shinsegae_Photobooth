@@ -29,7 +29,7 @@ const FS_BLOB = \`${p.blobFragment}\`;`;
   const rows=b.controls.filter(c=>c.id.startsWith('OIL.')).map(c=>[c.id,c.label,c.min,c.max,c.step,c.help]);
   const keep=b.controls.find(c=>c.id==='GRADE.keepW');
   const ctrlBase=Object.fromEntries(b.controls.filter(c=>c.id.startsWith('state.')&&c.kind==='number').map(c=>[c.id.slice(6),[c.label,c.min,c.max,c.step]]));
-  const ctrl='const CTRL_BASE = '+JSON.stringify(ctrlBase)+'; const CTRL = { oil2f:    {strength:null,size:null,level:[],boil:["획 다시 놓기"]} }; function applyCtrl(){}';
+  const ctrl='const PER = []; const CTRL_BASE = '+JSON.stringify(ctrlBase)+'; const CTRL = { oil2f:    {strength:null,size:null,level:[],boil:["획 다시 놓기"]} }; function applyCtrl(){}';
   const html=b.controls.filter(c=>c.id.startsWith('state.')&&c.kind==='number').map(c=>`<div class="row"><label>${c.label}</label><input type="range" id="${c.id.slice(6)}" min="${c.min}" max="${c.max}" step="${c.step}"></div>`).join('\n');
-  return { module:`// 갤러리 7f58eaa 2026-11-05\n${data}\n${shaders}\nexport function createFilter() {}`, gallery:`<html>${html}<label>소스 그림체</label><select id="style"><option value="flat">평면 그림책</option><option value="3d">3D</option></select><script>\n${data}\n${shaders}\n${ctrl}\nconst TUNE_ROWS = {\n  oil: ${JSON.stringify(rows)}};\nconst GRADE_ROW = ${JSON.stringify([keep.id,keep.label,keep.min,keep.max,keep.step,keep.help])};</script></html>` };
+  return { module:`// 갤러리 7f58eaa 2026-11-05\n${data}\n${shaders}\nexport function createFilter() {}`, gallery:`<html>${html}<label>소스 그림체</label><select id="style"><option value="flat">평면 그림책</option><option value="3d">3D</option></select><script>\n${data}\n${shaders}\n${ctrl}\nconst TUNE_ROWS = {\n  oil: ${JSON.stringify(rows)}};\nconst GRADE_ROW = ${JSON.stringify([keep.id,keep.label,keep.min,keep.max,keep.step,keep.help])}; function levelApply(preset) {} function applyTune(preset) { levelApply(preset); } const CFG_TAG = "fixture";</script></html>` };
 }

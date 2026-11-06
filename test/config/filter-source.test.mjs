@@ -29,3 +29,15 @@ test('oil2f CTRL 덮어쓰기와 여러 줄 preset 키를 판독한다',async()=
   const b=await extractFilter(src.module,html,base),c=b.controls.find(c=>c.id==='state.boil');
   assert.deepEqual([c.label,c.min,c.max,c.step],['획 다시 놓기',0,.8,.02]);
 });
+
+test('검수 P2: 지원하지 않는 preset 의미 변경을 보류',async()=>{
+ for(const change of [s=>s.replace('"sbr":1','"sbr":2'),s=>s.replace('"sbr":1','"sbr":1,"newOilValue":7')])await assert.rejects(extractFilter(change(src.module),change(src.gallery),base),/검토 필요/);
+});
+test('검수 P3: HTML 실행규칙 변경은 보류하고 주변 표시 변경은 허용',async()=>{
+ await assert.rejects(extractFilter(src.module,src.gallery.replace('function levelApply(preset) {','function levelApply(preset) { return;'),base),/검토 필요/);
+ await extractFilter(src.module,src.gallery.replace('<html>','<html><!-- changed presentation -->'),base);
+});
+
+test('HTML 후속 초기화가 적용 규칙을 덮어써도 보류',async()=>{
+ await assert.rejects(extractFilter(src.module,src.gallery.replace('const CFG_TAG = "fixture";','const CFG_TAG = "fixture"; levelApply = () => {};'),base),/검토 필요/);
+});

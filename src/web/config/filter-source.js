@@ -86,12 +86,36 @@ function slot(src, a, b) {
 }
 const clean = text => tokens(text).map(t => t.v.startsWith('`') ? '`'+t.v.slice(1,-1).replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g,'').replace(/\s+/g,'')+'`' : t.v).join(' ');
 
+// 갤러리의 설정 적용·level·memo 우선순위 및 이벤트 연결을 검사한다.
+// CSS/소스 목록 등 주변 HTML과 이미 별도 판독하는 데이터 선언은 제외한다.
+function uiSkeleton(html) {
+  const start=html.indexOf('const PER ='), end=html.indexOf('</script>',start);
+  if(start<0||end<0)throw Error('검토 필요: 갤러리 설정 실행 영역 없음');
+  let region=html.slice(start,end);
+  for(const name of ['PER_DEF','CTRL_BASE','CTRL','TUNE_ROWS','GRADE_ROW','LEVELS']) {
+    const marker='const '+name+' =',at=region.indexOf(marker);if(at<0)continue;
+    const ts=tokens(region.slice(at+marker.length));let depth=0,stop=-1;
+    if(!['{','['].includes(ts[0]?.v))throw Error('검토 필요: UI 데이터 선언 변경');
+    for(let i=0;i<ts.length;i++){if(['{','['].includes(ts[i].v))depth++;else if(['}',']'].includes(ts[i].v)){if(--depth===0){stop=i;break;}}}
+    if(stop<0||ts[stop+1]?.v!==';')throw Error('검토 필요: UI 데이터 표현식 변경');
+    const offset=at+marker.length;region=region.slice(0,offset+ts[0].start)+'DATA'+region.slice(offset+ts[stop].end);
+  }
+  return clean(region);
+}
+function validatePreset(p) {
+  const allowed=['label','sbr','layers','refine','strength','size','boil','fps','grade','level','tune'];
+  if(!p||Object.keys(p).some(k=>!allowed.includes(k))||p.sbr!==1||typeof p.label!=='string'||p.label.length>100)throw Error('검토 필요: 지원하지 않는 preset 의미');
+  if(!p.tune||Object.keys(p.tune).length!==OIL_KEYS.length||OIL_KEYS.some(k=>!Number.isFinite(p.tune[k])))throw Error('검토 필요: preset tune 변경');
+  for(const k of TOP_KEYS)if(k in p&&!Number.isFinite(p[k]))throw Error('검토 필요: preset 수치 오류');
+}
+
 // 원본 전체 실행 코드를 지문화한다. 허용한 수치와 GLSL 조각 밖의 변경은 자동 이식하지 않는다.
 export async function extractFilter(module, html, baseline = null) {
   if (typeof module !== 'string' || typeof html !== 'string' || module.length > 500000 || html.length > 800000 || !html.trimEnd().endsWith('</html>')) throw Error('잘못되거나 잘린 원본');
   const meta = /갤러리 ([0-9a-f]{7,40}) (\d{4}-\d{2}-\d{2})/.exec(module.slice(0,600));
   if (!meta || !module.trimEnd().endsWith('}')) throw Error('원본 버전 또는 끝 구조 없음');
   const preset = propertyAt(module,'const PRESETS =','oil2f');
+  validatePreset(preset.value);
   const rootPreset = propertyAt(html,'const PRESETS =','oil2f');
   const levels = literalAt(module, 'oil2f: { rows:');
   const rootLevels = literalAt(html, 'oil2f: { rows:');
@@ -161,20 +185,24 @@ export async function extractFilter(module, html, baseline = null) {
   for (const k of PORT_KEYS) port[k] = port[k].replace(/\s*&&\s*uMedium == 1\b/g,'').replace(/\buMedium == 1\s*&&\s*/g,'');
   const fingerprint = await digest(clean(skeleton));
   if (baseline && fingerprint !== baseline.fingerprint) throw Error('검토 필요: 지원 이식 위치 밖의 엔진 코드가 바뀌었습니다');
-  const bundle = { schema:1, meta:{ commit:meta[1],date:meta[2],sha256:await digest(module),htmlSha256:await digest(html),bytes:new TextEncoder().encode(module).length,source:SOURCE_URLS.module }, fingerprint,controls,preset:preset.value,levels:levels.value,flowDefault,port };
+  const uiFingerprint=await digest(uiSkeleton(html));
+  if(baseline && uiFingerprint!==baseline.uiFingerprint)throw Error('검토 필요: 갤러리 설정 적용 규칙이 바뀌었습니다');
+  const bundle = { schema:1, meta:{ commit:meta[1],date:meta[2],sha256:await digest(module),htmlSha256:await digest(html),bytes:new TextEncoder().encode(module).length,source:SOURCE_URLS.module }, fingerprint,uiFingerprint,controls,preset:preset.value,levels:levels.value,flowDefault,port };
   validateBundle(bundle);
   return bundle;
 }
 
 export function validateBundle(b) {
   if (!b || b.schema!==1 || b.meta?.source!==SOURCE_URLS.module || !/^[a-f0-9]{64}$/.test(b.meta?.sha256) || !/^[a-f0-9]{64}$/.test(b.fingerprint) || !/^[a-f0-9]{64}$/.test(b.meta?.htmlSha256)) throw Error('잘못된 필터 묶음');
+  validatePreset(b.preset);
+  if(b.uiFingerprint!==undefined&&!/^[a-f0-9]{64}$/.test(b.uiFingerprint))throw Error('잘못된 UI 지문');
   const ids=[...TOP_KEYS.map(k=>'state.'+k),...OIL_KEYS,'state.style'];
   if (!Array.isArray(b.controls) || b.controls.length!==ids.length || new Set(b.controls.map(c=>c.id)).size!==ids.length) throw Error('조절 항목 수 불일치');
   if(b.controls.some(c=>c.id!=='state.style'&&c.kind!=='number'))throw Error('조절 종류 오류');
   for(const c of b.controls.filter(c=>c.kind!=='select')) if(!ids.includes(c.id)||c.kind!=='number'||typeof c.label!=='string'||c.label.length>100||![c.min,c.max,c.step,c.default].every(Number.isFinite)||c.min>=c.max||c.step<=0||c.min< -100||c.max>100||c.default<c.min||c.default>c.max) throw Error('조절 정의 오류');
   const style=b.controls.find(c=>c.id==='state.style');
   if(style?.kind!=='select'||style.options?.map(o=>o.value).join(',')!=='flat,3d'||!['flat','3d'].includes(style.default)||!Number.isFinite(b.flowDefault)||b.flowDefault<=0||b.flowDefault>1||typeof style.label!=='string'||style.label.length>100||style.options.some(o=>typeof o.label!=='string'||o.label.length>100))throw Error('그림체 정의 오류');
-  for(const k of PORT_KEYS) if(typeof b.port?.[k]!=='string'||b.port[k].length>30000||/`|\$\{|#extension|#include/.test(b.port[k])) throw Error('셰이더 조각 오류');
+  for(const k of PORT_KEYS) if(typeof b.port?.[k]!=='string'||!b.port[k].trim()||b.port[k].length>30000||/`|\$\{|#extension|#include/.test(b.port[k])) throw Error('셰이더 조각 오류');
   if (!Array.isArray(b.preset?.layers)||b.preset.layers.length!==3||!b.preset.layers.every(l=>Array.isArray(l)&&l.length===6&&l.every(n=>Number.isFinite(n)&&n>=0&&n<200)&&l.slice(0,3).every(n=>n>0&&n<200))||!Array.isArray(b.preset.refine)||b.preset.refine.length!==5||!b.preset.refine.every(n=>Number.isFinite(n)&&n>=0&&n<200)||!b.preset.refine.slice(0,4).every(n=>n>0)) throw Error('붓 층 오류');
   if (!Array.isArray(b.levels)||b.levels.length!==6||new Set(b.levels.map(r=>r?.[0])).size!==6||!b.levels.every(r=>Array.isArray(r)&&['state.strength','state.size','OIL.canvas','OIL.jit','CR.nosilw','CR.tfmE'].includes(r[0])&&[4,7].includes(r.length)&&r.slice(1).every((n,i)=>n===null?i===1:Number.isFinite(n)&&n>=0&&n<=100))) throw Error('세기 곡선 오류');
   return b;
