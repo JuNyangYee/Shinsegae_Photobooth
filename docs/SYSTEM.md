@@ -46,13 +46,13 @@ src/web/                    index.html(진입점 /) · main.js(화면 조립·�
             log-limit.js · oil-paint.js(획 목록·해상도 비례·tick) · thermal.js(감열지 출력 단계·입력 회색조 계수)
             camera-view.js(카메라 처리 경로의 변환·색 보정 계수)
             photo-frame.js(사진 틀 줄·인식 영역 줄이기) · imprint.js(촬영 시각 표기·인쇄 쪽 배치·1비트 합치기) — IMPRINT에서 도입
-            chroma-key.js(장면 이미지의 그린 키·둘레 번짐 제거, 14단계)
+            chroma-key.js(장면 이미지의 그린 키·둘레 번짐 제거, 14단계 · 둘레 평균 기준 키 15단계)
   camera/   camera.js(장치·스트림) · camera-monitor.js(상태 감시·자동 회복·다시 열기) · capture.js(캡처·결과 이미지·자원 정리)
             camera-frame.js(카메라 처리 경로 2D 그리기·색 보정 SVG 필터) · raw-preview.js(원본 미리보기 캔버스)
   vision/   face-detector.js · detector-keeper.js(재생성·감지기 상태) · presence-monitor.js(감지 루프)
-  effect/   oil-shaders.js · oil-renderer.js(WebGL2) · effect-preview.js(실시간 미리보기) · photo-effect.js(결과 사진 효과·사진 틀 자르기·인쇄 데이터)
+  effect/   scene-paint.js(관람객 화면 장면을 oil2f로 한 번 칠하기, 15단계) · oil-shaders.js · oil-renderer.js(WebGL2) · effect-preview.js(실시간 미리보기) · photo-effect.js(결과 사진 효과·사진 틀 자르기·인쇄 데이터)
             imprint-page.js(인쇄 쪽 글자를 캔버스에 그려 1비트로, 글자는 WISHFUL 시안)
-  ui/       guest-screen.js · scene-plate.js(관람객 화면 장면 그리기·띠 맞춤·창 줄 키, 14단계) · operator-panel.js(E 패널·섹션) · camera-tuning.js · presence-tuning.js · timing-tuning.js · effect-tuning.js(카메라·인식·시간·필터 섹션)
+  ui/       guest-screen.js · scene-plate.js(관람객 화면 장면 그리기·띠 맞춤·창 줄 키, 14단계 · 장면 유화 연결 15단계) · operator-panel.js(E 패널·섹션) · camera-tuning.js · presence-tuning.js · timing-tuning.js · effect-tuning.js(카메라·인식·시간·필터 섹션)
             region-drag.js · dev-panel.js(D) · save-state.js
   demo/     index.html · demo.js · scene.js(합성 장면) · demo.css — 카메라 없는 시안 데모 (검토용, 관람객 화면 아님, WISHFUL HOLIDAY)
 test/                       Node 테스트 (npm test = node --test "test/**/*.test.mjs", glob 인자 때문에 Node 22 이상, 개발 PC는 Node 24.19.0으로 확인). 하위 폴더는 src/web과 같은 이름. core-deps.test.mjs(core 의존 검사), helpers.mjs(공용 흉내),
@@ -289,18 +289,19 @@ npm run check:browser -- --only "관람객 화면(14단계|시안 데모|흑백 
 
 ### 관람객 화면 (14단계 눈 마을 장면, 가안)
 
-> 2026-11-06 사용자 요청으로 WISHFUL HOLIDAY의 위·아래 UI를 다시 디자인했다. 이전 판은 태그 `backup/wishful-filter-2026-11-06`(`475b890`)에 보존한다. 촬영·인식·취소·복구·저장·인쇄 경로와 현장 저장값은 그대로다. [구현 기록](logs/2026-11-06-06-snow-frame-ui-filter.md) · [이미지 제작 기록](logs/2026-11-06-08-snow-image-production.md).
+> 2026-11-06 사용자 요청으로 WISHFUL HOLIDAY의 위·아래 UI를 다시 디자인했다. 이전 판은 태그 `backup/wishful-filter-2026-11-06`(`475b890`)에 보존한다. 촬영·인식·취소·복구·저장·인쇄 경로와 현장 저장값은 그대로다. [구현 기록](logs/2026-11-06-06-snow-frame-ui-filter.md) · [이미지 제작 기록](logs/2026-11-06-08-snow-image-production.md). 15단계(같은 날, 간단 검수 전): 눈벽을 압설 블록으로, 장면 전체 유화, 눈 바닥 글씨를 파인 홈으로 바꿨다 · [15단계 구현](logs/2026-11-06-11-snow-relief.md) · [벽 이미지](logs/2026-11-06-12-snow-wall-image.md).
 
-**생각:** 화면 한 장을 눈 덮인 마을의 **나무 창틀**로 만든다. 위에는 조금 내려다본 DOF 눈 마을과 위 들보에 걸친 푸빌라·후트, 가운데는 사진 창(4:5), 아래는 들보 위의 깨또·포코, 그 아래 얼음벽과 **눈 바닥**이다. 제목·날짜·시각은 없고, **위 띠에는 관람객 UI를 두지 않는다**(사용자 확정). 안내 글과 3·2·1은 모두 눈 바닥에 새긴 글씨로 같은 자리에서 바뀐다. 창 안에는 글자·눈송이를 두지 않는다(보이는 그대로 찍힌다).
+**생각:** 화면 한 장을 눈 덮인 마을의 **나무 창틀**로 만든다. 위에는 조금 내려다본 DOF 눈 마을과 위 들보에 걸친 푸빌라·후트, 가운데는 사진 창(4:5), 아래는 들보 위의 깨또·포코, 그 아래 이글루처럼 다져 쌓은 **눈벽**(15단계, 눈던지기 시퀀스와 같은 불투명 압설 블록 2단)과 **눈 바닥**이다. 장면 전체(캐릭터·배경·창틀·눈벽·바닥)에 유화 붓질이 보인다(15단계). 제목·날짜·시각은 없고, **위 띠에는 관람객 UI를 두지 않는다**(사용자 확정). 안내 글과 3·2·1은 모두 눈 바닥에 발자국처럼 **파인 홈**으로 같은 자리에서 바뀐다. 창 안에는 글자·눈송이를 두지 않는다(보이는 그대로 찍힌다).
 
 - **사진 창:** `config.photoFrame` 8/64 ~ 53/64(4:5, 1080×1920에서 240~1590줄). 결과 사진 1080×1350·인쇄 사진 576×720·인식 영역 줄이기는 그대로(값만 새 줄).
-- **장면 이미지(`#scene-plate`, `ui/scene-plate.js`, `config.scene`):** 생성 이미지 한 장 `assets/scene/snow-frame-plate.png`(941×1672, 9:16과 0.05% 차이라 9:16 화면에 그대로 늘린다). 창 밖은 배경·창틀·캐릭터·얼음벽·눈 바닥이 그려진 불투명 그림이고, 창 자리만 단색 그린이다. 처음 한 번만 그린다(미리보기·감지 성능과 무관).
+- **장면 이미지(`#scene-plate`, `ui/scene-plate.js`, `config.scene`):** 생성 이미지 한 장 `assets/scene/snow-frame-plate.png`(941×1672, 9:16과 0.05% 차이라 9:16 화면에 그대로 늘린다). 창 밖은 배경·창틀·캐릭터·눈벽·눈 바닥이 그려진 불투명 그림이고, 창 자리만 단색 그린이다. 15단계부터 화면 기준 1080×1920(`config.scene.size`)으로 그린다. 처음 한 번만 그린다(미리보기·감지 성능과 무관).
   - **띠 맞춤 `config.scene.layout`:** 생성 도구가 들보 줄을 정확히 맞추지 못해 원본은 그대로 두고 그릴 때만 **위 띠**(원본 0 ~ `topCut`)와 **아래 띠**(`bottomCut` ~ 끝)를 각각 평행이동한다(크기 그대로, 찌그러짐 없음). 자르는 줄은 전부 그린인 줄이라 캐릭터가 잘리지 않고, 빈 줄은 그린으로 채운다. 값은 장면 높이 비율: 현재 장면은 1920 환산 `topCut 285 · topShift −8 · bottomCut 1258 · bottomShift +47`(위 들보 중심 248 → 240, 아래 1543 → 1590, 눈 바닥은 1710부터). 새 장면이면 전부 그린인 첫·끝 줄과 두 들보 중심을 재서 네 값을 바꾼다.
-  - **키:** 창 줄 ± `keyMarginFrac`(1/64, 1920에서 210~1620줄)에서만 그린 우세 d = G − max(R, B)로 투명도를 정한다(d ≤ 60 불투명, d ≥ 140 투명, 사이 비례, 반투명 화소는 G를 max(R, B)로). 키가 빠진 화소에서 2화소 안의 불투명 화소도 초록 번짐을 누른다(`core/chroma-key.js`). 창 밖의 초록(배경 나무 등)과 캐릭터의 탁한 초록은 그대로다. 캐릭터가 창에 걸친 부분은 화면에서만 사진을 가린다(사진·인쇄 데이터에는 없다).
+  - **키:** 창 줄 ± `keyMarginFrac`(1/64, 1920에서 210~1620줄)에서만 그린 우세 d = G − max(R, B)로 투명도를 정한다(d ≤ 60 불투명, d ≥ 140 투명, 사이 비례, 반투명 화소는 G를 max(R, B)로). 키가 빠진 화소에서 3화소 안의 불투명 화소는 평균 기준 e = G − (R + B)/2로 다시 보아(`RIM_KEY` 20~90, 15단계 가안) 알파를 줄이고 G를 (R + B)/2로 누른다 — 생성 이미지 털 둘레의 연두·노란 빛 테(유화로 칠하면 더 번졌다)를 지운다(`core/chroma-key.js`). 창 밖의 초록(배경 나무 등)과 캐릭터의 탁한 초록은 그대로다. 캐릭터가 창에 걸친 부분은 화면에서만 사진을 가린다(사진·인쇄 데이터에는 없다).
+  - **장면 유화 (15단계, 가안, `effect/scene-paint.js`, `config.scene.paint`):** 띠 맞춤·키 다음에 키 알파를 따로 두고, 창 자리(키로 빠지는 화소) 색을 알파만큼 중립 밤빛(`PAINT_FILL` 46·44·86)으로 섞은 불투명 그림을 만든다. 이것을 별도 캔버스·WebGL 컨텍스트의 oil2f 렌더러로 한 번 칠한다(저장소의 기본 제공판 `config/filter-builtin.json`을 읽기만, 그 원본 기본값 + 출력 끔·유화 켬·처리 해상도 1 + 장면용 덮어쓰기, seed 7). 칠한 화소에 창 줄 알파를 다시 씌우고 렌더러·컨텍스트는 바로 놓는다. 카메라 미리보기·결과·인쇄·감열지 1비트 경로, 운영자 필터 값·저장판·원격 업데이트와 렌더러·설정을 나누지 않으므로 카메라 그림에 겹쳐 적용되지 않는다. 매 프레임 그리지 않는다(개발 PC 가짜 카메라에서 약 0.2초 한 번). 칠하기가 실패하면 칠하지 않은 장면(D `not painted (…)`, 콘솔 경고). 덮어쓰기는 지금 비어 있다(원본 기본값 그대로).
   - **나중 영상:** 알파 없는 캐릭터 영상도 같은 9:16 좌표·같은 띠 맞춤 네 값·같은 키 식·같은 레이어(`#scene-plate` 자리)로 바꿔 끼운다(이번 범위에는 영상 없음, 프레임마다 키를 빼는 구현은 그때 한다).
-  - **대체:** 장면을 못 읽으면 캔버스를 숨기고 창 밖 띠(`.frame-margin`)에 1차 배경 사진 `assets/scene/snow-village-bg.png`와 글자만 보인다. D `frame` 줄 끝에 `scene 941x1672, bands top -7 bottom +41, keyed rows …` 또는 `scene fallback background (…)`.
+  - **대체:** 장면을 못 읽으면 캔버스를 숨기고 창 밖 띠(`.frame-margin`)에 1차 배경 사진 `assets/scene/snow-village-bg.png`와 글자만 보인다. D `frame` 줄 끝에 `scene 1080x1920, bands top -8 bottom +47, keyed rows …, oil painted …ms`(칠하기 실패면 `not painted (…)`) 또는 `scene fallback background (…)`.
 - **쌓임:** 카메라 미리보기·결과 사진·준비 중 막(z 없음) < 장면(z 1) < 눈송이·글자·바닥 진행선·준비 중 글자·D 겹쳐 그리기·`P` 표시(z 2). 셔터 빛은 장면 아래(창 안만).
-- **눈 바닥 글자:** 바닥 위끝 = 화면 높이 57/64(1710) + 3.33cqw. 짙은 남보라(`--snow-ink`) 글자에 아래 흰 빛·위 그늘(`--carve`)로 새긴 홈처럼, 바닥 원근으로 24° 눕힌다(`perspective`). 한국어 Pretendard 500 5.19cqw, 영어 Cinzel 400 2.41cqw(자간 0.2em). 3·2·1은 Cinzel 600 15.7cqw를 같은 바닥 가운데에 새기고 한 칸 창 안에서 넘어간다. 숫자 동안 안내 줄(`#countdown-caption`)은 문구만 두고 숨긴다(숫자와 글이 겹치지 않게).
+- **눈 바닥 글자 (15단계: 파인 홈):** 바닥 위끝 = 화면 높이 57/64(1710) + 3.33cqw. 글자 색은 그리지 않고 모양(알파)만 SVG 조명 필터 `#snow-carve`(큰 숫자는 길이 값 2.4배 `#snow-carve-lg`, `index.html`)에 넣는다: 알파를 흐려 뒤집은 높이(글자 안이 낮다)를 왼쪽 위 빛(방위 235°, 고도 40°)으로 비춰 평평한 밝기보다 어두운 홈 벽은 남보라 그늘(최대 0.7), 밝은 벽은 흰 빛(최대 0.85), 홈 바닥은 옅은 그늘(가장자리 쪽 짙게), 안쪽 눈 알갱이(`feTurbulence`), 바깥 둘레에 밀려 올라온 눈의 밝은 테. 평평한 곳은 투명이라 장면의 눈 바닥이 그대로 보인다. 필터 다음에 바닥 원근으로 24° 눕힌다(`perspective`). 길이 값은 1080 폭 기준 `data-base`이고 `main.js` `scaleSnowCarve`가 화면 폭에 맞춰 곱한다(가안 수치). 한국어 Pretendard 500 5.19cqw, 영어 Cinzel 600 2.59cqw(자간 0.2em, 가는 획은 홈이 얕아 600). 3·2·1은 Cinzel 600 15.7cqw를 같은 바닥 가운데에 파고 한 칸 창 안에서 넘어간다. 문구·상태 교체·짜 넣기 움직임은 14단계와 같다. 숫자 동안 안내 줄(`#countdown-caption`)은 문구만 두고 숨긴다(숫자와 글이 겹치지 않게).
 - **바닥 진행선:** 바닥 맨 아래 가운데 40cqw 홈(1920에서 1880줄). 카운트다운·쿨타임은 왼쪽에서 차오르고, 결과는 줄어든다. 사람이 서면 홈이 밝아진다(`#stage.is-present`).
 - **눈송이:** 창 위·아래 띠에서만 장면 위로 두 겹 내린다(15초·10초 반복).
 - **동작 줄이기:** 눈송이·준비 중 선을 멈춘다. 숫자는 위치 움직임 없이 투명도만, 진행선은 그대로.
