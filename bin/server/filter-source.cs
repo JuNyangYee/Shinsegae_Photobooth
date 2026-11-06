@@ -16,8 +16,8 @@ public static class FilterSourceParser {
     static JavaScriptSerializer Json() { return new JavaScriptSerializer { MaxJsonLength=2097152, RecursionLimit=32 }; }
     static Exception Bad(string why) { return new Exception("review required: " + why); }
     class Token { public string V; public int Start,End; }
-    class Part { public object Value; public int Start,End; }
-    static readonly Regex Lex = new Regex(@"\s+|//[^\n]*|/\*[\s\S]*?\*/|""(?:\\.|[^""\\])*""|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|-?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?|[A-Za-z_$][\w$]*|.",RegexOptions.CultureInvariant);
+    class Part { public object Value; public int Start,End; public string Next; }
+    static readonly Regex Lex = new Regex(@"\s+|//[^\n]*|/\*[\s\S]*?\*/|""(?:\\.|[^""\\])*""|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|-?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?|[A-Za-z_$][A-Za-z0-9_$]*|.",RegexOptions.CultureInvariant);
     static List<Token> Tokens(string text) {
         var result=new List<Token>(); int pos=0;
         foreach(Match m in Lex.Matches(text)) {
@@ -27,50 +27,77 @@ public static class FilterSourceParser {
         }
         if(pos!=text.Length)throw Bad("truncated token"); return result;
     }
-    static object Read(List<Token> ts,ref int i,int depth) {
-        if(depth>12||i>10000||i>=ts.Count)throw Bad("literal limit");
-        string t=ts[i++].V;
-        if(t=="{"||t=="[") {
-            bool obj=t=="{"; string end=obj?"}":"]";
-            var map=new Dictionary<string,object>(); var list=new List<object>();
-            while(i<ts.Count&&ts[i].V!=end) {
-                if(obj) {
-                    string key=ts[i++].V;
-                    if(key.StartsWith("\""))key=(string)Json().DeserializeObject(key);
-                    if(!Regex.IsMatch(key,@"^[\w. -]+$")||new[]{"__proto__","constructor","prototype"}.Contains(key)||map.ContainsKey(key))throw Bad("literal key");
-                    if(i>=ts.Count||ts[i++].V!=":")throw Bad("literal property");
-                    map[key]=Read(ts,ref i,depth+1);
-                } else list.Add(Read(ts,ref i,depth+1));
-                if(i<ts.Count&&ts[i].V==end)break;
-                if(i>=ts.Count||ts[i++].V!=",")throw Bad("literal expression");
-            }
-            if(i>=ts.Count||ts[i++].V!=end)throw Bad("truncated literal");
-            return obj?(object)map:list.ToArray();
+    static string StringValue(string t) {
+        var result=new StringBuilder();string from="\"'\\bfnrt",to="\"'\\\b\f\n\r\t";
+        for(int i=1;i<t.Length-1;i++) {
+            char c=t[i];if(c!='\\'){if(c<' ')throw Bad("string newline");result.Append(c);continue;}
+            c=t[++i];
+            if(c=='u'&&i+4<t.Length-1&&Regex.IsMatch(t.Substring(i+1,4),@"^[0-9a-fA-F]{4}$")){result.Append((char)Int32.Parse(t.Substring(i+1,4),NumberStyles.HexNumber));i+=4;}
+            else {int at=from.IndexOf(c);if(at<0)throw Bad("unsupported string escape");result.Append(to[at]);}
         }
-        if(t.StartsWith("\""))return Json().DeserializeObject(t);
+        return result.ToString();
+    }
+    static string Key(string t) {if(t.StartsWith("\"")||t.StartsWith("'"))return StringValue(t);if(!Regex.IsMatch(t,@"^[A-Za-z_$][A-Za-z0-9_$]*$"))throw Bad("dynamic/unsupported property key");return t;}
+    static void Put(Dictionary<string,object> d,string k,object v) {if(new[]{"__proto__","constructor","prototype"}.Contains(k)||d.ContainsKey(k))throw Bad("duplicate/forbidden property "+k);d[k]=v;}
+    static object Reference(List<Token> ts,ref int i,Func<string,object> resolve) {
+        if(i>=ts.Count)throw Bad("missing reference");string name=ts[i++].V;
+        while(i+1<ts.Count&&ts[i].V=="."&&Regex.IsMatch(ts[i+1].V,@"^[A-Za-z_$]")){i++;name+="."+ts[i++].V;}
+        if(resolve==null)throw Bad("reference not allowed");return resolve(name);
+    }
+    static object Read(List<Token> ts,ref int i,int depth,Func<string,object> resolve) {
+        if(depth>12||i>20000||i>=ts.Count)throw Bad("literal limit");string t=ts[i++].V;
+        if(t=="{"||t=="[") {
+            bool obj=t=="{";string end=obj?"}":"]";var map=new Dictionary<string,object>();var list=new List<object>();
+            while(i<ts.Count&&ts[i].V!=end) {
+                if(i+2<ts.Count&&ts[i].V=="."&&ts[i+1].V=="."&&ts[i+2].V==".") {
+                    i+=3;object value=Reference(ts,ref i,resolve);
+                    if(obj){foreach(var pair in Map(value))Put(map,pair.Key,pair.Value);}else list.AddRange(Arr(value));
+                } else if(obj) {
+                    string key=Key(ts[i++].V);if(i>=ts.Count||ts[i++].V!=":")throw Bad("literal property");Put(map,key,Read(ts,ref i,depth+1,resolve));
+                } else list.Add(Read(ts,ref i,depth+1,resolve));
+                if(i<ts.Count&&ts[i].V==end)break;if(i>=ts.Count||ts[i++].V!=",")throw Bad("literal expression");
+            }
+            if(i>=ts.Count||ts[i++].V!=end)throw Bad("truncated literal");return obj?(object)map:list.ToArray();
+        }
+        if(t.StartsWith("\"")||t.StartsWith("'"))return StringValue(t);
         if(t=="null")return null;if(t=="true")return true;if(t=="false")return false;
         double n;
         if(Regex.IsMatch(t,@"^-?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$",RegexOptions.IgnoreCase)&&Double.TryParse(t,NumberStyles.Float,CultureInfo.InvariantCulture,out n)&&!Double.IsInfinity(n))return n;
-        throw Bad("unsupported literal");
+        if(Regex.IsMatch(t,@"^[A-Za-z_$][A-Za-z0-9_$]*$")){i--;return Reference(ts,ref i,resolve);}throw Bad("unsupported literal");
     }
-    static Part Literal(string text,string marker) {
-        int at=text.IndexOf(marker,StringComparison.Ordinal);
-        if(at<0||text.IndexOf(marker,at+marker.Length,StringComparison.Ordinal)>=0)throw Bad("ambiguous/missing "+marker);
-        int offset=at+marker.Length,i=0; var ts=Tokens(text.Substring(offset));
-        var value=Read(ts,ref i,0);return new Part {Value=value,Start=offset+ts[0].Start,End=offset+ts[i-1].End};
+    static Part ReadAt(string text,int offset,Func<string,object> resolve) {
+        var ts=Tokens(text.Substring(offset));int i=0;object value=Read(ts,ref i,0,resolve);
+        return new Part{Value=value,Start=offset+ts[0].Start,End=offset+ts[i-1].End,Next=i<ts.Count?ts[i].V:null};
     }
-    static Part Property(string text,string declaration,string key) {
-        int at=text.IndexOf(declaration,StringComparison.Ordinal);if(at<0)throw Bad("missing declaration");
-        int offset=at+declaration.Length,depth=0;var ts=Tokens(text.Substring(offset));
-        for(int i=0;i<ts.Count;i++) {
-            string t=ts[i].V;
-            if(t==key&&depth==1&&i+2<ts.Count&&ts[i+1].V==":") {
-                int start=offset+ts[i+2].Start;var p=Literal("VALUE="+text.Substring(start),"VALUE=");
-                return new Part{Value=p.Value,Start=start,End=start+p.End-6};
-            }
-            if(t=="{"||t=="[")depth++;else if(t=="}"||t=="]") {if(--depth==0)break;}
+    class SourceReader {
+        readonly string text;readonly List<Token> ts;
+        readonly Dictionary<string,Part> cache=new Dictionary<string,Part>();readonly HashSet<string> pending=new HashSet<string>();
+        public SourceReader(string source){text=source;ts=Tokens(source);}
+        object Resolve(string name) {
+            var path=name.Split('.');if(!new[]{"SLIDER_DEF","NO_MATERIAL","CRAYON_ROWS","CRAYON_NORMAL","CRAYON_FLOW"}.Contains(path[0])||path.Skip(1).Any(k=>k!="set"&&k!="rows"))throw Bad("unsupported static reference "+name);
+            object value=Declaration(path[0]).Value;foreach(string key in path.Skip(1)){if(!Map(value).ContainsKey(key))throw Bad("missing static reference");value=Get(value,key);}return value;
         }
-        throw Bad("missing property "+key);
+        public Part Declaration(string name) {
+            Part cached;if(cache.TryGetValue(name,out cached))return cached;if(!pending.Add(name))throw Bad("cyclic reference");
+            var matches=new List<int>();for(int i=0;i+3<ts.Count;i++)if(ts[i].V=="const"&&ts[i+1].V==name&&ts[i+2].V=="=")matches.Add(i);
+            if(matches.Count!=1)throw Bad("missing/duplicate declaration "+name);
+            var p=ReadAt(text,ts[matches[0]+3].Start,Resolve);if(p.Next!=";")throw Bad("expression after declaration "+name);
+            pending.Remove(name);cache[name]=p;return p;
+        }
+        public Part Property(string name,params string[] keys) {
+            var p=Declaration(name);
+            foreach(string key in keys) {
+                if(!Map(p.Value).ContainsKey(key))throw Bad("missing property "+key);
+                var sub=Tokens(text.Substring(p.Start,p.End-p.Start));int depth=0;Part found=null;
+                for(int i=0;i<sub.Count;i++) {
+                    string t=sub[i].V;
+                    if(depth==1&&i+2<sub.Count&&sub[i+1].V==":"&&Key(t)==key){found=ReadAt(text,p.Start+sub[i+2].Start,Resolve);break;}
+                    if(t=="{"||t=="[")depth++;else if(t=="}"||t=="]")depth--;
+                }
+                if(found==null)throw Bad("target property must be explicit");p=found;
+            }
+            return p;
+        }
     }
     static Dictionary<string,object> Map(object o) {var d=o as Dictionary<string,object>;if(d==null)throw Bad("object expected");return d;}
     static object[] Arr(object o) {var a=o as object[];if(a==null)throw Bad("array expected");return a;}
@@ -105,19 +132,14 @@ public static class FilterSourceParser {
         throw Bad("missing shader");
     }
     static string Slot(string s,string a,string b) {int start=s.IndexOf(a,StringComparison.Ordinal),end=start<0?-1:s.IndexOf(b,start+a.Length,StringComparison.Ordinal);if(start<0||end<0)throw Bad("shader slot");return s.Substring(start+a.Length,end-start-a.Length);}
-    static string UiSkeleton(string html) {
+    static string UiSkeleton(string html,SourceReader reader) {
         int start=html.IndexOf("const PER =",StringComparison.Ordinal),end=start<0?-1:html.IndexOf("</script>",start,StringComparison.Ordinal);
         if(start<0||end<0)throw Bad("settings controller missing");string region=html.Substring(start,end-start);
-        foreach(string name in new[]{"PER_DEF","CTRL_BASE","CTRL","TUNE_ROWS","GRADE_ROW","LEVELS"}) {
-            string marker="const "+name+" =";int at=region.IndexOf(marker,StringComparison.Ordinal);if(at<0)continue;
-            int offset=at+marker.Length,depth=0,stop=-1;var ts=Tokens(region.Substring(offset));
-            if(ts.Count==0||(ts[0].V!="{"&&ts[0].V!="["))throw Bad("UI data declaration");
-            for(int i=0;i<ts.Count;i++){string v=ts[i].V;if(v=="{"||v=="[")depth++;else if(v=="}"||v=="]")if(--depth==0){stop=i;break;}}
-            if(stop<0||stop+1>=ts.Count||ts[stop+1].V!=";")throw Bad("UI data expression");
-            region=region.Substring(0,offset+ts[0].Start)+"DATA"+region.Substring(offset+ts[stop].End);
-        }
+        var cuts=new[]{"PER_DEF","CTRL_BASE","CTRL","TUNE_ROWS","GRADE_ROW","LEVELS"}.Select(n=>reader.Declaration(n)).Where(p=>p.Start>=start&&p.End<=end).OrderByDescending(p=>p.Start);
+        foreach(var p in cuts)region=region.Substring(0,p.Start-start)+"DATA"+region.Substring(p.End-start);
         return Clean(region);
     }
+    static void AllowedKeys(object value,string[] allowed){if(Map(value).Keys.Any(k=>!allowed.Contains(k)))throw Bad("unknown related property");}
     static void Preset(object p) {
         string[] allowed={"label","sbr","layers","refine","strength","size","boil","fps","grade","level","tune"};
         if(Map(p).Keys.Any(k=>!allowed.Contains(k))||!Equal(Get(p,"sbr"),1d)||Str(Get(p,"label")).Length>100)throw Bad("unsupported preset semantics");
@@ -127,27 +149,36 @@ public static class FilterSourceParser {
     public static string Extract(string module,string html,string baselineJson) {
         if(module.Length>500000||html.Length>800000||!html.TrimEnd().EndsWith("</html>")||!module.TrimEnd().EndsWith("}"))throw Bad("source size/end");
         var meta=Regex.Match(module.Substring(0,Math.Min(module.Length,600)),"\uac24\ub7ec\ub9ac ([0-9a-f]{7,40}) (\\d{4}-\\d{2}-\\d{2})");if(!meta.Success)throw Bad("source version");
-        var preset=Property(module,"const PRESETS =","oil2f");Preset(preset.Value);
-        var levels=Literal(module,"oil2f: { rows:");var oil=Literal(module,"const OIL = ");var per=Literal(module,"const SLIDER_DEF = ");
-        var pd=Literal(ReplaceFirst(module,"...SLIDER_DEF,",""),"const PER_DEF = ").Value;
-        object flow=Get(Literal(module,"const CR = ").Value,"tfmE");
-        Same(preset.Value,Property(html,"const PRESETS =","oil2f").Value,"preset deployment mismatch");
-        Same(levels.Value,Literal(html,"oil2f: { rows:").Value,"level deployment mismatch");
-        Same(oil.Value,Literal(html,"const OIL = ").Value,"OIL deployment mismatch");
-        Same(per.Value,Literal(html,"const SLIDER_DEF = ").Value,"slider deployment mismatch");
-        Same(pd,Literal(ReplaceFirst(html,"...SLIDER_DEF,",""),"const PER_DEF = ").Value,"defaults deployment mismatch");
-        Same(flow,Get(Literal(html,"const CR = ").Value,"tfmE"),"flow deployment mismatch");
+        var ms=new SourceReader(module);var hs=new SourceReader(html);
+        var preset=ms.Property("PRESETS","oil2f");Preset(preset.Value);
+        var levels=ms.Property("LEVELS","oil2f","rows");var oil=ms.Declaration("OIL");var per=ms.Declaration("SLIDER_DEF");
+        string[] knownState=Top.Concat(new[]{"flat","mood","moodK","normal"}).ToArray();
+        foreach(var source in new[]{ms,hs}) {
+            AllowedKeys(source.Declaration("PER_DEF").Value,knownState);AllowedKeys(source.Declaration("SLIDER_DEF").Value,new[]{"strength","size","boil"});
+            AllowedKeys(source.Property("LEVELS","oil2f").Value,new[]{"rows","normal"});
+            var perKeys=Arr(source.Declaration("PER").Value);if(perKeys.Distinct().Count()!=perKeys.Length||perKeys.Any(k=>!(k is string)||!knownState.Contains((string)k)))throw Bad("PER items");
+        }
+        var pd=ms.Declaration("PER_DEF").Value;
+        object flow=Get(ms.Declaration("CR").Value,"tfmE");
+        Same(preset.Value,hs.Property("PRESETS","oil2f").Value,"preset deployment mismatch");
+        Same(levels.Value,hs.Property("LEVELS","oil2f","rows").Value,"level deployment mismatch");
+        Same(oil.Value,hs.Declaration("OIL").Value,"OIL deployment mismatch");
+        Same(per.Value,hs.Declaration("SLIDER_DEF").Value,"slider deployment mismatch");
+        Same(pd,hs.Declaration("PER_DEF").Value,"defaults deployment mismatch");
+        Same(flow,Get(hs.Declaration("CR").Value,"tfmE"),"flow deployment mismatch");
         string[] oilKeys={"w","len","jit","bump","spec","canvas","refineT","eye","edge","spill","slope","halo"};
         if(Map(oil.Value).Count!=oilKeys.Length||oilKeys.Any(k=>!Map(oil.Value).ContainsKey(k)))throw Bad("OIL structure");
-        var rows=Arr(Literal(html,"const TUNE_ROWS = {\n  oil: ").Value);
-        if(rows.Any(r=>Arr(r).Length>7||(Arr(r).Length>6&&Arr(r)[6]!=null&&!Equal(Arr(r)[6],"oil2f"))))throw Bad("tune visibility");
-        var tune=rows.Concat(new[]{Literal(html,"const GRADE_ROW = ").Value}).ToArray();
+        var rows=Arr(hs.Property("TUNE_ROWS","oil").Value);
+        if(rows.Any(r=>Arr(r).Length<6||Arr(r).Length>7||(Arr(r).Length>6&&Arr(r)[6]!=null&&!Equal(Arr(r)[6],"oil2f"))))throw Bad("tune visibility");
+        var gradeRow=Arr(hs.Declaration("GRADE_ROW").Value);if(gradeRow.Length!=6)throw Bad("grade control row");
+        var tune=rows.Concat(new object[]{gradeRow}).ToArray();
         if(tune.Length!=Oil.Length||tune.Select(r=>Str(Arr(r)[0])).Distinct().Count()!=Oil.Length||tune.Any(r=>!Oil.Contains(Str(Arr(r)[0]))))throw Bad("tune controls");
-        var ctrlBase=Literal(html,"const CTRL_BASE = ").Value;var ctrl=Property(html,"const CTRL =","oil2f").Value;
+        var ctrlBase=hs.Declaration("CTRL_BASE").Value;var ctrl=hs.Property("CTRL","oil2f").Value;
+        AllowedKeys(ctrlBase,Top.Concat(new[]{"flat","moodK"}).ToArray());
         if(Map(ctrl).Keys.Any(k=>!Top.Contains(k)&&k!="note"))throw Bad("unknown control");
         var controls=new List<object>();
         foreach(string k in Top) {
-            var raw=Arr(Get(ctrlBase,k));var over=Get(ctrl,k);if(raw.Length!=4||(over!=null&&!(over is object[])))throw Bad("control range");
+            var raw=Arr(Get(ctrlBase,k));var over=Get(ctrl,k);if(raw.Length!=4||(over!=null&&(!(over is object[])||Arr(over).Length>4)))throw Bad("control range");
             var ov=over as object[];var vals=raw.Select((v,i)=>ov!=null&&ov.Length>i&&ov[i]!=null?ov[i]:v).ToArray();
             controls.Add(Obj("id","state."+k,"kind","number","label",vals[0],"min",vals[1],"max",vals[2],"step",vals[3],"default",Get(preset.Value,k)??Get(pd,k)??Get(per.Value,k)));
         }
@@ -174,7 +205,7 @@ public static class FilterSourceParser {
         skeleton=Regex.Replace(skeleton,@"const PER_DEF = \{[^\n]*?\};","const PER_DEF = DATA;");
         skeleton=Regex.Replace(Regex.Replace(skeleton,@"tfmE:\s*[\d.e+-]+","tfmE:DATA"),"style:\\s*\"[^\"]+\"","style:DATA");
         foreach(string key in port.Keys.ToArray()) {string value=Str(port[key]);if(String.IsNullOrWhiteSpace(value))throw Bad("empty shader slot");skeleton=ReplaceFirst(skeleton,value,"SLOT");port[key]=Regex.Replace(Regex.Replace(value,@"\s*&&\s*uMedium == 1\b",""),@"\buMedium == 1\s*&&\s*","");}
-        string fingerprint=Hash(Clean(skeleton)),uiFingerprint=Hash(UiSkeleton(html));
+        string fingerprint=Hash(Clean(skeleton)),uiFingerprint=Hash(UiSkeleton(html,hs));
         if(baselineJson!=null) {var baseline=Json().DeserializeObject(baselineJson);Same(fingerprint,Get(baseline,"fingerprint"),"unsupported engine code");Same(uiFingerprint,Get(baseline,"uiFingerprint"),"unsupported settings controller");}
         return Json().Serialize(Obj("schema",1,"meta",Obj("commit",meta.Groups[1].Value,"date",meta.Groups[2].Value,"sha256",Hash(module),"htmlSha256",Hash(html),"bytes",Encoding.UTF8.GetByteCount(module),"source",Url),"fingerprint",fingerprint,"uiFingerprint",uiFingerprint,"controls",controls.ToArray(),"preset",preset.Value,"levels",levels.Value,"flowDefault",flow,"port",port));
     }
