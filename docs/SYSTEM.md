@@ -748,20 +748,20 @@ const detector = await FaceDetector.createFromOptions(fileset, {
 
 **운영 순서**
 
-1. 촬영 회차가 끝난 뒤 `E` 필터 → **업데이트 확인**. 후보 버전과 변경 항목만 표시하며 실행판/저장판은 바뀌지 않는다.
+1. 촬영 회차가 끝난 뒤 `E` 필터 → **업데이트 확인**. 후보 버전과 변경 항목만 표시하며 실행판/저장판/미저장 조절값은 바뀌지 않는다. 정상 확인·통신/호환 실패·연속 확인 모두 같은 규칙이다. 시험 중 다시 확인해도 시험 엔진·정의·수치를 유지하고 새 후보는 다시 시험해야 적용할 수 있다. 확인 실패 뒤에도 가져온 기본값은 현재 시험판 기준이다.
 2. **후보 시험**. 현재 카메라로 결과 해상도까지 GPU 시험한 후 미리보기에 쓴다. 기존 현장값은 보존한다. 처음 생긴 항목만 원본 기본값으로 채운다. 시험 중에는 자동·수동 새 촬영을 막는다.
 3. 원본 수치 전체를 비교하려면 **가져온 기본값 적용**. 이 버튼만으로 저장되지는 않는다. 출력 모드·인쇄·카메라 값은 유지한다.
 4. **필터 적용·저장**. 엔진·정의·현재값·이전판을 한 파일로 저장한다. 이후 일반 **저장**은 이 파일의 현재값만 갱신한다. 일반 **기본값으로**는 해당 필터의 받은 기본 수치와 프로젝트 출력 기본값을 함께 시험한다.
 5. 시험을 취소하거나 `E`/`Esc`로 닫으면 저장된 엔진·수치로 돌아간다. **이전판 복원**은 직전 엔진과 당시 수치를 즉시 시험·저장하고, 재시작에도 유지한다. 직전판 한 개를 보존하며 다시 누르면 양쪽을 바꾼다. 처음 적용의 이전판은 기존 기본 제공 엔진과 기존 현장값이다.
 
-시작할 때 로컬 필터 복원이 끝나기 전, 업데이트 처리 중에는 새 촬영을 막는다. 회차 진행 중의 확인·시험·적용·복원·조절은 거절한다. 저장/다운로드 도중 닫기를 누르면 작업이 끝난 뒤 닫고 미저장값을 되돌린다.
+시작할 때 로컬 필터 복원이 끝나기 전, 업데이트 처리 중에는 새 촬영을 막는다. 회차 진행 중의 확인·시험·적용·복원·조절은 거절한다. 저장/다운로드 도중 닫기를 누르면 작업이 끝난 뒤 닫고 미저장값을 되돌린다. 처리 중 저장·복원·취소·기본값·중복 확인은 서로 겹치지 않으며, 예전 효과 파일을 저장하는 동안에도 업데이트 동작을 막는다.
 
 **출처와 지원 경계**
 
 - 고정 출처: [공식 모듈](https://nau-filter-gallery.vercel.app/nau-filter/nau-filter.js), [공식 갤러리 UI](https://nau-filter-gallery.vercel.app/). `/show/`는 모듈 소비 화면이라 정의 추출에는 루트 UI를 쓴다. 2026-11-06 실제 HTTP 재확인: `7f58eaa`(원본 표기 2026-11-05), JS 135462바이트, SHA-256 `51816e9146ea1d90af0cd89a0faf2078a4b68ea023784b7ac3da70e495bde4ae`. UI SHA-256 `a84c03395506577aef92c023dfe0a06f40be9c79f282a35d5917ce0bad87965e`.
 - 공식 manifest/서명은 없다. SHA-256은 동일판 식별·무결성 확인용이다. `filter-builtin.json`에 이 판의 필수 정의·GLSL 조각을 포함하므로 다른 프로젝트 폴더가 없어도 동작한다. 원본 JS/HTML을 eval/import/script 태그로 실행하지 않는다.
-- 지원 GLSL 슬롯은 방향장 본문, 획 경로, 획 폭, 획 도움 함수, 합성 본문, 덩이 지도 셰이더/함수의 7개다(viewer port spec2의 6개 역할에서 덩이 셰이더·함수를 분리). 슬롯 밖 실행코드는 정규화 fingerprint로 고정한다. 범위·기본값·preset·level·지원 슬롯만 자동 갱신 가능하다.
-- 모듈과 UI의 preset·OIL/PER/SLIDER 기본값·level 행·관련 GLSL을 대조한다. 혼합 배포, 알려지지 않은 조절 키/삭제/중복, 리터럴 아닌 표현식, 잘린 응답, 지원 밖 코드 변경은 **검토 필요**로 보류한다. 받은 범위 밖의 현장값도 잘라 저장하지 않고 보류한다. 기존판을 유지한 채 현장값을 조절하거나 원본 변경을 검토해야 한다.
+- 지원 GLSL 슬롯은 방향장 본문, 획 경로, 획 폭, 획 도움 함수, 합성 본문, 덩이 지도 셰이더/함수의 7개다(viewer port spec2의 6개 역할에서 덩이 셰이더·함수를 분리). 슬롯 밖 실행코드는 정규화 fingerprint로 고정한다. 범위·기본값·지원 preset/level 데이터·지원 슬롯만 자동 갱신 가능하다. `PRESETS.oil2f`는 label/sbr/layers/refine/strength/size/boil/fps/grade/level/tune만 지원하고 sbr은 현재 해석 가능한 1만 허용한다. 새로운 최상위 키·sbr 의미 변경은 검토 필요다.
+- 모듈과 UI의 preset·OIL/PER/SLIDER 기본값·level 행·관련 GLSL을 대조한다. HTML은 `const PER =`부터 해당 script 끝까지의 설정 controller도 별도 `uiFingerprint`로 검사한다. applyValues/applyTune/levelApply·보간·memo 우선순위·이벤트·공유값 로딩·초기화·embed 재적용을 포함한다. 별도로 판독하는 PER_DEF/CTRL_BASE/CTRL/TUNE_ROWS/GRADE_ROW/LEVELS 데이터 선언은 마스킹하므로 지원 수치 변경을 수용하고, 주변 CSS/마크업 변경은 이 지문에 포함하지 않는다. 이 영역의 지원 밖 동작 변경은 보수적으로 보류한다. 혼합 배포, 알려지지 않은 조절 키/삭제/중복, 리터럴 아닌 표현식, 잘린 응답, 지원 밖 코드 변경은 **검토 필요**로 보류한다. 받은 범위 밖의 현장값도 잘라 저장하지 않고 보류한다. 기존판을 유지한 채 현장값을 조절하거나 원본 변경을 검토해야 한다.
 - 제외: 다른 재료 프리셋, 별도 색 톤 후처리 `MOODS`/`moodK`, 소스 관리·재생·내보내기·split. 캐릭터 `normal`과 마스크·조명은 사전 캐릭터 번호 마스크가 필요한 별도 경로이며 카메라 원본에는 없다. `CR.nosilw` 행은 원본 그대로 보존하지만 마스크 없는 카메라에서 사용하지 않는다. `state.style`은 마스크 없이도 level 기준점을 바꾸므로 포함한다. 갤러리는 소스 메타데이터로 그림체를 선택하며, 카메라의 초기 그림체는 공식 모듈 `state.style=flat`이다.
 
 **원본 조절 항목 대응표**
@@ -811,11 +811,11 @@ const detector = await FaceDetector.createFromOptions(fileset, {
 - `config/filter.local.json` 한 문서: `{revision,active:{bundle,settings},previous:{bundle,settings}}`. settings는 기존 version 1 형식 + 선택 `gallery:{level,style,values}`다. 필터 파일이 있으면 effect.local.json보다 우선한다(기본 엔진으로 복원한 상태도 포함). 예전 effect.local.json은 지우거나 덮지 않는다. 카메라·인식·시간 파일은 별도 그대로다.
 - 같은 폴더 임시 파일→flush→File.Replace/Move로 엔진/정의/현장값/이전판이 함께 바뀐다. 모듈 hash와 UI hash를 묶은 후보 ID를 사용하며 revision 충돌은 409. 파일 잠금/쓰기 실패면 원판 유지, 응답만 끊기면 state를 다시 읽어 저장 여부를 확인한다. 서버 연결도 잃으면 화면은 이전 저장판으로 되돌리고 재시작 때 디스크 판을 검증한다. 전원 차단 자체의 실장 시험은 미검증이다.
 - 시작 시 저장판 컴파일에 실패하면 저장된 이전판을 시험해 자동 복원한다. 둘 다 손상되면 기본 제공판으로 열고 저장을 보류한다. 이 경우 앱 종료 후 filter.local.json을 백업한 다음 제거하면 예전 effect.local.json + 기본 제공 엔진으로 시작한다. 복원 전 파일은 폐기하지 않는다.
-- GET `/local-api/filter-state`, POST `filter-check`(본문 `{}`만), PUT `filter-candidate`, POST `filter-apply`/`filter-rollback`, PUT `filter-state`. 변경 요청은 기존 Host/Origin/Sec-Fetch-Site/X-Photobooth/JSON 방어를 공유한다. 후보 128KiB·기타 32KiB 상한, 정확한 고정 경로만 허용한다. 후보의 22개 정의·숫자·곡선·층·GLSL 크기/슬롯·출처 hash/fingerprint를 서버도 검사하고 GLSL은 받은 소스에 실제 포함된 문자열만 허용한다.
+- GET `/local-api/filter-state`, POST `filter-check`(본문 `{}`만), PUT `filter-candidate`, POST `filter-apply`/`filter-rollback`, PUT `filter-state`. 변경 요청은 기존 Host/Origin/Sec-Fetch-Site/X-Photobooth/JSON 방어를 공유한다. 후보 128KiB·기타 32KiB 상한, 정확한 고정 경로만 허용한다. 후보의 22개 정의·숫자·곡선·층·GLSL 크기/슬롯을 검사한 뒤, 서버가 받은 원문에서 별도 제한 판독기로 전체 묶음을 독립 재생성한다. 서버가 계산한 source hash·엔진/UI 호환지문·metadata·controls(종류/label/help/range/options/default)·preset·levels·flowDefault·GLSL을 제출 JSON과 모든 속성/배열 위치/종류/수치/문자열까지 대조한다. 빈 GLSL이나 단순 substring은 허용하지 않는다. 통과해도 제출 객체가 아니라 서버 생성 객체만 후보로 보관한다. 검산 결과는 해당 다운로드 동안만 메모리에 재사용하며 새 확인 때 비운다.
 - 서버 다운로드는 운영자의 확인 요청 때만 고정 HTTPS 두 곳으로 GET한다. redirect 거절, 타입·UTF-8·길이·500KB/800KB·시간 상한을 검사한다. 후보/원본은 서버·브라우저 메모리에만 있고 서버 재시작 시 다시 확인한다. 사진/프레임/현장값을 원격 요청에 싣지 않는다. CSP connect-src self는 그대로이고 평상시·재시작·복원·촬영에는 인터넷이 필요 없다.
-- 책임: `config/filter-source.js` 비실행 판독/검증, `filter-values.js` 수치 매핑/이행, `filter-builtin.json` 동봉 데이터, `effect/filter-shaders.js` 지원 GLSL 연결, `filter-updates.js` GPU와 저장 흐름, `ui/filter-tuning.js` 데이터 기반 UI, `bin/server/filter-api.ps1` 고정 다운로드/원자 저장.
+- 책임: `config/filter-source.js` 비실행 판독/검증, `filter-values.js` 수치 매핑/이행, `filter-builtin.json` 동봉 데이터, `effect/filter-shaders.js` 지원 GLSL 연결, `filter-updates.js` GPU와 저장 흐름, `ui/filter-tuning.js` 데이터 기반 UI, `bin/server/filter-api.ps1` 고정 다운로드/검산/원자 저장, `bin/server/filter-source.cs` 서버 독립 비실행 원문 판독. 후자는 Windows PowerShell 5.1의 기본 .NET `Add-Type`으로 저장소 로컬 코드만 컴파일한다(원격 코드 컴파일·실행 없음). Node·별도 서버·설치 도구가 필요 없다. 처음 후보 검산 때 컴파일에 실패하면 기존판을 유지하고 후보를 거부한다. 기존 schema 1 저장판에 uiFingerprint가 없더라도 오프라인 복원은 유지하며, 새 후보에는 두 지문을 모두 요구한다.
 
-검증 명령: `node tools/filter-browser-check.mjs --capture`(합성), `--real --capture`(실제 장치, OBS 우선). 자기 서버·임시 프로필에서 시험하고 작업 폴더 설정을 백업/복원한다. 실제 프레임은 파일에 쓰지 않는다. 개발용 Node만 필요하며 현장 실행에는 Node가 필요 없다. 자세한 실측·한계는 [13단계 로그](logs/2026-11-06-01-filter-updates.md).
+검증 명령: `node tools/filter-browser-check.mjs --capture`(합성), `--real --capture`(실제 장치, OBS 우선). 자기 서버·임시 프로필에서 시험하고 작업 폴더 설정을 백업/복원한다. 실제 프레임은 파일에 쓰지 않는다. 개발용 Node만 필요하며 현장 실행에는 Node가 필요 없다. 서버 독립 판독 검증은 공식 원문을 ignored runtime 하위 폴더의 module.txt/gallery.html로 받은 뒤 `node tools/filter-source-check.mjs runtime/stage13-review`로 실행한다(개발 전용, 실제 PS 함수 + 모의 요청 stream, HTTP는 앞 명령으로 별도 검증). 자세한 실측·한계는 [13단계 로그](logs/2026-11-06-01-filter-updates.md), [검수 보완 로그](logs/2026-11-06-02-filter-review-fixes.md).
 
 ### 시험 조합: 유화 켬/끔 × 흑백 켬/끔 (WISHFUL HOLIDAY)
 

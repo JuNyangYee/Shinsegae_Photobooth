@@ -39,10 +39,27 @@ try {
   const action=async name=>{await evalJS(`document.querySelector('[data-filter-action="${name}"]').click()`);await until(()=>evalJS(`!document.querySelector('[data-filter-action="check"]').disabled`),'action '+name,60000);return evalJS(`document.querySelector('[data-filter-updates] [role="status"]').textContent`);};
   const getState=()=>fetch(origin+'/local-api/filter-state').then(r=>r.json());
   const before=await getState();
-  log('check',await action('check'));assert.deepEqual(await getState(),before);
+  const legacyStrength='input[data-key="strength"]';
+  const originalStrength=await evalJS(`document.querySelector('${legacyStrength}').value`);
+  await evalJS(`{const input=document.querySelector('${legacyStrength}');input.value='.9';input.dispatchEvent(new Event('input',{bubbles:true}));}`);
+  for(let i=0;i<2;i++){log('check',await action('check'));assert.equal(await evalJS(`document.querySelector('${legacyStrength}').value`),'0.9');assert.deepEqual(await getState(),before);}
+  await cdp.send('Network.enable');await cdp.send('Network.setBlockedURLs',{urls:['*local-api/filter-check']});
+  log('offline check',await action('check'));assert.equal(await evalJS(`document.querySelector('${legacyStrength}').value`),'0.9');
+  await cdp.send('Network.setBlockedURLs',{urls:[]});await action('check');
   log('trial',await action('trial'));
   assert.equal(await evalJS(`document.querySelectorAll('[data-filter-id]').length`),22);
   assert.deepEqual(await getState(),before);
+  await evalJS(`{const input=document.querySelector('[data-filter-id="state.strength"]');input.value='.8';input.dispatchEvent(new Event('input',{bubbles:true}));}`);
+  await action('check');assert.equal(await evalJS(`document.querySelector('[data-filter-id="state.strength"]').value`),'0.8');
+  assert.equal(await evalJS(`document.querySelector('[data-filter-action="apply"]').disabled`),true);
+  await action('trial');assert.equal(await evalJS(`document.querySelector('[data-filter-id="state.strength"]').value`),'0.8');
+  await cdp.send('Network.setBlockedURLs',{urls:['*local-api/filter-check']});await action('check');await action('defaults');
+  assert.equal(await evalJS(`document.querySelector('[data-filter-id="state.strength"]').value`),'0.29');
+  await cdp.send('Network.setBlockedURLs',{urls:[]});
+  await key('Escape');await key('KeyE');await evalJS(`document.querySelector('button[data-section="effect"]').click()`);
+  assert.equal(await evalJS(`document.querySelector('${legacyStrength}').value`),originalStrength);
+  await action('check');await action('trial');
+  log('unsaved settings','success/repeat/offline/trial recheck/retrial/close passed');
   log('defaults',await action('defaults'));
   log('apply',await action('apply'));
   const applied=await getState();assert.ok(applied.active.bundle);assert.equal(applied.active.settings.settings.strength,.29);assert.equal(applied.active.bundle.controls.length,22);
@@ -127,6 +144,11 @@ try {
   assert.equal(await req('/local-api/filter-candidate','PUT',corrupt,headers),400);
   corrupt.levels=applied.active.bundle.levels;corrupt.port.strokeFns='void not_from_upstream(){}';
   assert.equal(await req('/local-api/filter-candidate','PUT',corrupt,headers),400);
+  const forged=structuredClone(applied.active.bundle);forged.controls[0].default=1.5;forged.controls[0].label='not from source';forged.port.strokeStep='';
+  const forgedStatus=await req('/local-api/filter-candidate','PUT',forged,headers);log('review P1 forged candidate',forgedStatus);assert.equal(forgedStatus,400);
+  for(const [name,change] of Object.entries({default:b=>b.controls[0].default=1.5,label:b=>b.controls[0].label='not from source',empty:b=>b.port.strokeStep='',levels:b=>b.levels[0][1]=.15,preset:b=>b.preset.layers[0][0]=37,uiFingerprint:b=>b.uiFingerprint='0'.repeat(64)})){
+    const b=structuredClone(applied.active.bundle);change(b);assert.equal(await req('/local-api/filter-candidate','PUT',b,headers),400,name);
+  }
   assert.equal(await req('/local-api/filter-candidate','PUT',applied.active.bundle,headers),200);
   const stable=await getState();
   assert.equal(await req('/local-api/filter-apply','POST',{revision:stable.revision,id:applied.active.bundle.meta.sha256,settings:stable.active.settings,before:stable.active.settings},headers),400);
@@ -138,7 +160,7 @@ try {
     assert.equal(await req('/local-api/filter-state','PUT',{revision:stable.revision,settings:changed},headers),400);
     assert.deepEqual(readFileSync(statePath),stableBytes);assert.deepEqual(await getState(),stable);
   } finally {spawnSync('taskkill',['/PID',String(lock.pid),'/T','/F'],{windowsHide:true,stdio:'ignore'});}
-  log('API security / atomic failure','12 passed');assert.deepEqual(errors,[]);
+  log('API security / atomic failure','19 passed');assert.deepEqual(errors,[]);
   if(process.argv.includes('--capture')) {
     await cdp.send('Page.navigate',{url:'about:blank'});
     const captureState={revision:applied.revision,active:{bundle:applied.active.bundle,settings:JSON.parse(serializeEffectSettings(normalizeEffectSettings(config.effect,config.effect).settings))},previous:applied.previous};
