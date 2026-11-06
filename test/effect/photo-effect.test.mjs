@@ -285,7 +285,7 @@ describe('createPhotoEffect: 사진 틀·인쇄 쪽 (IMPRINT 시안, 실제 기�
     assert.equal(t.effect.getStats().last.status, 'applied');
   });
 
-  it('자르기 캔버스를 못 만들면 9:16 사진 그대로 (경고, 관람객 화면 CSS가 같은 줄을 보인다)', async () => {
+  it('자르기 캔버스를 못 만들면 9:16 사진 그대로 (경고). 화면 맞춤은 guest-screen is-uncropped·CSS가 맡는다(test/ui/guest-screen)', async () => {
     let made = 0;
     const warnings = [];
     const effect = createPhotoEffect({

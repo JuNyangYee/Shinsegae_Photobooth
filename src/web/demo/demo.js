@@ -115,7 +115,7 @@ const presence = {
 const autoStart = createAutoStart({ session, presence, isTuningOpen: () => false, isPaused: () => false, isSettingsReady: () => true });
 
 const guest = createGuestScreen({
-  root: document, text: guestText, countdownSeconds: t.countdownSeconds, reducedMotion: () => rootEl.dataset.motion === 'reduce',
+  root: document, text: guestText, countdownSeconds: t.countdownSeconds, stageAspect, reducedMotion: () => rootEl.dataset.motion === 'reduce',
 });
 // 장면 (14단계): 앱과 같은 이미지·같은 창 키. 데모 페이지 기준 경로라 앱 루트로 바꿔 읽는다
 createScenePlate({

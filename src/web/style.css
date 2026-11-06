@@ -407,7 +407,8 @@ body {
 }
 
 /* ---- 결과: 사진은 창 자리 그대로 (1080 화면 1:1, 4K 2:1 정수 배율), 장면의 창틀·캐릭터가 그 위에 그대로 걸친다.
-   사진은 틀로 자른 810x1080(16단계 3:4)이다. 자르지 못한 9:16 사진이 오면 세로 줄만 맞춰 보인다(가로는 화면 폭 전체가 창 폭으로 줄어든다, 장애 대체).
+   사진은 틀로 자른 810x1080(16단계 3:4)이다. 자르지 못한 9:16 사진(장애 대체)이 오면 .is-uncropped: 사진을 화면 원래 크기·자리(9:16 전체)에 놓고
+   창 밖은 잘라, 창에 보이는 곳이 셔터 순간 창 영역과 같다(배율·화각이 정상 결과와 같다).
    눈 바닥 문구 뒤에 따뜻한 빛(#result-paper)이 번지고, 바닥 진행선 자리에서 남은 시간이 줄어든다 ---- */
 .result-view {
   position: absolute;
@@ -435,6 +436,7 @@ body {
 .result-photo {
   width: 100%;
   height: 100%;
+  overflow: hidden;
   background: var(--night);
 }
 
@@ -443,7 +445,16 @@ body {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: 50% calc(var(--frame-top-frac) / (1 - var(--frame-height-frac)) * 100%);
+}
+
+/* 자르지 못한 9:16 사진: 화면 전체 크기로, 화면 왼쪽 위가 제자리에 오게 창 위치만큼 당긴다 (창 밖은 .result-photo가 자른다) */
+.result-card.is-uncropped .result {
+  width: 100cqw;
+  height: var(--stage-h);
+  max-width: none;
+  margin-left: calc(-1 * var(--frame-left));
+  margin-top: calc(-1 * var(--frame-top));
+  object-fit: fill;
 }
 
 .result-timer {

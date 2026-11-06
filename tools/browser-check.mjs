@@ -2107,6 +2107,23 @@ async function runScenarios(app, origin) {
       expect(JSON.stringify(result.result) === JSON.stringify([Math.round(result.left), Math.round(result.top), Math.round(result.right - result.left), Math.round(result.bottom - result.top)]),
         `${label}: result box ${JSON.stringify(result.result)} vs frame ${result.top}-${result.bottom}`);
       expect(textOutsideFrame(later).length === 0, `${label}: result text inside frame ${JSON.stringify(later.boxes)}`);
+      if (label === 'full') {
+        // 사진 틀로 자르지 못한 9:16 결과(장애 대체, 16단계 간단 검수 P2): is-uncropped면 사진이 화면 원래 크기·자리(9:16 전체)에 놓이고
+        // 창(.result-photo)이 그것을 잘라, 창에 보이는 곳 = 셔터 순간 창 영역이다. 자르기 실패를 앱에서 일으킬 수 없어 클래스만 잠깐 붙여 배치를 잰다
+        const uncropped = await app.evaluate(`(() => {
+          const st = document.getElementById('stage').getBoundingClientRect(), card = document.getElementById('result-card');
+          card.classList.add('is-uncropped');
+          const r = (e) => { const b = e.getBoundingClientRect(); return [Math.round(b.left - st.left), Math.round(b.top - st.top), Math.round(b.width), Math.round(b.height)]; };
+          const out = { img: r(document.getElementById('result')), clip: r(document.querySelector('.result-photo')),
+            overflow: getComputedStyle(document.querySelector('.result-photo')).overflow, fit: getComputedStyle(document.getElementById('result')).objectFit };
+          card.classList.remove('is-uncropped');
+          return out;
+        })()`);
+        expect(JSON.stringify(uncropped.img) === JSON.stringify([0, 0, Math.round(later.w), Math.round(later.h)])
+          && JSON.stringify(uncropped.clip) === JSON.stringify(later.result) && uncropped.overflow === 'hidden' && uncropped.fit === 'fill',
+          `uncropped 9:16 result placed at stage scale and clipped to window ${JSON.stringify(uncropped)}`);
+        details.push(`uncropped fallback: 9:16 photo at ${uncropped.img.join(',')}, window clip ${uncropped.clip.join(',')}`);
+      }
       await app.key('KeyD');
       const dev = await app.dev();
       await app.key('KeyD');

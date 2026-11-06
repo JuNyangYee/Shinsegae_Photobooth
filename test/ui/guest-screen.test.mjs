@@ -289,6 +289,20 @@ describe('guest-screen: 결과', () => {
     assert.equal(t.el('result-card').classList.contains('is-dots'), false, '결과가 끝나면 지운다');
   });
 
+  it('사진 틀로 자르지 못한 9:16 사진(장애 대체)만 is-uncropped: CSS가 화면 원래 크기·자리에 놓고 창 밖을 잘라 셔터 순간 창 영역이 보인다 (16단계 P2)', () => {
+    const t = setup();
+    t.screen.renderSession(t.snapshot(SessionState.RESULT, { photo: { url: 'blob:a', width: 810, height: 1080 }, endsAt: 11000 }));
+    assert.equal(t.el('result-card').classList.contains('is-uncropped'), false, '정상: 틀로 자른 3:4');
+    t.screen.renderSession(t.snapshot(SessionState.COOLDOWN, { endsAt: 16000 }));
+    t.screen.renderSession(t.snapshot(SessionState.RESULT, { photo: { url: 'blob:b', width: 1080, height: 1920 }, endsAt: 31000 }));
+    assert.equal(t.el('result-card').classList.contains('is-uncropped'), true, '자르지 못한 9:16');
+    t.screen.renderSession(t.snapshot(SessionState.COOLDOWN, { endsAt: 36000 }));
+    t.screen.renderSession(t.snapshot(SessionState.RESULT, { photo: { url: 'blob:c', width: 2160, height: 3840 }, endsAt: 51000 }));
+    assert.equal(t.el('result-card').classList.contains('is-uncropped'), true, '4K 원본 대체도 9:16');
+    t.screen.renderSession(t.snapshot(SessionState.COOLDOWN, { endsAt: 56000 }));
+    assert.equal(t.el('result-card').classList.contains('is-uncropped'), false, '결과가 끝나면 지운다');
+  });
+
   it('결과가 끝나면 사진 src를 지우고 결과 화면·선을 내린다', () => {
     const t = setup();
     t.screen.renderSession(t.snapshot(SessionState.RESULT, { photo: { url: 'blob:a' }, endsAt: 11000 }));

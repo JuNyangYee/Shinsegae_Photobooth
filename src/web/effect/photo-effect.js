@@ -386,7 +386,8 @@ export function createPhotoEffect({
 
   /**
    * 사진 틀 (IMPRINT 시안, 16단계 사방): 효과 단계가 만든 화면용 사진(9:16 전체)에서 틀 직사각형만 새 캔버스로 남긴다. 들어온 캔버스(capture.js 원본)가 아닌
-   * 앞 단계 캔버스는 비운다. 자르기 캔버스를 만들지 못하면 9:16 그대로 둔다(경고) — 관람객 화면은 같은 줄을 CSS(object-position)로 보인다.
+   * 앞 단계 캔버스는 비운다. 자르기 캔버스를 만들지 못하면 9:16 그대로 둔다(경고) — 관람객 화면은 그 사진을 화면 원래 크기·자리에 놓고
+   * 창 밖을 잘라(ui/guest-screen.js is-uncropped, style.css) 창에 셔터 순간 창 영역이 보이게 한다. 인쇄 데이터는 이와 따로 이미 잘려 있다.
    * 사진에 { canvas, … }가 붙어 있으면 canvas만 바꾼다
    */
   function framed(produced, input) {

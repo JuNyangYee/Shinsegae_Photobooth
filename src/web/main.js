@@ -58,6 +58,7 @@ reducedMotionQuery.addEventListener('change', applyMotionPreference);
 // 카운트다운 진행선 길이는 회차마다 상태 기계 스냅숏(countdownSeconds)을 따른다
 const guest = createGuestScreen({
   root: document, text: guestText, countdownSeconds: config.timing.countdownSeconds,
+  stageAspect: config.aspectRatio.width / config.aspectRatio.height,
   reducedMotion: () => document.documentElement.dataset.motion === 'reduce',
 });
 
