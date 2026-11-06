@@ -421,17 +421,17 @@
               <option value="stroke">붓 결 선 (획마다 획 방향 선)</option>
               <option value="flow">흐름 선 (흐름을 따라 번진 결)</option>
               <option value="texture">질감 강조 점 (획 볼록 + 점 방식)</option>
-              <option value="tone">톤 점 (질감 강조 없음)</option>
+              <option value="tone">톤 점 (질감 세기만큼 유화 획을 섞음, 0이면 순수 톤 점)</option>
             </select>
             <span class="op-value"><output data-key="bwStyle"></output></span>
           </label>
           <label class="op-row">
-            <span class="op-label">질감 세기<small>획 볼록 조명·국소 대비 (톤 점 제외)</small></span>
+            <span class="op-label">질감 세기<small>획 볼록 조명·국소 대비 (톤 점은 그 절반 + 붓 결 조금)</small></span>
             <input type="range" data-key="bwTexture">
             <span class="op-value"><output data-key="bwTexture"></output><span class="op-unit">세기</span></span>
           </label>
           <label class="op-row">
-            <span class="op-label">선 간격<small>붓 결 선·흐름 선의 주기</small></span>
+            <span class="op-label">선 간격<small>붓 결 선·흐름 선·톤 점 붓 결의 주기</small></span>
             <input type="range" data-key="lineSpacing">
             <span class="op-value"><output data-key="lineSpacing"></output><span class="op-unit">점</span></span>
           </label>

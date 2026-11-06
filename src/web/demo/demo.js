@@ -27,10 +27,11 @@ import { createScene } from './scene.js';
 
 const AUTOPLAY = Object.freeze({ firstArriveMs: 2200, idleMs: 3800, leaveAfterCooldownMs: 1600 });
 const PRINT_FLOW_MS = 2500; // "인쇄 연동 뒤 흐름" 흉내: 결과 처음 이만큼 출력 중
-// 현장 저장값 대조본 (검토용): 현장 PC config/effect.local.json을 2026-11-05에 읽기 전용으로 확인한 내용. 데모는 파일을 읽거나 쓰지 않는다
+// 현장 저장값 대조본 (검토용): 현장 PC config/filter.local.json(revision 3)의 적용 수치를 2026-11-06에 부모 에이전트가 읽기 전용으로 확인해 전한 내용.
+// 데모는 파일을 읽거나 쓰지 않는다 (예전 effect.local.json의 강도 0.05·붓 0.7·세부 0.09 대조본은 이것으로 바꿨다)
 const SITE_EFFECT = Object.freeze({
-  strength: 0.05, size: 0.7, boil: 0, fps: 12, grade: 1, refineThreshold: 0.09, previewScale: 1, outputMode: 'gray',
-  dither: 'blue-noise', brightness: 0.03, contrast: 1.4, gamma: 1.2, paperDots: 576, bwStyle: 'stroke', bwTexture: 1, lineSpacing: 4,
+  strength: 0.29, size: 1.23, boil: 0.02, fps: 15, grade: 1, refineThreshold: 0.1, previewScale: 1, outputMode: 'gray',
+  dither: 'blue-noise', brightness: -0.03, contrast: 1.45, gamma: 0.85, paperDots: 576, bwStyle: 'stroke', bwTexture: 1, lineSpacing: 4,
 });
 const COMBOS = Object.freeze([[false, false], [false, true], [true, false], [true, true]]);
 const comboName = (oil, mono) => `${oil ? '유화' : '원본'} · ${mono ? '흑백' : '컬러'}`;
@@ -58,6 +59,8 @@ const stateText = panel.querySelector('[data-demo-state]');
 const printImage = document.getElementById('demo-print-image');
 const printCaption = panel.querySelector('[data-demo-print]');
 const monoModeSelect = panel.querySelector('[data-demo="mono-mode"]');
+const bwStyleSelect = panel.querySelector('[data-demo="bw-style"]');
+const bwTextureSelect = panel.querySelector('[data-demo="bw-texture"]');
 const compareBox = panel.querySelector('[data-demo-compare]');
 let printUrl = null;
 let preset = 'defaults'; // 세부 수치: 'defaults'(config.effect) | 'site'(현장 저장값 대조본)
@@ -211,6 +214,8 @@ function renderPanel(s) {
   const combo = effectCombo(fx);
   stateText.textContent += `\n조합 ${comboName(combo.oil, combo.mono)} (출력 모드 ${fx.outputMode}, 흑백 방식 ${fx.monoMode}) · 세부 수치 ${preset === 'site' ? '현장 저장값' : '기본값'}`;
   monoModeSelect.value = fx.monoMode;
+  bwStyleSelect.value = fx.bwStyle;
+  bwTextureSelect.value = String(fx.bwTexture);
   const pressed = (name, value) => panel.querySelectorAll(`[data-demo="${name}"]`).forEach((b) => b.setAttribute('aria-pressed', String(value(b))));
   pressed('combo', (b) => b.dataset.oil === String(combo.oil) && b.dataset.mono === String(combo.mono));
   pressed('preset', (b) => b.dataset.value === preset);
@@ -301,6 +306,9 @@ async function compareCombos() {
   }
 }
 
+// 감열지 흑백 스타일·질감 세기 (14단계 톤 점 × 유화 비교용, 운영자 E와 같은 값)
+bwStyleSelect.addEventListener('change', () => { setEffect({ bwStyle: bwStyleSelect.value }); render(session.getState()); });
+bwTextureSelect.addEventListener('change', () => { setEffect({ bwTexture: Number(bwTextureSelect.value) }); render(session.getState()); });
 monoModeSelect.addEventListener('change', () => {
   const mono = effectCombo(effect.getSettings()).mono;
   setEffect(mono ? { outputMode: monoModeSelect.value, monoMode: monoModeSelect.value } : { monoMode: monoModeSelect.value });

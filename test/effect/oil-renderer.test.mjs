@@ -231,8 +231,8 @@ describe('촬영 결과·미리보기 경로 (실제 미리보기·렌더러 + �
 });
 
 describe('oil-renderer: 감열지 출력 단계 (6-1, 가짜 WebGL2)', () => {
-  // 6-1 경로는 흑백 스타일 톤 점으로 본다. 흑백 스타일은 아래 7-1 테스트
-  const thermal = (over = {}) => normalizeEffectSettings({ ...config.effect, outputMode: 'thermal', paperDots: 128, bwStyle: 'tone', ...over }, config.effect).settings;
+  // 6-1 경로는 흑백 스타일 톤 점(질감 세기 0 = 유화 섞기 없음, 14단계)으로 본다. 흑백 스타일은 아래 7-1 테스트
+  const thermal = (over = {}) => normalizeEffectSettings({ ...config.effect, outputMode: 'thermal', paperDots: 128, bwStyle: 'tone', bwTexture: 0, ...over }, config.effect).settings;
   const P = { w: 128, h: 230 }; // 20x36 그림 → 용지 128점: 세로 round(128 * 36 / 20) = 230
 
   // readPixels 흉내: 4점씩 묶은 대상(P.w/4 x P.h)을 GL 방향(아래 줄부터)으로 채운다. fill(바이트 = 점 x, 위에서 y) → 값
@@ -374,20 +374,24 @@ describe('oil-renderer: 흑백 스타일 (7-1, 가짜 WebGL2)', () => {
   });
 
   it('톤 점이 아닌 스타일은 흑백 준비·문턱 패스를 더 쓰고, 톤 점은 6-1과 같은 패스 수', () => {
-    const draws = (bwStyle) => {
+    const draws = (bwStyle, over = {}) => {
       const fake = createFakeWebGL2();
       let n = 0;
       const original = fake.gl.drawArrays;
       fake.gl.drawArrays = (...args) => { n += 1; return original(...args); };
       const renderer = createOilRenderer({ canvas: fake.canvas });
-      renderer.render({}, { ...small, settings: style(bwStyle, { dither: 'blue-noise' }) });
+      renderer.render({}, { ...small, settings: style(bwStyle, { dither: 'blue-noise', ...over }) });
       renderer.dispose();
       return n;
     };
-    const tone = draws('tone');
+    const tone = draws('tone', { bwTexture: 0 });
     assert.equal(draws('texture'), tone + 1, '흑백 준비(FS_BW_PREP)');
     assert.equal(draws('stroke'), tone + 2, '흑백 준비 + 점별 문턱(FS_THERMAL_SCREEN)');
     assert.equal(draws('flow'), tone + 2);
+    // 톤 점 × 유화 (14단계): 질감 세기 > 0이면 흑백 준비 + (블루 노이즈면) 붓 결을 섞은 점별 문턱. 유화 끔이면 6-1 그대로
+    assert.equal(draws('tone', { bwTexture: 1 }), tone + 2, '블루 노이즈: 흑백 준비 + 점별 문턱');
+    assert.equal(draws('tone', { bwTexture: 1, dither: 'bayer' }), tone + 1, '베이어: 흑백 준비만 (문턱은 타일 그대로)');
+    assert.equal(draws('tone', { bwTexture: 1, oil: false }), draws('tone', { bwTexture: 0, oil: false }), '유화 끔은 섞지 않는다');
   });
 });
 
@@ -412,7 +416,7 @@ describe('촬영 결과 감열지 경로 (실제 미리보기·렌더러·결과
     const idles = []; // requestIdleCallback 흉내 (flushIdle로 돌린다)
     const preview = createEffectPreview({
       canvas, video: { videoWidth: 54, videoHeight: 96 }, camera: { isReady: () => true }, stageAspect: 9 / 16,
-      settings: { ...config.effect, previewScale: 0.25, outputMode: 'thermal', paperDots: 128, bwStyle: 'tone', ...over },
+      settings: { ...config.effect, previewScale: 0.25, outputMode: 'thermal', paperDots: 128, bwStyle: 'tone', bwTexture: 0, ...over },
       raf: (fn) => { queued = fn; return 1; }, cancelRaf: () => {}, now: () => time, log: { warn() {}, clear() {} },
       idle: (fn) => idles.push(fn), cancelIdle: (id) => { idles[id - 1] = null; },
     });
@@ -452,6 +456,25 @@ describe('촬영 결과 감열지 경로 (실제 미리보기·렌더러·결과
     assert.equal(out.print.blackRatio, 0);
     const { last } = t.photo.getStats();
     assert.deepEqual([last.status, last.check, last.dither], ['applied', 'gpu=cpu', 'stroke-lines']);
+  });
+
+  it('톤 점 × 유화(14단계): 블루 노이즈면 붓 결을 섞은 점별 문턱으로 GPU 점 그림, CPU가 같은 문턱으로 다시 비교한다', async () => {
+    const t = setup({ bwTexture: 1, dither: 'blue-noise' });
+    const reads = [];
+    t.fake.onReadPixels((f, [, , w, h, , , buf]) => { reads.push(w); buf.fill([100, 50, 255][reads.length - 1] ?? 0); });
+    await t.photo.apply(t.raw);
+    assert.equal(reads.length, 3, '회색·문턱·점');
+    const { last } = t.photo.getStats();
+    assert.deepEqual([last.status, last.check, last.dither], ['applied', 'gpu=cpu', 'stroke-tone']);
+  });
+
+  it('톤 점 × 유화(14단계): 효과를 그리지 못하면 원본 사진에 순수 톤 점 (획이 없으므로)', async () => {
+    const t = setup({ bwTexture: 1, dither: 'bayer' });
+    t.fake.onReadPixels((f) => f.lose());
+    await t.photo.apply(t.raw);
+    const { last } = t.photo.getStats();
+    assert.deepEqual([last.status, last.mode, last.dither], ['raw', 'thermal', 'bayer']);
+    assert.match(last.reason, /\(tone oil blend -> tone\)/);
   });
 
   it('붓 결 선(7-1): 효과를 그리지 못하면 원본 사진에 톤 점(설정한 점 방식)으로 감열지 (획이 없으므로)', async () => {

@@ -219,8 +219,13 @@ describe('effect-tuning (E)', () => {
     assert.deepEqual([t.select('dither').disabled, t.input('lineSpacing').disabled, t.input('bwTexture').disabled], [true, false, false]);
     t.choose('bwStyle', 'texture');
     assert.deepEqual([t.select('dither').disabled, t.input('lineSpacing').disabled, t.input('bwTexture').disabled], [false, true, false]);
+    // 톤 점 (14단계): 질감 세기는 유화 획을 섞는 세기, 블루 노이즈면 붓 결 주기로 선 간격도 쓴다
     t.choose('bwStyle', 'tone');
-    assert.deepEqual([t.select('dither').disabled, t.input('lineSpacing').disabled, t.input('bwTexture').disabled], [false, true, true]);
+    assert.equal(t.select('dither').value, 'blue-noise');
+    assert.deepEqual([t.select('dither').disabled, t.input('lineSpacing').disabled, t.input('bwTexture').disabled], [false, false, false]);
+    t.choose('dither', 'bayer');
+    assert.deepEqual([t.select('dither').disabled, t.input('lineSpacing').disabled, t.input('bwTexture').disabled], [false, true, false]);
+    t.choose('dither', 'blue-noise');
     t.choose('bwStyle', 'flow');
     t.slide('lineSpacing', 6);
     t.slide('bwTexture', 1.5);

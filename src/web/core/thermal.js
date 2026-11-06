@@ -349,13 +349,26 @@ export const isGpuDither = (method) => method === 'bayer' || method === 'blue-no
 export const bwStyleOf = (settings) => (settings.oil === false ? 'tone' : settings.bwStyle ?? 'tone');
 
 /**
+ * 톤 점 × 유화 섞기 (14단계, 가안): 감열지(outputMode 'thermal')의 톤 점이고 유화가 켜져 있으면 질감 세기(bwTexture, 0~2)만큼
+ * 획 명암(붓 볼록 조명)·국소 대비를 약하게 더하고, 점 방식이 블루 노이즈면 문턱에 붓 결(획 방향 선)을 조금 섞는다.
+ * 0이면 6-1 톤 점 그대로. 유화 끔(획이 없다)과 회색조 유화의 인쇄 데이터(outputMode 'gray-oil')는 섞지 않는다
+ */
+export function toneOilBlend(settings) {
+  if (settings.outputMode !== 'thermal' || settings.oil === false || bwStyleOf(settings) !== 'tone') return 0;
+  const v = Number(settings.bwTexture ?? 0);
+  return Number.isFinite(v) ? Math.min(2, Math.max(0, v)) : 0;
+}
+
+/**
  * 점을 무엇으로 정하는지(D 화면·결과 표시용): 톤 점·질감 강조 점은 점 방식(dither) 그대로,
- * 흐름 선은 'flow-lines', 붓 결 선은 'stroke-lines'(GPU가 만든 점별 문턱)
+ * 흐름 선은 'flow-lines', 붓 결 선은 'stroke-lines'(GPU가 만든 점별 문턱).
+ * 톤 점 × 유화 섞기(toneOilBlend > 0)이고 블루 노이즈면 'stroke-tone'(블루 노이즈에 붓 결을 조금 섞은 점별 문턱, GPU)
  */
 export function screenOf(settings) {
   const style = bwStyleOf(settings);
   if (style === 'flow') return 'flow-lines';
   if (style === 'stroke') return 'stroke-lines';
+  if (settings.dither === 'blue-noise' && toneOilBlend(settings) > 0) return 'stroke-tone';
   return settings.dither;
 }
 

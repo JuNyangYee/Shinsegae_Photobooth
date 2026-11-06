@@ -1184,7 +1184,7 @@ async function runScenarios(app, origin) {
       + ` CPU dither 576x1024: atkinson ${t.atkinson}ms, floyd-steinberg ${t['floyd-steinberg']}ms, bayer ${t.bayer}ms, blue-noise ${t['blue-noise']}ms`;
   });
 
-  await scenario('흑백 스타일 4가지(E, 감열지, 처리 해상도 1): 미리보기 캔버스 1080x1920·D 표시, 붓 결 선·흐름 선·질감 강조 점 결과 = 셔터 순간 그림의 틀 줄(화면용 PNG 화소까지, 인쇄 576x912), 저장 → 새로고침 유지 (파일은 원래대로)', async () => {
+  await scenario('흑백 스타일 4가지(E, 감열지, 처리 해상도 1): 미리보기 캔버스 1080x1920·D 표시, 붓 결 선·흐름 선·질감 강조 점·톤 점 × 유화(14단계) 결과 = 셔터 순간 그림의 틀 줄(화면용 PNG 화소까지, 인쇄 576x912), 저장 → 새로고침 유지 (파일은 원래대로)', async () => {
     const details = [];
     try {
       await app.open();
@@ -1192,17 +1192,18 @@ async function runScenarios(app, origin) {
       await app.openSection('effect');
       await app.choose('outputMode', 'thermal'); // 흑백 스타일은 감열지에서만 (8단계부터 기본 모드는 회색조 유화)
       await previewScaleOne(app);
-      for (const [style, screen] of [['tone', 'blue-noise'], ['texture', 'blue-noise'], ['flow', 'flow-lines'], ['stroke', 'stroke-lines']]) {
+      // 톤 점은 질감 세기 1(기본값)이면 유화 획을 섞는다(14단계, 블루 노이즈 → 붓 결 섞은 점별 문턱 stroke-tone)
+      for (const [style, screen] of [['tone', 'stroke-tone'], ['texture', 'blue-noise'], ['flow', 'flow-lines'], ['stroke', 'stroke-lines']]) {
         await app.choose('bwStyle', style);
         await app.waitFor(`style ${style}`, async () => new RegExp(`^thermal 576x1024 ${screen} \\(style ${style}\\)`).test(subLine(await app.devText(), 'output')), 5000);
         const canvas = await app.evaluate("(() => { const c = document.getElementById('effect'); return c.width + 'x' + c.height + (c.hidden ? ' hidden' : ''); })()");
         expect(canvas === '1080x1920', `${style}: canvas ${canvas}`);
         const disabled = await app.evaluate(`['dither', 'bwTexture', 'lineSpacing'].map((k) => document.querySelector('#effect-panel [data-key="' + k + '"]:is(select, input)').disabled).join(',')`);
-        const want = { tone: 'false,true,true', texture: 'false,false,true', flow: 'true,false,false', stroke: 'true,false,false' }[style];
+        const want = { tone: 'false,false,false', texture: 'false,false,true', flow: 'true,false,false', stroke: 'true,false,false' }[style];
         expect(disabled === want, `${style}: disabled dither,bwTexture,lineSpacing ${disabled}`);
         details.push(`${style} ${screen}`);
       }
-      for (const [style, method] of [['stroke', 'stroke-lines'], ['flow', 'flow-lines'], ['texture', 'blue-noise']]) {
+      for (const [style, method] of [['stroke', 'stroke-lines'], ['flow', 'flow-lines'], ['texture', 'blue-noise'], ['tone', 'stroke-tone']]) {
         await app.choose('bwStyle', style);
         const shot = await withAutoPaused(app, () => thermalShot(app, { method, check: 'gpu=cpu' }));
         details.push(`${style} shot: ${shot.compare.split(',')[0]}`);
@@ -2249,6 +2250,22 @@ async function runScenarios(app, origin) {
         writeFileSync(join(options.screens, 'demo-8-combo-compare.png'), Buffer.from(data, 'base64'));
       }
       details.push('4-combo compare: 4 results 1080x1350 via capture path, print data only for mono (gray-oil), combo restored');
+      // 감열지 톤 점 × 유화 (14단계): 흑백 방식 감열지 + 톤 점에서 질감 세기 0(순수 톤 점)·1·2를 바꾼다 (--screens면 화면, 합성 장면)
+      if (options.screens) {
+        const pick = (name, value) => app.evaluate(`(() => { const e = document.querySelector('[data-demo="${name}"]'); e.value = '${value}';
+          e.dispatchEvent(new Event('change')); return true; })()`);
+        await pick('mono-mode', 'thermal');
+        await pick('bw-style', 'tone');
+        for (const texture of ['0', '1', '2']) {
+          await pick('bw-texture', texture);
+          await sleep(900);
+          await demoShot(`demo-9-thermal-tone-texture-${texture}`);
+        }
+        await pick('bw-texture', '1');
+        await pick('bw-style', 'stroke');
+        await pick('mono-mode', 'gray-oil');
+        details.push('thermal tone x oil screens texture 0/1/2');
+      }
       // 안내 상태 흉내
       for (const kind of ['preparing', 'staff']) {
         await click(`[data-demo="guidance"][data-value="${kind}"]`);

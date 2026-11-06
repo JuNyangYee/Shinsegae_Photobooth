@@ -54,11 +54,28 @@
           <option value="gray">회색조 (인쇄 데이터 없음)</option>
         </select>
       </label>
+      <label class="demo-field">감열지 흑백 스타일
+        <select data-demo="bw-style">
+          <option value="stroke">붓 결 선</option>
+          <option value="flow">흐름 선</option>
+          <option value="texture">질감 강조 점</option>
+          <option value="tone">톤 점 (질감 세기만큼 유화 획 섞기)</option>
+        </select>
+      </label>
+      <label class="demo-field">질감 세기 (톤 점은 0이면 순수 톤 점)
+        <select data-demo="bw-texture">
+          <option value="0">0</option>
+          <option value="0.5">0.5</option>
+          <option value="1">1</option>
+          <option value="1.5">1.5</option>
+          <option value="2">2</option>
+        </select>
+      </label>
       <div class="demo-buttons" role="group" aria-label="세부 수치">
         <button type="button" data-demo="preset" data-value="defaults" aria-pressed="true">기본값</button>
         <button type="button" data-demo="preset" data-value="site" aria-pressed="false">현장 저장값 (대조본)</button>
       </div>
-      <p class="demo-hint">현장 저장값: 현장 PC effect.local.json을 2026-11-05에 읽기 전용으로 대조한 값(강도 0.05·붓 0.7·boil 0·12장·세부 0.09·처리 1·회색조·레벨 0.03/1.4/1.2)을 코드에 적어 둔 것이다. 파일을 읽거나 쓰지 않는다.</p>
+      <p class="demo-hint">현장 저장값: 현장 PC filter.local.json(revision 3)의 적용 수치를 2026-11-06에 읽기 전용으로 대조한 값(강도 0.29·붓 1.23·boil 0.02·15장·세부 0.1·처리 1·회색조·레벨 −0.03/1.45/0.85·붓 결 선)을 코드에 적어 둔 것이다. 파일을 읽거나 쓰지 않는다. 감열지 톤 점 비교는 흑백 방식 "감열지" + 흑백 스타일 "톤 점"에서 질감 세기 0(순수 톤 점)과 1·2를 바꿔 본다.</p>
       <div class="demo-buttons">
         <button type="button" data-demo="compare">4조합 비교 촬영</button>
       </div>
