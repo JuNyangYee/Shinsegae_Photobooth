@@ -132,7 +132,8 @@ body {
 
 /* ---- 관람객 화면 (14단계 눈 마을 장면, 가안 — ui/guest-screen.js·ui/scene-plate.js).
    화면 = 생성 장면 한 장(#scene-plate, 1080x1920 기준): 위 띠(0~240) DOF 눈 마을과 위 나무 들보에 걸친 푸빌라·후트, 가운데 사진 창(240~1590, 4:5)은
-   장면의 그린을 빼서 카메라·결과가 비치고, 아래 들보·얼음벽(~1710)에 깨또·포코, 그 아래 눈 바닥(1710~1920, 화면 높이 57/64부터)에 새긴 글씨.
+   장면의 그린을 빼서 카메라·결과가 비치고, 아래 들보·얼음벽(~1710)에 깨또·포코, 그 아래 눈 바닥(1710~1920, 화면 높이 57/64부터)에 새긴 글씨·3·2·1.
+   위 띠에는 관람객 UI(글자·숫자·진행선·표시)를 두지 않는다.
    쌓임: 카메라·결과·준비 중 막(z 없음) < 장면(z 1) < 눈송이·글자·진행선·준비 중 글자·D 겹쳐 그리기(z 2). 창 안에는 글자·눈송이를 두지 않는다.
    제목·날짜·시각은 없다. 움직임은 transform·opacity만, 동작 줄이기(:root[data-motion="reduce"])에서는 늘 도는 움직임을 멈춘다. ---- */
 
@@ -281,8 +282,7 @@ body {
 
 .guide,
 .notice,
-.result-note,
-.countdown-caption {
+.result-note {
   transform: perspective(90cqw) rotateX(24deg);
   transform-origin: 50% 0;
 }
@@ -328,7 +328,8 @@ body {
   font-size: 2.2222cqw;
 }
 
-/* ---- 3·2·1: 큰 금박 숫자는 위 띠 가운데(푸빌라·후트 사이, 카메라 가까이), 안내 줄은 눈 바닥. 숫자는 한 칸 창 안에서 위로 넘어간다 ---- */
+/* ---- 3·2·1: 눈 바닥 가운데에 크게 새긴 숫자 (위 띠에는 관람객 UI를 두지 않는다). 대기 안내와 같은 자리라 숫자 동안은 안내 줄을 숨긴다
+   (안내 문구 요소는 그대로 두고 보이지만 않는다). 숫자는 한 칸 창 안에서 위로 넘어간다. 새긴 홈 = 짙은 남보라 + 아래 흰 빛·위 그늘 ---- */
 .band.countdown {
   left: 0;
   right: 0;
@@ -340,22 +341,21 @@ body {
   position: absolute;
   left: 0;
   right: 0;
-  top: calc(var(--frame-top) / 2 - 0.47em);
+  top: calc(var(--ground-top) + 1.1111cqw);
   height: 0.94em;
   margin: 0;
   overflow: hidden;
-  font: 400 17.5926cqw / 0.94 var(--font-display);
+  color: var(--snow-ink);
+  font: 600 15.7407cqw / 0.94 var(--font-display);
   font-variant-numeric: lining-nums tabular-nums;
   text-align: center;
-  filter: drop-shadow(0 0.3cqw 0.6cqw rgba(16, 12, 60, 0.6));
+  transform: perspective(90cqw) rotateX(24deg);
+  transform-origin: 50% 0;
 }
 
 .countdown-glyph {
   display: block;
-  color: transparent;
-  background: var(--gold-foil);
-  -webkit-background-clip: text;
-  background-clip: text;
+  text-shadow: 0 0.28cqw 0 rgba(255, 252, 255, 0.6), 0 -0.18cqw 0.24cqw rgba(20, 14, 64, 0.45);
 }
 
 .countdown-glyph.is-ghost {
@@ -366,10 +366,7 @@ body {
 }
 
 .countdown-caption {
-  position: absolute;
-  left: var(--pad);
-  right: var(--pad);
-  top: var(--band-top);
+  display: none;
 }
 
 /* 촬영 순간: 사진 창 안에만 짧은 따뜻한 빛 (장면 아래라 캐릭터는 그대로). ui/guest-screen.js가 투명도를 짧게 움직인다 */

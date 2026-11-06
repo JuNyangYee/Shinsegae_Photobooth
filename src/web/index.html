@@ -29,7 +29,7 @@
     <!-- ---- 관람객 화면 (14단계 눈 마을 장면, 가안 — ui/guest-screen.js·ui/scene-plate.js). 문구는 config/guest-text.js.
          화면 = 생성 장면 한 장(#scene-plate): 위 DOF 눈 마을, 나무 창틀 두 들보, 그 위·앞의 캐릭터, 아래 얼음벽과 눈 바닥.
          가운데 사진 창(4:5, config.photoFrame)만 단색 그린을 브라우저에서 빼서 카메라·결과가 보인다. 캐릭터가 창에 걸친 부분은 그대로 덮는다
-         (화면 장식일 뿐 사진·인쇄 데이터에는 없다). 안내 글은 눈 바닥에 새긴 글씨, 3·2·1은 위 띠 가운데 ---- -->
+         (화면 장식일 뿐 사진·인쇄 데이터에는 없다). 안내 글과 3·2·1은 눈 바닥에 새긴 글씨 (위 띠에는 관람객 UI 없음) ---- -->
     <!-- 대체 배경과 눈송이: 장면 이미지를 못 읽으면 창 밖 띠에 배경 사진(snow-village-bg)이 보인다. 눈송이는 장면 위로 내린다.
          바닥 진행선 = 카운트다운·쿨타임 진행 (왼쪽에서 차오른다) -->
     <div class="frame" aria-hidden="true">
@@ -55,7 +55,7 @@
     <canvas id="scene-plate" class="scene-plate" aria-hidden="true" hidden></canvas>
     <!-- 대기 안내 (눈 바닥에 새긴 글씨: 한국어 큰 줄, 영어 작은 대문자 줄) -->
     <div id="guide" class="band guide" hidden></div>
-    <!-- 3·2·1: 큰 금박 숫자는 위 띠 가운데(카메라 가까이, 시선이 위로)에서 한 칸 창 안으로 넘어가고, 안내 줄은 눈 바닥. 진행선은 바닥 진행선 -->
+    <!-- 3·2·1: 눈 바닥 가운데에 크게 새긴 숫자가 한 칸 창 안에서 넘어간다. 안내 줄(#countdown-caption)은 문구만 두고 화면에는 숨긴다. 진행선은 바닥 진행선 -->
     <div id="countdown" class="band countdown" hidden>
       <p class="countdown-digit"><span id="countdown-ghost" class="countdown-glyph is-ghost" aria-hidden="true"></span><span id="countdown-number" class="countdown-glyph"></span></p>
       <div id="countdown-caption" class="countdown-caption"></div>

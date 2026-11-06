@@ -2047,13 +2047,14 @@ async function runScenarios(app, origin) {
     const top = document.querySelector('.frame-margin.is-top').getBoundingClientRect().bottom - st.top;
     const bottom = document.querySelector('.frame-margin.is-bottom').getBoundingClientRect().top - st.top;
     const boxes = {};
-    // 3·2·1 묶음은 화면 전체를 덮는 자리라 숫자(위 띠)·안내(눈 바닥)를 따로 잰다
+    // 3·2·1 묶음은 화면 전체를 덮는 자리라 숫자·안내를 따로 잰다(안내 줄은 숨김). 진행선·운영 표시도 위 띠에 없어야 한다
     const parts = [['guide', '#guide'], ['countdown-digit', '#countdown .countdown-digit'], ['countdown-caption', '#countdown-caption'], ['notice', '#notice'],
-      ['result-note', '#result-note'], ['status', '#status']];
+      ['result-note', '#result-note'], ['status', '#status'], ['rule', '.frame-rule'], ['result-timer', '#result-timer'], ['pause', '#pause-badge']];
     for (const [id, selector] of parts) {
       const e = document.querySelector(selector);
       if (e.closest('[hidden]') || getComputedStyle(e).opacity === '0') continue;
       const r = e.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) continue;
       boxes[id] = [Math.round(r.top - st.top), Math.round(r.bottom - st.top)];
     }
     const img = document.getElementById('result').getBoundingClientRect();
@@ -2062,9 +2063,10 @@ async function runScenarios(app, origin) {
       removed: ['.title', '.puff', '.masthead', '.frame-corner'].filter((q) => document.querySelector(q)),
       result: document.getElementById('result').hidden ? null : [Math.round(img.left - st.left), Math.round(img.top - st.top), Math.round(img.width), Math.round(img.height)] };
   })()`;
-  const textOutsideFrame = (l) => Object.entries(l.boxes).filter(([, [a, b]]) => !(b <= l.top + 1 || a >= l.bottom - 1)).map(([id]) => id);
+  // 사진 틀 안이거나 위 띠에 걸친 관람객 UI (14단계: 위 띠에는 아무것도 없다. 준비 중 글자는 창 안 막 위라 따로 본다)
+  const textOutsideFrame = (l) => Object.entries(l.boxes).filter(([id, [a]]) => id !== 'status' && a < l.bottom - 1).map(([id]) => id);
 
-  await scenario('관람객 화면(14단계 눈 마을 장면): 글자·숫자는 사진 틀(4:5, 8/64~53/64) 밖에만, 제목·날짜·시각 없음, 장면 읽음 여부, 결과 사진 = 틀 자리 1080x1350, 인쇄 쪽 576x912(사진 576x720 · 머리·꼬리 글자), 동작 줄이기 (--screens면 상태별 화면)', async () => {
+  await scenario('관람객 화면(14단계 눈 마을 장면): 글자·숫자·진행선은 눈 바닥에만(위 띠·사진 틀(4:5, 8/64~53/64) 안 없음), 제목·날짜·시각 없음, 장면 읽음 여부, 결과 사진 = 틀 자리 1080x1350, 인쇄 쪽 576x912(사진 576x720 · 머리·꼬리 글자), 동작 줄이기 (--screens면 상태별 화면)', async () => {
     const details = [];
     await app.open();
     await waitReady(app);
@@ -2083,8 +2085,8 @@ async function runScenarios(app, origin) {
         const l = await app.evaluate(IMPRINT_LAYOUT);
         return l.phase === 'countdown' && (await app.evaluate("document.getElementById('countdown-number').textContent")) === '2' ? l : null;
       }, 4000);
-      expect(textOutsideFrame(counting).length === 0 && counting.boxes['countdown-digit'] && counting.boxes['countdown-digit'][1] <= counting.top,
-        `${label}: countdown digit in top band, caption below ${JSON.stringify(counting.boxes)}`);
+      expect(textOutsideFrame(counting).length === 0 && counting.boxes['countdown-digit'] && counting.boxes['countdown-digit'][0] >= counting.h * 57 / 64 - 1
+        && !counting.boxes.guide && !counting.boxes['countdown-caption'], `${label}: countdown digit carved on snow ground only ${JSON.stringify(counting.boxes)}`);
       const rolls = await app.evaluate("document.getElementById('countdown-number').getAnimations().map((a) => a.effect.getKeyframes().some((k) => k.transform && k.transform !== 'none'))");
       if (label === 'full') {
         await sleep(450);
@@ -2127,7 +2129,7 @@ async function runScenarios(app, origin) {
     };
     const full = await round('full');
     expect(full.rolls.length > 0 && full.rolls.some(Boolean), `countdown digit roll animation ${JSON.stringify(full.rolls)}`);
-    details.push(`frame ${idle.top}-${idle.bottom}px of ${idle.h}, text outside frame in idle·countdown·result·cooldown, result box = frame, print ${full.print},`
+    details.push(`frame ${idle.top}-${idle.bottom}px of ${idle.h}, guest UI only on snow ground in idle·countdown·result·cooldown, result box = frame, print ${full.print},`
       + ` scene ${idle.scene ? 'plate' : 'FALLBACK background'} (${full.scene})`);
     // 동작 줄이기: 시스템 설정(prefers-reduced-motion) → :root[data-motion=reduce] → 숫자는 위치 움직임 없이, 눈송이는 멈춤
     await app.cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
