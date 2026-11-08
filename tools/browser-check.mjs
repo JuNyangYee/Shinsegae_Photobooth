@@ -37,7 +37,7 @@ const TIMING_SETTINGS_FILE = join(repo, 'config', 'timing.local.json');
 const TIMING_SETTINGS_API = '/local-api/timing-settings';
 const SCREEN_SETTINGS_FILE = join(repo, 'config', 'screen.local.json');
 // 운영자 화면(E, 9-2·10)의 섹션 요소 id
-const SECTION_IDS = Object.freeze({ camera: 'camera-panel', presence: 'tuning-panel', timing: 'timing-panel', effect: 'effect-panel' });
+const SECTION_IDS = Object.freeze({ camera: 'camera-panel', presence: 'tuning-panel', timing: 'timing-panel', effect: 'effect-panel', screen: 'screen-panel' });
 const MODEL_PATTERN = '*blaze_face_short_range.tflite*';
 // MediaPipe 사용 통계 전송은 CSP로 막는 것이 의도된 동작이다(docs/SYSTEM.md 1절). 이 주소의 CSP 메시지는 실패로 세지 않는다.
 const EXPECTED_CSP_HOST = 'odml.pa.googleapis.com';
@@ -2202,6 +2202,23 @@ async function runScenarios(app, origin) {
       const cleanShot = async (name) => { await app.evaluate("document.getElementById('dev-info').hidden = true"); await shot(name); await app.evaluate("document.getElementById('dev-info').hidden = false"); };
       await sleep(1000);
       await cleanShot('screen-1-idle');
+      // E 화면 섹션: 끄면 바로 기존 화면, 저장하지 않고 닫으면 되돌림, 저장하면 파일에 남는다
+      await app.openSection('screen');
+      const clickScreen = (selector) => app.evaluate(`document.querySelector('#screen-panel ${selector}').click()`);
+      await clickScreen('input[data-key="enabled"]');
+      await app.waitFor('screen off from panel', async () => /^bypass \(disabled\)/.test((await app.dev()).get('screen') ?? ''), 3000);
+      await app.closePanel();
+      await app.waitFor('reverted on close', async () => /^running/.test((await app.dev()).get('screen') ?? ''), 3000);
+      await app.openSection('screen');
+      await clickScreen('input[data-key="enabled"]');
+      await clickScreen('button[data-action="save"]');
+      await app.waitFor('saved to file', () => JSON.parse(readFileSync(SCREEN_SETTINGS_FILE, 'utf8')).enabled === false, 3000);
+      details.push('panel off, revert on close, save to file');
+      await clickScreen('input[data-key="enabled"]');
+      await clickScreen('button[data-action="save"]');
+      await app.waitFor('saved on again', () => JSON.parse(readFileSync(SCREEN_SETTINGS_FILE, 'utf8')).enabled === true, 3000);
+      await app.closePanel();
+      await app.waitFor('running again', async () => /^running/.test((await app.dev()).get('screen') ?? ''), 3000);
       await withAutoPaused(app, async () => {
         await manualCycle(app, {
           onResult: async () => {
@@ -2231,6 +2248,11 @@ async function runScenarios(app, origin) {
       details.push(off.slice(0, 20));
       await sleep(600);
       await cleanShot('screen-4-off');
+      await app.key('KeyS');
+      await app.waitFor('countdown off', async () => sessionState((await app.dev()).get('session')) === 'countdown', 3000);
+      await sleep(500);
+      await cleanShot('screen-5-off-countdown');
+      await app.key('KeyX');
     } finally {
       writeFileSync(SCREEN_SETTINGS_FILE, JSON.stringify({ version: 1, enabled: false, filter: {} }));
       await app.open();
