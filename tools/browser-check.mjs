@@ -1594,7 +1594,7 @@ async function runScenarios(app, origin) {
       await app.slide('fps', 18);
       const tabs = await app.waitFor('tab dots', async () => {
         const text = await app.evaluate(`[...document.querySelectorAll('#operator-panel [data-section]')].map((b) => b.dataset.section + ':' + b.dataset.save).join(' ')`);
-        return /^camera:saved presence:saved timing:[\w-]+ effect:dirty$/.test(text) ? text : null;
+        return /^camera:saved presence:saved timing:[\w-]+ effect:dirty screen:[\w-]+$/.test(text) ? text : null;
       }, 3000);
       // 섹션별 기본값: 카메라 섹션 "기본값으로"는 카메라 값만 (인식 값 그대로)
       await app.openSection('camera');
@@ -2397,7 +2397,7 @@ async function runScenarios(app, origin) {
         await app.open();
         await waitReady(app);
         await app.key('KeyD'); // open()이 켠 D를 끈다 (패널·원본 창만)
-        for (const section of ['camera', 'presence', 'timing', 'effect']) {
+        for (const section of ['camera', 'presence', 'timing', 'effect', 'screen']) {
           await app.openSection(section);
           await sleep(1500);
           const shot = await app.cdp.send('Page.captureScreenshot', { format: 'png' });
