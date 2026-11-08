@@ -33,6 +33,11 @@ export const config = Object.freeze({
     size: Object.freeze({ width: 1080, height: 1920 }),
   }),
 
+  // 최종 화면 필터 (17단계, 가안): 합성된 화면 전체(배경·나무틀·캐릭터·카메라/결과·눈 글씨)에 oil2f를 마지막에 한 번.
+  // 저장값은 config/screen.local.json. previewScale: 합성·유화 처리 해상도(1080 기준). 수치 기본값은 활성 번들의 받은 기본값
+  screen: Object.freeze({ enabled: true, previewScale: 0.75 }),
+  screenSettingsFile: Object.freeze({ url: '/local-api/screen-settings', timeoutMs: 3000 }),
+
   // 이 문자열이 라벨에 포함된 카메라를 우선 사용한다 (대소문자 무시). 없으면 기본 카메라.
   preferredCameraLabel: 'OBS Virtual Camera',
 

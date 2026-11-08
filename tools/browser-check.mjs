@@ -35,6 +35,7 @@ const CAMERA_SETTINGS_FILE = join(repo, 'config', 'camera.local.json');
 const CAMERA_SETTINGS_API = '/local-api/camera-settings';
 const TIMING_SETTINGS_FILE = join(repo, 'config', 'timing.local.json');
 const TIMING_SETTINGS_API = '/local-api/timing-settings';
+const SCREEN_SETTINGS_FILE = join(repo, 'config', 'screen.local.json');
 // 운영자 화면(E, 9-2·10)의 섹션 요소 id
 const SECTION_IDS = Object.freeze({ camera: 'camera-panel', presence: 'tuning-panel', timing: 'timing-panel', effect: 'effect-panel' });
 const MODEL_PATTERN = '*blaze_face_short_range.tflite*';
@@ -87,7 +88,7 @@ const log = (...parts) => console.log(`[${elapsed()}]`, ...parts);
 
 // ---------- 정리 대상 (이 도구가 만든 것만) ----------
 
-const owned = { server: null, chrome: null, profile: null, cdp: null, settingsBackup: null, effectBackup: null, cameraBackup: null, timingBackup: null };
+const owned = { server: null, chrome: null, profile: null, cdp: null, settingsBackup: null, effectBackup: null, cameraBackup: null, timingBackup: null, screenBackup: null };
 let cleaning = null;
 
 // 조절값 파일은 시작할 때 바이트 그대로(또는 "없음") 백업하고, 모든 정리 경로에서 파일 시스템으로 직접 되돌린다
@@ -102,7 +103,7 @@ function restoreSettings(reason) {
     try { rmdirSync(TIMING_SETTINGS_FILE); } catch (error) { log('WARN timing placeholder folder:', error.message); }
   }
   for (const [label, backup] of [['settings', owned.settingsBackup], ['effect settings', owned.effectBackup], ['camera settings', owned.cameraBackup],
-    ['timing settings', owned.timingBackup]]) {
+    ['timing settings', owned.timingBackup], ['screen settings', owned.screenBackup]]) {
     if (!backup) continue;
     const result = restoreFile(backup);
     if (!result.ok || result.detail !== 'unchanged') log(`${label} file ${result.ok ? 'OK' : 'FAIL'} (${reason}): ${result.detail}`);
@@ -2186,6 +2187,57 @@ async function runScenarios(app, origin) {
     return details.join('; ');
   });
 
+  await scenario('최종 화면 필터(17단계): 켜면 합성·유화 캔버스가 화면을 덮고, S 회차 동안 카메라 층 고정·해제, 사진·인쇄 경로 그대로, 끄면 기존 화면', async () => {
+    writeFileSync(SCREEN_SETTINGS_FILE, JSON.stringify({ version: 1, enabled: true, filter: {} }));
+    const details = [];
+    try {
+      await app.open();
+      await waitReady(app);
+      const running = await app.waitFor('screen filter running', async () => { const l = (await app.dev()).get('screen') ?? ''; return /^running/.test(l) ? l : null; }, 15000);
+      details.push(running);
+      const layerState = "(() => { const c = document.getElementById('screen-filter'), st = document.getElementById('stage'); const b = c.getBoundingClientRect(); return { on: st.dataset.screenFilter, hidden: c.hidden, w: Math.round(b.width), h: Math.round(b.height), effectHidden: document.getElementById('effect').hidden }; })()";
+      const on = await app.evaluate(layerState);
+      expect(on.on === 'on' && !on.hidden && on.w === 1080 && on.h === 1920, `layer ${JSON.stringify(on)}`);
+      expect(on.effectHidden, 'camera effect canvas is hidden while compositing');
+      await sleep(1000);
+      await shot('screen-1-idle');
+      await withAutoPaused(app, async () => {
+        await manualCycle(app, {
+          onResult: async () => {
+            await sleep(600);
+            await shot('screen-3-result');
+            const line = (await app.dev()).get('screen') ?? '';
+            expect(/frozen/.test(line), `frozen during result: ${line}`);
+            details.push('frozen in result');
+          },
+        });
+      });
+      const after = await app.dev();
+      expect(!/frozen/.test(after.get('screen') ?? ''), 'released after round');
+      expect(/576x768 1-bit/.test(after.get('print') ?? ''), `print path unchanged: ${after.get('print')}`);
+      details.push(after.get('print')?.slice(0, 40));
+      await app.key('KeyS');
+      await app.waitFor('countdown', async () => sessionState((await app.dev()).get('session')) === 'countdown', 3000);
+      await sleep(500);
+      await shot('screen-2-countdown');
+      await app.key('KeyX');
+      writeFileSync(SCREEN_SETTINGS_FILE, JSON.stringify({ version: 1, enabled: false, filter: {} }));
+      await app.open();
+      await waitReady(app);
+      const off = await app.waitFor('screen filter off', async () => { const l = (await app.dev()).get('screen') ?? ''; return /^bypass \(disabled\)/.test(l) ? l : null; }, 8000);
+      const offState = await app.evaluate(layerState);
+      expect(offState.on === undefined && offState.hidden, `off layer ${JSON.stringify(offState)}`);
+      details.push(off.slice(0, 20));
+      await sleep(600);
+      await shot('screen-4-off');
+    } finally {
+      writeFileSync(SCREEN_SETTINGS_FILE, JSON.stringify({ version: 1, enabled: false, filter: {} }));
+      await app.open();
+      await waitReady(app);
+    }
+    return details.join('; ');
+  });
+
   await scenario('시안 데모(WISHFUL 시안, IMPRINT 이어받음, /demo/index.html, 카메라 없음): 앱과 같은 관람객 화면 마크업, 합성 장면 → 실제 효과·촬영·인쇄 데이터 576x768, 검토 조작(사람·안내·동작 줄이기·인쇄 연동 흐름 흉내) (--screens면 상태별 화면·인쇄 데이터)', async () => {
     const details = [];
     const demoShot = async (name) => {
@@ -2199,7 +2251,7 @@ async function runScenarios(app, origin) {
     const phase = () => app.evaluate("document.getElementById('stage').dataset.phase");
     await app.cdp.send('Emulation.setDeviceMetricsOverride', { width: 1464, height: 1920, deviceScaleFactor: 1, mobile: false });
     try {
-      await app.cdp.send('Page.navigate', { url: `${origin}/demo/index.html` });
+      await app.cdp.send('Page.navigate', { url: `${origin}/demo/index.html?screen=off` });
       await app.waitFor('demo ready', () => app.evaluate("document.body?.dataset.demoReady === 'true'"), 15000);
       await click('[data-demo="autoplay"]'); // 자동 시연을 끄고 직접 진행 (첫 도착 2.2초 전)
       const ids = await app.evaluate(`(async () => {
@@ -2491,6 +2543,10 @@ async function main() {
   log(`camera settings file backup: ${owned.cameraBackup.existed ? `${owned.cameraBackup.bytes.length} bytes` : 'none (will stay absent)'}`);
   if (existsSync(TIMING_SETTINGS_FILE) && statSync(TIMING_SETTINGS_FILE).isDirectory()) throw new Error(`${TIMING_SETTINGS_FILE} is a folder`);
   owned.timingBackup = backupFile(TIMING_SETTINGS_FILE);
+  // 17단계: 기존 시나리오(미리보기 = 결과 등)는 화면 필터를 끈 기존 화면 경로를 그대로 확인한다. 합성 시나리오만 켠다 (끝나면 위 백업으로 되돌린다)
+  owned.screenBackup = backupFile(SCREEN_SETTINGS_FILE);
+  mkdirSync(dirname(SCREEN_SETTINGS_FILE), { recursive: true });
+  writeFileSync(SCREEN_SETTINGS_FILE, JSON.stringify({ version: 1, enabled: false, filter: {} }));
   log(`timing settings file backup: ${owned.timingBackup.existed ? `${owned.timingBackup.bytes.length} bytes` : 'none (will stay absent)'}`);
   const port = await freePort();
   const origin = `http://localhost:${port}`;

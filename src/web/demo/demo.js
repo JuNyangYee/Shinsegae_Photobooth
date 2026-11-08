@@ -23,6 +23,10 @@ import { IMPRINT_FONT_LOADS } from '../effect/imprint-page.js';
 import { createPhotoEffect } from '../effect/photo-effect.js';
 import { createGuestScreen } from '../ui/guest-screen.js';
 import { createScenePlate } from '../ui/scene-plate.js';
+import { createScreenCompositor } from '../effect/screen-compositor.js';
+import { createScreenLayers } from '../ui/screen-layers.js';
+import { defaultScreenSettings } from '../config/screen-settings.js';
+import { validateBundle } from '../config/filter-source.js';
 import { createScene } from './scene.js';
 
 const AUTOPLAY = Object.freeze({ firstArriveMs: 2200, idleMs: 3800, leaveAfterCooldownMs: 1600 });
@@ -117,11 +121,27 @@ const guest = createGuestScreen({
   root: document, text: guestText, countdownSeconds: t.countdownSeconds, stageAspect, reducedMotion: () => rootEl.dataset.motion === 'reduce',
 });
 // 장면 (14단계): 앱과 같은 이미지·같은 창 키. 데모 페이지 기준 경로라 앱 루트로 바꿔 읽는다
-createScenePlate({
+const scenePlateReady = createScenePlate({
   canvas: document.getElementById('scene-plate'), src: new URL(`../${config.scene.plate}`, import.meta.url).href,
   frame: config.photoFrame, key: config.scene.key, keyMarginFrac: config.scene.keyMarginFrac, layout: config.scene.layout,
   size: config.scene.size,
-}).ready.then((r) => { if (!r.ok) console.warn(`[scene] ${r.error}`); });
+}).ready.then((r) => { if (!r.ok) console.warn(`[scene] ${r.error}`); return r; });
+// 최종 화면 필터 (17단계): 앱과 같은 합성. ?screen=off 면 끈다 (검사 도구의 기존 화면 시나리오)
+let screenCompositor = null;
+if (new URLSearchParams(location.search).get('screen') !== 'off') {
+  const stageEl = document.getElementById('stage');
+  screenCompositor = createScreenCompositor({
+    canvas: document.getElementById('screen-filter'), stage: stageEl, effect,
+    plateCanvas: document.getElementById('scene-plate'),
+    layers: createScreenLayers({ doc: document, stage: stageEl, frame: config.photoFrame }),
+    cameraFallback: () => (effect.getState().status !== EffectStatus.RUNNING && rawCanvas.width > 2 ? rawCanvas : null),
+  });
+  const bundle = validateBundle(await (await fetch(new URL('../config/filter-builtin.json', import.meta.url), { cache: 'no-store' })).json());
+  screenCompositor.setFallbackBundle(bundle);
+  screenCompositor.setSettings(defaultScreenSettings(bundle));
+  scenePlateReady.then((r) => screenCompositor.setPlateReady(r.ok));
+  screenCompositor.start();
+}
 
 let printFlow = false;
 let printFlowTimer = null;
@@ -175,6 +195,7 @@ function leave() {
 
 let lastState = SessionState.IDLE;
 session.subscribe((s) => {
+  screenCompositor?.setFreeze(s.state === SessionState.CAPTURING || s.state === SessionState.RESULT);
   render(s);
   if (s.state !== lastState && autoplay) {
     clearTimeout(autoplayTimer);

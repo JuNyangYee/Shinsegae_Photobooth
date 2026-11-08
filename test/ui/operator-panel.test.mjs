@@ -1,5 +1,5 @@
 // 실행: npm test
-// 운영자 조절 화면 (9-2, operator-panel.js): 키 하나로 열기, 섹션 넷(10단계에 시간), 닫을 때 섹션마다 되돌리기, 저장 중 닫기, 섹션 버튼의 저장 상태 점.
+// 운영자 조절 화면 (9-2, operator-panel.js): 키 하나로 열기, 섹션 다섯(10단계에 시간, 17단계에 화면), 닫을 때 섹션마다 되돌리기, 저장 중 닫기, 섹션 버튼의 저장 상태 점.
 // 섹션 모듈은 흉내(open·close·isOpen·setActive)이고, 실제 섹션 모듈의 저장 규칙은 각 섹션 테스트가 본다.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -65,8 +65,8 @@ function setup({ attach = true } = {}) {
 }
 
 describe('operator-panel: 열기·섹션', () => {
-  it('섹션 넷(카메라·인식·시간·필터 순서)이 다 붙기 전에는 열리지 않는다 (조절값 불러오는 중)', () => {
-    assert.deepEqual(Object.values(PanelSection), ['camera', 'presence', 'timing', 'effect']);
+  it('섹션 다섯(카메라·인식·시간·필터·화면 순서)이 다 붙기 전에는 열리지 않는다 (조절값 불러오는 중)', () => {
+    assert.deepEqual(Object.values(PanelSection), ['camera', 'presence', 'timing', 'effect', 'screen']);
     const t = setup({ attach: false });
     t.panel.toggle();
     assert.equal(t.panel.isOpen(), false);
@@ -79,6 +79,9 @@ describe('operator-panel: 열기·섹션', () => {
     assert.equal(t.tabs.get('timing').disabled, true);
     t.panel.attach('timing', t.controllers.get('timing'));
     t.panel.toggle();
+    assert.equal(t.panel.isOpen(), false, '화면 섹션을 아직 불러오는 중');
+    t.panel.attach('screen', t.controllers.get('screen'));
+    t.panel.toggle();
     assert.equal(t.panel.isOpen(), true);
   });
 
@@ -86,8 +89,8 @@ describe('operator-panel: 열기·섹션', () => {
     const t = setup();
     t.panel.open();
     assert.equal(t.root.hidden, false);
-    assert.deepEqual([...t.controllers.values()].map((c) => [c.on, c.active]), [[true, true], [true, false], [true, false], [true, false]]);
-    assert.deepEqual([...t.sections.values()].map((el) => el.hidden), [false, true, true, true]);
+    assert.deepEqual([...t.controllers.values()].map((c) => [c.on, c.active]), [[true, true], [true, false], [true, false], [true, false], [true, false]]);
+    assert.deepEqual([...t.sections.values()].map((el) => el.hidden), [false, true, true, true, true]);
     assert.equal(t.tabs.get('camera').attrs['aria-selected'], 'true');
     assert.deepEqual(t.events, [['open', true]]);
   });
@@ -97,15 +100,15 @@ describe('operator-panel: 열기·섹션', () => {
     t.panel.open();
     t.click(t.tabs.get('presence'));
     assert.equal(t.panel.getSection(), 'presence');
-    assert.deepEqual([...t.sections.values()].map((el) => el.hidden), [true, false, true, true]);
-    assert.deepEqual([...t.controllers.values()].map((c) => c.active), [false, true, false, false]);
+    assert.deepEqual([...t.sections.values()].map((el) => el.hidden), [true, false, true, true, true]);
+    assert.deepEqual([...t.controllers.values()].map((c) => c.active), [false, true, false, false, false]);
     assert.deepEqual(t.events.at(-1), ['section', 'presence']);
     t.click(t.tabs.get('timing'));
-    assert.deepEqual([...t.controllers.values()].map((c) => c.active), [false, false, true, false]);
+    assert.deepEqual([...t.controllers.values()].map((c) => c.active), [false, false, true, false, false]);
     assert.deepEqual(t.events.at(-1), ['section', 'timing']);
     t.click(t.tabs.get('presence'));
     t.panel.toggle();
-    assert.deepEqual([...t.controllers.values()].map((c) => c.active), [false, false, false, false], '닫으면 어느 섹션도 active 아님');
+    assert.deepEqual([...t.controllers.values()].map((c) => c.active), [false, false, false, false, false], '닫으면 어느 섹션도 active 아님');
     assert.equal(t.sections.get('presence').hidden, true);
     t.panel.toggle();
     assert.equal(t.panel.getSection(), 'presence');
@@ -128,7 +131,7 @@ describe('operator-panel: 닫기 (섹션마다 되돌리기)', () => {
     t.panel.open();
     t.panel.close();
     assert.equal(t.root.hidden, true);
-    assert.deepEqual([...t.controllers.values()].map((c) => c.closed), [1, 1, 1, 1]);
+    assert.deepEqual([...t.controllers.values()].map((c) => c.closed), [1, 1, 1, 1, 1]);
     assert.deepEqual(t.events.at(-1), ['open', false]);
   });
 
@@ -223,13 +226,13 @@ describe('operator-panel: 원본 창·영역 편집 표시 조건', () => {
 describe('운영자 화면 마크업·단축키 (9-2): 패널 하나, R 없음', () => {
   const html = readFileSync(new URL('../../src/web/index.html', import.meta.url), 'utf8');
   const main = readFileSync(new URL('../../src/web/main.js', import.meta.url), 'utf8');
-  it('#operator-panel 안에 섹션 버튼 넷(카메라·인식·시간·필터 순서)과 섹션 넷(확인 도구가 쓰는 id), 카메라 섹션에 OBS 중복 적용 주의', () => {
+  it('#operator-panel 안에 섹션 버튼 다섯(카메라·인식·시간·필터·화면 순서)과 섹션 다섯(확인 도구가 쓰는 id), 카메라 섹션에 OBS 중복 적용 주의', () => {
     const panel = html.slice(html.indexOf('<section id="operator-panel"'), html.indexOf('<figure id="raw-window"'));
-    const order = ['camera', 'presence', 'timing', 'effect'].map((name) => panel.indexOf(`data-section="${name}"`));
+    const order = ['camera', 'presence', 'timing', 'effect', 'screen'].map((name) => panel.indexOf(`data-section="${name}"`));
     assert.ok(order.every((at, i) => at >= 0 && (i === 0 || at > order[i - 1])), JSON.stringify(order));
-    for (const id of ['camera-panel', 'tuning-panel', 'timing-panel', 'effect-panel']) assert.ok(panel.includes(`id="${id}"`), id);
+    for (const id of ['camera-panel', 'tuning-panel', 'timing-panel', 'effect-panel', 'screen-panel']) assert.ok(panel.includes(`id="${id}"`), id);
     assert.match(panel, /OBS 보정과 중복 적용 주의/);
-    assert.equal((html.match(/data-action="save"/g) ?? []).length, 4, '섹션마다 저장 버튼');
+    assert.equal((html.match(/data-action="save"/g) ?? []).length, 5, '섹션마다 저장 버튼');
   });
 
   it('시간 설정 항목은 시간 섹션에만 있다 (인식 섹션에 시간 설정이 남지 않는다)', () => {

@@ -21,6 +21,11 @@ import { createTimingTuning } from './ui/timing-tuning.js';
 import { effectCombo, effectTunables, serializeEffectSettings } from './config/effect-settings.js';
 import { EffectStatus, createEffectPreview } from './effect/effect-preview.js';
 import { createFilterUpdates } from './effect/filter-updates.js';
+import { createScreenCompositor } from './effect/screen-compositor.js';
+import { validateBundle } from './config/filter-source.js';
+import { loadInitialScreenSettings, serializeScreenSettings } from './config/screen-settings.js';
+import { createScreenLayers } from './ui/screen-layers.js';
+import { createScreenTuning } from './ui/screen-tuning.js';
 import { createPhotoEffect } from './effect/photo-effect.js';
 import { createEffectTuning } from './ui/effect-tuning.js';
 import { createCameraTuning } from './ui/camera-tuning.js';
@@ -63,7 +68,7 @@ const guest = createGuestScreen({
 
 // 관람객 화면 장면 (14단계, 가안): 생성 장면 한 장을 그리고 사진 창 줄의 그린만 뺀다. 못 읽으면 대체 배경과 글자만 보인다 (D 화면에 결과)
 let sceneInfo = 'loading';
-createScenePlate({
+const scenePlateReady = createScenePlate({
   canvas: document.getElementById('scene-plate'), src: config.scene.plate, frame: config.photoFrame,
   key: config.scene.key, keyMarginFrac: config.scene.keyMarginFrac, layout: config.scene.layout,
   size: config.scene.size,
@@ -71,6 +76,7 @@ createScenePlate({
   sceneInfo = r.ok ? `${r.width}x${r.height}${r.bands ? `, bands top ${r.bands.topShift} bottom ${r.bands.bottomShift >= 0 ? '+' : ''}${r.bands.bottomShift}` : ''}, keyed ${r.keyed.width}x${r.keyed.height}@${r.keyed.left},${r.keyed.top}${r.fit ? `, fit x${r.fit.scale.toFixed(3)} gap ${r.gapFilled} sealed ${r.sealed}` : ""} (clear ${r.cleared}, edge ${r.edge}, rim ${r.despilled})`
     : `fallback background (${r.error})`;
   if (!r.ok) console.warn(`[scene] ${r.error}`);
+  return r;
 });
 
 // 기다려도 스스로 풀리기 어려운 카메라 상태는 바로 직원 문의 문구를 보인다. 감지기는 장애(fault)가 그렇다.
@@ -166,6 +172,16 @@ const rawPreview = createRawPreview({
 function updateRawPreview() {
   rawPreview.setActive(effect.getState().status !== EffectStatus.RUNNING);
 }
+
+// 최종 화면 필터 (17단계): 합성된 관람객 화면 전체에 oil2f를 마지막에 한 번. 조절값은 E 화면 섹션. 끔·장애면 기존 화면으로 돌아간다
+const screenCompositor = createScreenCompositor({
+  canvas: document.getElementById('screen-filter'), stage, effect,
+  plateCanvas: document.getElementById('scene-plate'),
+  layers: createScreenLayers({ doc: document, stage, frame: config.photoFrame }),
+  cameraFallback: () => (effect.getState().status !== EffectStatus.RUNNING && rawCanvas.width > 2 ? rawCanvas : null),
+  onChange: () => { if (!devInfo.hidden) renderDevInfo(); },
+});
+scenePlateReady.then((r) => screenCompositor.setPlateReady(r.ok));
 
 // 원본 창 (9-2): 운영자 화면의 카메라·인식 섹션을 연 동안 구석에 필터 없는 카메라 처리 경로 그림(보정·변환 적용)과 감지 박스.
 // 원본 미리보기와 같은 모듈을 작은 캔버스로 쓴다. 크기는 창의 장치 화소(긴 변 최대 RAW_WINDOW_MAX_PX), 그리는 빈도는
@@ -407,6 +423,8 @@ const isPresenceSectionShown = () => showsPresenceEditing(panelView());
 // 카운트다운·플래시·결과 사진은 guest-screen이 보인다. 결과가 끝나면 그 안에서 <img>의 src를 먼저 지우고,
 // 그 뒤 session이 Object URL을 정리한다 (같은 알림 안에서 동기로).
 function renderSession(s) {
+  // 결과 사진은 Blob 경로로 따로 만들어지고, 화면 합성은 셔터 순간 카메라 층을 그 회차 동안 멈춰 보인다 (표시 전용)
+  screenCompositor.setFreeze(s.state === SessionState.CAPTURING || s.state === SessionState.RESULT);
   guest.renderSession(s);
   renderStatus();
   guest.setNotice(s.state === SessionState.COOLDOWN && guidanceNow === Guidance.NONE);
@@ -603,9 +621,9 @@ function effectDevLines() {
       + ` (IHDR depth ${pr.pngBitDepth} color ${pr.pngColorType}), black ${(pr.blackRatio * 100).toFixed(1)}%`
       + `${p.last.printFallback ? `, from photo on CPU (GPU print failed: ${p.last.printFallback})` : ''}`
     : p.last?.printError ? `none (${p.last.printError})` : '-'}`;
-  if (e.status === EffectStatus.DISABLED) return ['effect     : disabled (config.effect.enabled) -> camera preview', photoLine, printLine];
+  if (e.status === EffectStatus.DISABLED) return ['effect     : disabled (config.effect.enabled) -> camera preview', screenLine(), photoLine, printLine];
   if (e.status === EffectStatus.FALLBACK || e.status === EffectStatus.CONTEXT_LOST) {
-    return [`effect     : ${e.status} (${e.fault || '-'}) -> camera preview${losses}`, values, photoLine, printLine];
+    return [`effect     : ${e.status} (${e.fault || '-'}) -> camera preview${losses}`, values, screenLine(), photoLine, printLine];
   }
   return [
     `effect     : ${e.status}${e.shown ? '' : ' (hidden)'}, ${e.width}x${e.height} (preview x${e.previewScale}, px scale ${e.pxScale.toFixed(3)}),`
@@ -615,9 +633,16 @@ function effectDevLines() {
     `  output   : ${output}`,
     `  combo    : ${describeCombo(effect.getSettings())}`,
     values,
+    screenLine(),
     photoLine,
     printLine,
   ];
+}
+
+// 최종 화면 필터 (17단계): 상태·처리 크기·속도
+function screenLine() {
+  const s = screenCompositor.getState();
+  return `screen     : ${s.state}${s.reason ? ` (${s.reason})` : ''}, ${s.width}x${s.height}, fps ${s.fps} -> ${s.drawingsPerSecond} drawings/s, frame ${s.frameAvgMs === null ? '-' : s.frameAvgMs.toFixed(1)}ms, strokes ${s.strokes}, filter ${s.bundle || '-'}${s.frozen ? ', frozen' : ''}`;
 }
 
 // 시험 조합 (WISHFUL 시안): 유화·흑백 켬/끔, 흑백 방식, 인쇄 데이터를 만드는지 (회색조 유화·감열지만 만든다)
@@ -903,6 +928,28 @@ async function loadEffectSettings() {
   settingsLoaded();
 }
 
+// 화면 필터 조절값 (17단계): 기본 제공판을 대체 번들로 두고 파일 → 받은 기본값. 실패해도 나머지 앱은 그대로 돈다(화면 섹션은 안내만)
+const screenSettingsFile = createSettingsFileClient(config.screenSettingsFile);
+async function loadScreenSettings() {
+  try {
+    const response = await fetch('/config/filter-builtin.json', { cache: 'no-store', signal: AbortSignal.timeout(3000) });
+    const builtin = validateBundle(await response.json());
+    screenCompositor.setFallbackBundle(builtin);
+    const getBundle = () => effect.getBundle() ?? builtin;
+    const initial = await loadInitialScreenSettings({ file: screenSettingsFile, bundle: getBundle() });
+    if (initial.note && initial.note !== 'no file') console.warn('[screen-settings]', `${initial.source}: ${initial.note}`);
+    operatorPanel.attach(PanelSection.SCREEN, createScreenTuning({
+      panel: document.getElementById('screen-panel'), compositor: screenCompositor, getBundle, initial,
+      applySettings: (settings) => screenCompositor.setSettings(settings),
+      saveSettings: (settings) => screenSettingsFile.write(serializeScreenSettings(settings)),
+      onOpenChange: handleSectionOpenChange,
+    }));
+  } catch (error) {
+    console.error('[screen-settings] setup failed; screen filter stays off', error);
+    operatorPanel.attach(PanelSection.SCREEN, { open() {}, close() {}, isOpen: () => false, setActive() {}, isDirty: () => false, discardUnsaved() {} });
+  }
+}
+
 function toggleDevInfo() {
   devInfo.hidden = !devInfo.hidden;
   clearInterval(devInfoTimer);
@@ -946,8 +993,9 @@ document.addEventListener('visibilitychange', () => session.setPageVisible(!docu
 autoStart.start();
 loadSettings();
 loadTimingSettings();
-loadEffectSettings();
+loadEffectSettings().then(loadScreenSettings);
 loadCameraSettings(); // 읽은 뒤 camera.start()
 presence.start();
 effect.start();
+screenCompositor.start();
 updateRawPreview();
