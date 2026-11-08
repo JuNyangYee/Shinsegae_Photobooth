@@ -52,7 +52,8 @@ export function createScreenLayers({ doc = document, stage, frame, createCanvas 
   function lineRecord(group, element, clip) {
     const cs = style(element);
     return {
-      text: element.textContent, font: cs.font, letterSpacing: cs.letterSpacing, kerning: cs.fontKerning,
+      // cs.font는 font-variant-numeric(숫자 글자)이 있으면 빈 문자열이라 낱개 속성으로 만든다
+      text: element.textContent, font: `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`, letterSpacing: cs.letterSpacing, kerning: cs.fontKerning,
       top: offsetWithin(element, group).y, height: element.offsetHeight,
       clipTop: offsetWithin(clip, group).y, clipHeight: clip.offsetHeight,
       dy: translateY(cs.transform), opacity: Number(cs.opacity),

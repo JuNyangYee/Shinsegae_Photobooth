@@ -2199,13 +2199,14 @@ async function runScenarios(app, origin) {
       const on = await app.evaluate(layerState);
       expect(on.on === 'on' && !on.hidden && on.w === 1080 && on.h === 1920, `layer ${JSON.stringify(on)}`);
       expect(on.effectHidden, 'camera effect canvas is hidden while compositing');
+      const cleanShot = async (name) => { await app.evaluate("document.getElementById('dev-info').hidden = true"); await shot(name); await app.evaluate("document.getElementById('dev-info').hidden = false"); };
       await sleep(1000);
-      await shot('screen-1-idle');
+      await cleanShot('screen-1-idle');
       await withAutoPaused(app, async () => {
         await manualCycle(app, {
           onResult: async () => {
             await sleep(600);
-            await shot('screen-3-result');
+            await cleanShot('screen-3-result');
             const line = (await app.dev()).get('screen') ?? '';
             expect(/frozen/.test(line), `frozen during result: ${line}`);
             details.push('frozen in result');
@@ -2219,7 +2220,7 @@ async function runScenarios(app, origin) {
       await app.key('KeyS');
       await app.waitFor('countdown', async () => sessionState((await app.dev()).get('session')) === 'countdown', 3000);
       await sleep(500);
-      await shot('screen-2-countdown');
+      await cleanShot('screen-2-countdown');
       await app.key('KeyX');
       writeFileSync(SCREEN_SETTINGS_FILE, JSON.stringify({ version: 1, enabled: false, filter: {} }));
       await app.open();
@@ -2229,7 +2230,7 @@ async function runScenarios(app, origin) {
       expect(offState.on === undefined && offState.hidden, `off layer ${JSON.stringify(offState)}`);
       details.push(off.slice(0, 20));
       await sleep(600);
-      await shot('screen-4-off');
+      await cleanShot('screen-4-off');
     } finally {
       writeFileSync(SCREEN_SETTINGS_FILE, JSON.stringify({ version: 1, enabled: false, filter: {} }));
       await app.open();
