@@ -31,9 +31,6 @@ export const config = Object.freeze({
     layout: Object.freeze({ fit: Object.freeze({ left: 108 / 941, top: 376 / 1672, right: 832 / 941, bottom: 1291 / 1672 }) }),
     // 그리는 크기 (15단계): 화면 기준 1080x1920으로 그려 유화 붓 크기가 화면에 맞게 한다 (띠 맞춤도 이 높이 기준 비율 그대로)
     size: Object.freeze({ width: 1080, height: 1920 }),
-    // 장면 유화 (15단계, 가안, effect/scene-paint.js): 장면을 읽을 때 한 번 기존 oil2f(기본 제공판 원본 기본값, 출력 끔)로 칠한다.
-    // 카메라 효과와 렌더러·설정을 나누지 않는다. settings는 장면에만 얹는 덮어쓰기(가안), seed 고정. false면 칠하지 않는다
-    paint: Object.freeze({ seed: 7, settings: Object.freeze({}) }),
   }),
 
   // 이 문자열이 라벨에 포함된 카메라를 우선 사용한다 (대소문자 무시). 없으면 기본 카메라.

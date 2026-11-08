@@ -23,7 +23,6 @@ import { IMPRINT_FONT_LOADS } from '../effect/imprint-page.js';
 import { createPhotoEffect } from '../effect/photo-effect.js';
 import { createGuestScreen } from '../ui/guest-screen.js';
 import { createScenePlate } from '../ui/scene-plate.js';
-import { createScenePainter } from '../effect/scene-paint.js';
 import { createScene } from './scene.js';
 
 const AUTOPLAY = Object.freeze({ firstArriveMs: 2200, idleMs: 3800, leaveAfterCooldownMs: 1600 });
@@ -121,7 +120,7 @@ const guest = createGuestScreen({
 createScenePlate({
   canvas: document.getElementById('scene-plate'), src: new URL(`../${config.scene.plate}`, import.meta.url).href,
   frame: config.photoFrame, key: config.scene.key, keyMarginFrac: config.scene.keyMarginFrac, layout: config.scene.layout,
-  size: config.scene.size, paint: config.scene.paint ? createScenePainter() : null,
+  size: config.scene.size,
 }).ready.then((r) => { if (!r.ok) console.warn(`[scene] ${r.error}`); });
 
 let printFlow = false;
