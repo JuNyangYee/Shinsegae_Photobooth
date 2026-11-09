@@ -23,6 +23,7 @@
 
 - 통합 브랜치 `stage17-scene-integration`의 병합 커밋은 `9a27eba`다. 기준 판은 `backup/wood-frame-2026-11-09`로 보존했다.
 - 원격을 fetch한 시점에 `origin/master`는 로컬 `master`보다 39커밋 뒤였고 원격에만 있는 커밋은 없었다. 사용자는 이번 작업의 병합·push까지 명시적으로 요청했다. 정상 fast-forward 병합 및 push를 수행하며 강제 push는 사용하지 않는다.
+- 통합판 `877dc04`를 원래 작업 폴더의 `master`에 fast-forward 병합하고 기존 `origin`의 `master`로 정상 push했다(`ca42378..877dc04`). 첫 push 요청은 자동 승인 검토에서 대상 미검증 사유로 거절됐다. 기존 추적 주소가 `github.com/JuNyangYee/Shinsegae_Photobooth`임과 원격 HEAD·현장 설정/산출물 제외를 확인한 뒤 같은 명령을 재요청해 승인·성공했다. 우회나 강제 push는 하지 않았다.
 - 원래 현장 폴더의 `camera.local.json`, `effect.local.json`, `filter.local.json`, `presence.local.json`, `timing.local.json` 5개는 작업 전 백업 SHA256과 모두 일치했다. 새 화면 설정은 별도 `screen.local.json`을 쓰며 기존 파일을 덮어쓰지 않는다.
 - 코드·원본 이미지·문서만 Git에 포함한다. 모의 영상 캡처는 ignored `artifacts/stage17/screens`에 있으며 실제 촬영 프레임은 저장하지 않았다.
 
