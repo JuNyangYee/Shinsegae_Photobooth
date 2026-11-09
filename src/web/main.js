@@ -671,7 +671,7 @@ function describeTiming() {
     + ` (${timingTuning ? timingTuning.describeSettingsSource() : 'loading'}, ${config.timingSettingsFile.url})`;
 }
 
-// 사진 틀 (IMPRINT에서 도입, 16단계 사방 inset 3:4): 화면 비율의 열·줄, 결과 1080x1920·인쇄 격자 576x1024에서의 직사각형
+// 사진 틀 (IMPRINT에서 도입, 16단계부터 사방 inset 3:4): 화면 비율의 열·줄, 결과 1080x1920·인쇄 격자 576x1024에서의 직사각형
 function describePhotoFrame() {
   const f = config.photoFrame;
   const aspect = photoFrameAspect(stageAspect, f);

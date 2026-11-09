@@ -36,6 +36,34 @@ export function fitPlacement(imageWidth, imageHeight, frameRect, fit) {
 }
 
 /**
+ * 세로 늘림 맞춤 (18단계, fit.stretchFrom·stretchTo): 생성 원본의 그린 개구부가 창보다 납작해도 원본 PNG는 그대로 두고 표시할 때만 맞춘다.
+ * 가로 배율은 그린 폭 → 틀 폭 하나다. 위 띠(원본 0 ~ stretchFrom)와 아래 띠(stretchTo ~ 끝)는 그 배율 그대로(균일) 각각 그린 위끝·아래끝을 틀에 붙이고,
+ * 캐릭터가 없는 가운데(그린·곧은 기둥·흐린 배경뿐인 줄)만 세로로 늘려 사이를 잇는다. 경계 줄은 정수로 반올림해 띠마다 그 안에만 그린다. 순수 함수
+ * @returns {{ x: number, y: number, width: number, height: number, scale: number, middleScale: number,
+ *   bands: ReadonlyArray<{ sy: number, sh: number, y: number, h: number, from: number, to: number }> }} sy·sh: 원본 줄, y·h: 캔버스 자리, from~to: 이 띠가 칠하는 캔버스 줄
+ */
+export function stretchPlacement(imageWidth, imageHeight, frameRect, fit) {
+  const scale = frameRect.width / ((fit.right - fit.left) * imageWidth);
+  const x = frameRect.left + frameRect.width / 2 - ((fit.left + fit.right) / 2) * imageWidth * scale;
+  const keyTop = fit.top * imageHeight;
+  const keyBottom = fit.bottom * imageHeight;
+  const from = fit.stretchFrom * imageHeight;
+  const to = fit.stretchTo * imageHeight;
+  const frameBottom = frameRect.top + frameRect.height;
+  const y = frameRect.top - keyTop * scale;
+  const cutTop = Math.round(frameRect.top + (from - keyTop) * scale);
+  const bottomStart = frameBottom + (to - keyBottom) * scale;
+  const cutBottom = Math.round(bottomStart);
+  const end = bottomStart + (imageHeight - to) * scale;
+  const bands = Object.freeze([
+    Object.freeze({ sy: 0, sh: from, y, h: from * scale, from: Math.floor(y), to: cutTop }),
+    Object.freeze({ sy: from, sh: to - from, y: cutTop, h: cutBottom - cutTop, from: cutTop, to: cutBottom }),
+    Object.freeze({ sy: to, sh: imageHeight - to, y: bottomStart, h: (imageHeight - to) * scale, from: cutBottom, to: Math.ceil(end) }),
+  ]);
+  return Object.freeze({ x, y, width: imageWidth * scale, height: end - y, scale, middleScale: (cutBottom - cutTop) / (to - from), bands });
+}
+
+/**
  * 장면(width × height)에서 키를 뺄 직사각형: 사진 틀 ± 여유(장면 높이 × marginFrac 화소, 가로·세로 같은 화소, 화면 안으로 자른다).
  * 16단계부터 틀이 사방 inset이라 좌우 기둥·여백 배경은 키 밖이다
  * @returns {{ left: number, top: number, width: number, height: number }}
@@ -181,11 +209,24 @@ export function createScenePlate({
     canvas.height = height;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     const frameRect = photoFrameRect(width, height, frame);
-    const fit = layout?.fit ? fitPlacement(image.width, image.height, frameRect, layout.fit) : null;
+    const stretched = layout?.fit?.stretchFrom !== undefined;
+    const fit = layout?.fit ? (stretched ? stretchPlacement : fitPlacement)(image.width, image.height, frameRect, layout.fit) : null;
     const bands = bandPlacement(height, layout);
     if (fit) {
       // 균일 배율·가운데 맞춤. 캔버스에 못 미치는 가장자리는 이미지를 거울로 뒤집어 잇는다 (눈 바닥·하늘)
-      const draw = () => ctx.drawImage(image, fit.x, fit.y, fit.width, fit.height);
+      // 세로 늘림 맞춤(18단계)은 띠마다 자기 캔버스 줄에만 그린다. 원본을 한 줄씩 더 읽어 경계에 빈 줄이 없게 한다
+      const drawBand = (b) => {
+        const vertical = b.h / b.sh;
+        const sy = Math.max(0, b.sy - 1);
+        const sEnd = Math.min(image.height, b.sy + b.sh + 1);
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, b.from, width, b.to - b.from);
+        ctx.clip();
+        ctx.drawImage(image, 0, sy, image.width, sEnd - sy, fit.x, b.y + (sy - b.sy) * vertical, fit.width, (sEnd - sy) * vertical);
+        ctx.restore();
+      };
+      const draw = () => (stretched ? fit.bands.forEach(drawBand) : ctx.drawImage(image, fit.x, fit.y, fit.width, fit.height));
       const mirror = (sx, sy2, tx, ty) => { ctx.save(); ctx.translate(tx, ty); ctx.scale(sx, sy2); draw(); ctx.restore(); };
       draw();
       if (fit.y + fit.height < height) mirror(1, -1, 0, 2 * (fit.y + fit.height));
