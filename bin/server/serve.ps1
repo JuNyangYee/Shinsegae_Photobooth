@@ -12,6 +12,7 @@ param(
 #   /local-api/effect-settings    GET/PUT operator photo effect settings (config/effect.local.json)
 #   /local-api/camera-settings    GET/PUT operator camera settings (config/camera.local.json)
 #   /local-api/timing-settings    GET/PUT operator timing settings (config/timing.local.json)
+#   /local-api/screen-settings    GET/PUT operator screen filter settings (config/screen.local.json)
 #   /*       -> src/web/
 
 Set-StrictMode -Version Latest
@@ -29,6 +30,7 @@ $settingsRoutes['/local-api/presence-settings'] = 'presence.local.json'
 $settingsRoutes['/local-api/effect-settings'] = 'effect.local.json'
 $settingsRoutes['/local-api/camera-settings'] = 'camera.local.json'
 $settingsRoutes['/local-api/timing-settings'] = 'timing.local.json'
+$settingsRoutes['/local-api/screen-settings'] = 'screen.local.json'
 $maxSettingsBytes = 16384
 $expectedHost = "localhost:$Port"
 $expectedOrigin = "http://localhost:$Port"

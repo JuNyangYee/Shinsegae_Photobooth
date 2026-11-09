@@ -143,6 +143,10 @@
     <div id="notice" class="band notice" hidden></div>
     <!-- 촬영 순간: 사진 창 안에만 짧은 빛 -->
     <div id="flash" class="flash"></div>
+    <!-- 최종 화면 필터 (17단계, effect/screen-compositor.js): 위 DOM 층을 합성해 oil2f를 한 번 입힌 그림. 켜지면 불투명으로 덮고, 끔·장애면 숨겨 아래 DOM이 그대로 보인다 -->
+    <canvas id="screen-filter" class="screen-filter" aria-hidden="true" hidden></canvas>
+    <!-- 감열지 시험 중에만: 사진과 같은 유화 결과의 1비트 점을 창 자리에만 보인다 (틀·캐릭터 자리는 지운다) -->
+    <canvas id="screen-dots" class="screen-filter" aria-hidden="true" hidden></canvas>
     <canvas id="dev-overlay" class="dev-overlay" hidden></canvas>
     <!-- 운영자용 인식 영역 편집 (E 패널 인식 섹션). 관람객 화면에는 보이지 않는다. -->
     <div id="tuning-layer" class="tuning-layer" hidden>
@@ -167,7 +171,7 @@
   <section id="dev-info" class="dev-info" aria-label="개발 정보" hidden></section>
 
   <!-- 운영자 조절 화면 (9-2, E 키로 열고 닫는다. Esc로도 닫는다. ui/operator-panel.js).
-       섹션 넷: 카메라(config/camera.local.json, ui/camera-tuning.js) · 인식(presence.local.json, ui/presence-tuning.js) ·
+       섹션 다섯(화면은 17단계, config/screen.local.json, ui/screen-tuning.js): 카메라(config/camera.local.json, ui/camera-tuning.js) · 인식(presence.local.json, ui/presence-tuning.js) ·
        시간(timing.local.json, ui/timing-tuning.js, 10단계) · 필터(effect.local.json, ui/effect-tuning.js).
        섹션마다 저장 상태·저장·취소·기본값을 따로 가진다.
        섹션 id(#camera-panel·#tuning-panel·#timing-panel·#effect-panel)와 [data-key]·[data-action]·[data-state]·[data-message]는 확인 도구·테스트가 쓴다 -->
@@ -187,6 +191,7 @@
       <button type="button" role="tab" data-section="presence">인식</button>
       <button type="button" role="tab" data-section="timing">시간</button>
       <button type="button" role="tab" data-section="effect">필터</button>
+      <button type="button" role="tab" data-section="screen">화면</button>
     </nav>
     <section id="camera-panel" class="op-section" data-section-panel="camera" data-save="saved" aria-label="카메라" hidden>
       <p class="op-live" data-live></p>
@@ -437,7 +442,7 @@
           <p class="op-readout op-combo-info" data-combo-info></p>
         </fieldset>
         <fieldset class="op-group">
-          <legend>효과 <small>유화 · 획 (유화 필터를 끄면 쓰지 않음)</small></legend>
+          <legend>효과 <small>유화 · 획 (유화 필터를 끄면 쓰지 않음). 화면 필터가 켜지면 유화는 화면 섹션 수치를 쓰고 이 수치·유화 켬/끔은 쓰지 않는다</small></legend>
           <label class="op-row">
             <span class="op-label">강도<small>요철·광택·캔버스 결의 세기</small></span>
             <input type="range" data-key="strength">
@@ -542,6 +547,38 @@
             <input type="range" data-key="previewScale">
             <span class="op-value"><output data-key="previewScale"></output><span class="op-unit">배</span></span>
           </label>
+        </fieldset>
+      </div>
+      <footer class="op-footer">
+        <p class="op-state" data-state></p>
+        <div class="op-buttons">
+          <button type="button" class="is-primary" data-action="save">저장</button>
+          <button type="button" data-action="revert">취소 (저장된 값으로)</button>
+          <button type="button" data-action="defaults">기본값으로</button>
+        </div>
+        <p class="op-message" data-message></p>
+      </footer>
+    </section>
+    <section id="screen-panel" class="op-section" data-section-panel="screen" data-save="saved" aria-label="화면" hidden>
+      <p class="op-live" data-live></p>
+      <div class="op-body">
+        <p class="op-note">장면 원본은 필터 없이 두고, 합성된 화면 전체(배경·나무틀·캐릭터·카메라/결과·눈 글씨)에 유화를 마지막에 한 번 입힌다. 사진·인쇄는 같은 엔진·같은 수치·같은 셔터 프레임으로 카메라만 칠한다(배경·캐릭터·글자는 들어가지 않는다). 흑백·점은 필터 섹션 설정을 따른다. 필터 업데이트는 필터 섹션에서 한다.</p>
+        <fieldset class="op-group">
+          <legend>최종 화면 필터</legend>
+          <label class="op-row op-switch-row">
+            <span class="op-label">화면 필터<small>끄면 원본 보기 (필터 없는 장면 + 기존 카메라 효과)</small></span>
+            <input type="checkbox" class="op-switch" role="switch" data-key="enabled">
+            <span class="op-value"><output data-key="enabled"></output></span>
+          </label>
+          <label class="op-row">
+            <span class="op-label">처리 해상도<small>1080 기준 배율. 느리면 초당 그림부터 낮춘다</small></span>
+            <input type="range" data-key="previewScale">
+            <span class="op-value"><output data-key="previewScale"></output><span class="op-unit">배</span></span>
+          </label>
+        </fieldset>
+        <fieldset class="op-group">
+          <legend>유화 조절 <small>활성 필터판의 조절 항목</small></legend>
+          <div data-screen-controls></div>
         </fieldset>
       </div>
       <footer class="op-footer">

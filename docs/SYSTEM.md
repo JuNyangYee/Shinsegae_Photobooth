@@ -35,7 +35,7 @@
 ```text
 Launch.bat · Shutdown.bat · Setup-Startup.bat   현장 실행·종료·시작 프로그램 등록 → bin/launch.ps1 · shutdown.ps1 · setup-startup.ps1
 settings.example.ini        현장 설정 예시. settings.ini는 여기서 만들어지고 Git 제외
-config/*.local.json         운영자 조절값 파일(E 섹션마다 하나: camera·presence·timing·effect·filter). 서버 API만 쓴다. Git 제외. src/web/config/와 다른 폴더
+config/*.local.json         운영자 조절값 파일(E 섹션마다 하나: camera·presence·timing·effect·filter·screen(17단계)). 서버 API만 쓴다. Git 제외. src/web/config/와 다른 폴더
 bin/common.ps1              실행 스크립트 공용 (로그, 설정, 프로그램 탐색, 프로세스 식별·종료)
 bin/server/serve.ps1        정적 서버, 조절값 파일 API · filter-api.ps1(수동 필터 갱신)
 src/web/                    index.html(진입점 /) · main.js(화면 조립·단축키·D 정보·연결) · style.css
@@ -50,7 +50,7 @@ src/web/                    index.html(진입점 /) · main.js(화면 조립·�
   camera/   camera.js(장치·스트림) · camera-monitor.js(상태 감시·자동 회복·다시 열기) · capture.js(캡처·결과 이미지·자원 정리)
             camera-frame.js(카메라 처리 경로 2D 그리기·색 보정 SVG 필터) · raw-preview.js(원본 미리보기 캔버스)
   vision/   face-detector.js · detector-keeper.js(재생성·감지기 상태) · presence-monitor.js(감지 루프)
-  effect/   scene-paint.js(관람객 화면 장면을 oil2f로 한 번 칠하기, 15단계) · oil-shaders.js · oil-renderer.js(WebGL2) · effect-preview.js(실시간 미리보기) · photo-effect.js(결과 사진 효과·사진 틀 자르기·인쇄 데이터)
+  effect/   screen-compositor.js(합성된 관람객 화면 전체에 oil2f 1회, 17단계) · oil-shaders.js · oil-renderer.js(WebGL2) · effect-preview.js(실시간 미리보기) · photo-effect.js(결과 사진 효과·사진 틀 자르기·인쇄 데이터)
             imprint-page.js(인쇄 쪽 글자를 캔버스에 그려 1비트로, 글자는 WISHFUL 시안)
   ui/       guest-screen.js · scene-plate.js(관람객 화면 장면 그리기·띠 맞춤·창 줄 키, 14단계 · 장면 유화 연결 15단계 · 사방 틀 맞춤·틀 밖 채우기 16단계) · operator-panel.js(E 패널·섹션) · camera-tuning.js · presence-tuning.js · timing-tuning.js · effect-tuning.js(카메라·인식·시간·필터 섹션)
             region-drag.js · dev-panel.js(D) · save-state.js
@@ -82,6 +82,7 @@ package.json · package-lock.json · .npmrc   개발 PC 전용. @mediapipe/tasks
 | `/local-api/effect-settings` | `config/effect.local.json` | `E` 필터 섹션 (6절) |
 | `/local-api/camera-settings` | `config/camera.local.json` | `E` 카메라 섹션 (3절 "카메라 처리 경로") |
 | `/local-api/timing-settings` | `config/timing.local.json` | `E` 시간 섹션 (4절 "시간 설정", 10단계) |
+| `/local-api/screen-settings` | `config/screen.local.json` | `E` 화면 섹션 (6절 "최종 화면 필터", 17단계) |
 
 - `GET`: 있으면 200 `application/json; charset=utf-8`(저장한 바이트 그대로), 없으면 404. `PUT`: 아래 조건을 모두 만족하면 원자적으로 쓰고 204, 아니면 4xx와 짧은 이유. 그 밖은 405 `Allow: GET, PUT`. 네 경로가 같은 함수(`Invoke-SettingsApi`)를 쓴다. 파일 이름은 클라이언트가 정할 수 없다.
 - **CSRF 방어** (루프백 제한은 같은 PC의 다른 웹페이지 요청을 막지 못하므로): `X-Photobooth: 1` 헤더(없으면 403), `Content-Type: application/json`(charset은 `utf-8`만, 아니면 415), `Host`가 `localhost:<port>`(403), `Origin`이 있으면 `http://localhost:<port>`(403), `Sec-Fetch-Site`가 있으면 `same-origin`(403). 다른 출처는 사전 요청 `OPTIONS`가 405이고 CORS 허용 헤더(`Access-Control-Allow-*`)를 보내지 않아 `PUT`이 나가지 않고, 헤더 없는 단순 요청(`no-cors`)은 위 조건에서 거절된다. `Origin`·`Sec-Fetch-Site`가 없는 같은 PC 프로그램은 받는다. DNS 리바인딩은 `Host` 검사로 막는다.
@@ -294,28 +295,28 @@ npm run check:browser -- --only "관람객 화면(14단계|시안 데모|흑백 
 **생각:** 화면 한 장을 눈 덮인 마을의 **나무 창틀**로 만든다. 위에는 조금 내려다본 DOF 눈 마을과 위 들보에 걸친 푸빌라·후트, 가운데는 사진 창(4:5), 아래는 들보 위의 깨또·포코, 그 아래 이글루처럼 다져 쌓은 **눈벽**(15단계, 눈던지기 시퀀스와 같은 불투명 압설 블록 2단)과 **눈 바닥**이다. 장면 전체(캐릭터·배경·창틀·눈벽·바닥)에 유화 붓질이 보인다(15단계). 제목·날짜·시각은 없고, **위 띠에는 관람객 UI를 두지 않는다**(사용자 확정). 안내 글과 3·2·1은 모두 눈 바닥에 발자국처럼 **파인 홈**으로 같은 자리에서 바뀐다. 창 안에는 글자·눈송이를 두지 않는다(보이는 그대로 찍힌다).
 
 - **사진 창 (16단계 나무틀):** `config.photoFrame` 가로 1/8 ~ 7/8 · 세로 3/16 ~ 3/4(정확한 3:4, 1080×1920에서 x135~945·y360~1440). 결과 사진 810×1080, 인쇄 사진 432×576점(용지 가운데), 인식 영역은 가로·세로 모두 줄인다. 창 둘레는 위·아래 들보와 좌우 기둥이 이어진 나무틀이고, 좌우 여백에 눈 마을이 보인다.
-- **장면 이미지(`#scene-plate`, `ui/scene-plate.js`, `config.scene`):** 생성 이미지 한 장 `assets/scene/snow-frame-plate.png`(941×1672, 9:16과 0.05% 차이라 9:16 화면에 그대로 늘린다). 창 밖은 배경·창틀·캐릭터·눈벽·눈 바닥이 그려진 불투명 그림이고, 창 자리만 단색 그린이다. 15단계부터 화면 기준 1080×1920(`config.scene.size`)으로 그린다. 처음 한 번만 그린다(미리보기·감지 성능과 무관).
+- **장면 이미지(`#scene-plate`, `ui/scene-plate.js`, `config.scene`):** 생성 이미지 한 장 `assets/scene/snow-frame-plate.png`(17단계 필터 없는 원본, 982×1602, 키 x124~845·y339~1240. 맞춤은 아래 `fit`, 배율 1080/902). 창 밖은 배경·창틀·캐릭터·눈벽·눈 바닥이 그려진 불투명 그림이고, 창 자리만 단색 그린이다. 15단계부터 화면 기준 1080×1920(`config.scene.size`)으로 그린다. 처음 한 번만 그린다(미리보기·감지 성능과 무관).
   - **사방 틀 맞춤 (16단계, 가안, `config.scene.layout.fit`):** 원본은 그대로 두고, 생성 이미지의 그린 개구부(이미지 비율 left·top·right·bottom)를 **균일 배율**로 사진 틀 높이에 맞추고 가로 가운데를 맞춘다(찌그러뜨리지 않음, `fitPlacement`). 지금 장면(exec-9ddc025d, 941×1672)은 그린 x108~831·y376~1290(724×915, 0.791)이라 배율 1080/915 ≈ 1.180이고 화면 그린은 약 x113~967이다. 사진 틀(3:4) 밖 좌우에 남는 약 22px의 그린은 `fillFrameGap`이 기둥 안쪽 경계(줄마다 잰 가운데값, 캐릭터가 걸친 줄에 흔들리지 않게) 축으로 나무를 거울 복사해 채우고, 채운 띠와 축 둘레 3px의 초록 기를 (R+B)/2로 누른다. 키 직사각형 중 틀 밖 화소는 늘 불투명(`sealOutsideFrame`)이라 틀 밖으로 카메라가 비치지 않는다. 캔버스에 못 미치는 가장자리(지금은 아래 약 30px 눈 바닥)는 이미지를 거울로 뒤집어 잇는다. 새 장면이면 그린 개구부 네 값만 다시 잰다.
   - **띠 맞춤 (14·15단계 장면, `config.scene.layout`에 `fit`이 없을 때):** 생성 도구가 들보 줄을 정확히 맞추지 못해 원본은 그대로 두고 그릴 때만 **위 띠**(원본 0 ~ `topCut`)와 **아래 띠**(`bottomCut` ~ 끝)를 각각 평행이동한다(크기 그대로, 찌그러짐 없음). 자르는 줄은 전부 그린인 줄이라 캐릭터가 잘리지 않고, 빈 줄은 그린으로 채운다. 값은 장면 높이 비율: 현재 장면은 1920 환산 `topCut 285 · topShift −8 · bottomCut 1258 · bottomShift +47`(위 들보 중심 248 → 240, 아래 1543 → 1590, 눈 바닥은 1710부터). 새 장면이면 전부 그린인 첫·끝 줄과 두 들보 중심을 재서 네 값을 바꾼다.
   - **키:** 창 줄 ± `keyMarginFrac`(1/64, 1920에서 210~1620줄)에서만 그린 우세 d = G − max(R, B)로 투명도를 정한다(d ≤ 60 불투명, d ≥ 140 투명, 사이 비례, 반투명 화소는 G를 max(R, B)로). 키가 빠진 화소에서 3화소 안의 불투명 화소는 평균 기준 e = G − (R + B)/2로 다시 보아(`RIM_KEY` 20~90, 15단계 가안) 알파를 줄이고 G를 (R + B)/2로 누른다 — 생성 이미지 털 둘레의 연두·노란 빛 테(유화로 칠하면 더 번졌다)를 지운다(`core/chroma-key.js`). 창 밖의 초록(배경 나무 등)과 캐릭터의 탁한 초록은 그대로다. 캐릭터가 창에 걸친 부분은 화면에서만 사진을 가린다(사진·인쇄 데이터에는 없다).
-  - **장면 유화 (15단계, 가안, `effect/scene-paint.js`, `config.scene.paint`):** 띠 맞춤·키 다음에 키 알파를 따로 두고, 창 자리(키로 빠지는 화소) 색을 알파만큼 중립 밤빛(`PAINT_FILL` 46·44·86)으로 섞은 불투명 그림을 만든다. 이것을 별도 캔버스·WebGL 컨텍스트의 oil2f 렌더러로 한 번 칠한다(저장소의 기본 제공판 `config/filter-builtin.json`을 읽기만, 그 원본 기본값 + 출력 끔·유화 켬·처리 해상도 1 + 장면용 덮어쓰기, seed 7). 칠한 화소에 창 줄 알파를 다시 씌우고 렌더러·컨텍스트는 바로 놓는다. 카메라 미리보기·결과·인쇄·감열지 1비트 경로, 운영자 필터 값·저장판·원격 업데이트와 렌더러·설정을 나누지 않으므로 카메라 그림에 겹쳐 적용되지 않는다. 매 프레임 그리지 않는다(개발 PC 가짜 카메라에서 약 0.2초 한 번). 칠하기가 실패하면 칠하지 않은 장면(D `not painted (…)`, 콘솔 경고). 덮어쓰기는 지금 비어 있다(원본 기본값 그대로).
+  - **유화는 장면에 굽지 않는다 (17단계):** 15단계의 장면 1회 유화(`scene-paint`)를 없앴다. 생성 원본·DOM 장면은 필터 없이 두고, 유화는 합성된 화면 전체에 마지막에 한 번 입힌다(6절 "최종 화면 필터").
   - **나중 영상:** 알파 없는 캐릭터 영상도 같은 9:16 좌표·같은 맞춤 값(16단계 `fit`)·같은 키 식·같은 틀 밖 채우기·같은 레이어(`#scene-plate` 자리)로 바꿔 끼운다(이번 범위에는 영상 없음, 프레임마다 키를 빼는 구현은 그때 한다).
-  - **대체:** 장면을 못 읽으면 캔버스를 숨기고 창 밖 띠(`.frame-margin`)에 1차 배경 사진 `assets/scene/snow-village-bg.png`와 글자만 보인다. D `frame` 줄 끝에 `scene 1080x1920, bands top -8 bottom +47, keyed rows …, oil painted …ms`(칠하기 실패면 `not painted (…)`) 또는 `scene fallback background (…)`.
-- **쌓임:** 카메라 미리보기·결과 사진·준비 중 막(z 없음) < 장면(z 1) < 눈송이·글자·바닥 진행선·준비 중 글자·D 겹쳐 그리기·`P` 표시(z 2). 셔터 빛은 장면 아래(창 안만).
-- **눈 바닥 글자 (15단계: 파인 홈):** 바닥 위끝 = 화면 높이 5/6(16단계 장면, 1600) + 4.63cqw(글자 묶음 1650부터, 숫자는 바닥 + 3.7cqw). 글자 색은 그리지 않고 모양(알파)만 SVG 조명 필터 `#snow-carve`(큰 숫자는 길이 값 2.4배 `#snow-carve-lg`, `index.html`)에 넣는다: 알파를 흐려 뒤집은 높이(글자 안이 낮다)를 왼쪽 위 빛(방위 235°, 고도 40°)으로 비춰 평평한 밝기보다 어두운 홈 벽은 남보라 그늘(최대 0.7), 밝은 벽은 흰 빛(최대 0.85), 홈 바닥은 옅은 그늘(가장자리 쪽 짙게), 안쪽 눈 알갱이(`feTurbulence`), 바깥 둘레에 밀려 올라온 눈의 밝은 테. 평평한 곳은 투명이라 장면의 눈 바닥이 그대로 보인다. 필터 다음에 바닥 원근으로 24° 눕힌다(`perspective`). 길이 값은 1080 폭 기준 `data-base`이고 `main.js` `scaleSnowCarve`가 화면 폭에 맞춰 곱한다(가안 수치). 한국어 Pretendard 500 5.19cqw, 영어 Cinzel 600 2.59cqw(자간 0.2em, 가는 획은 홈이 얕아 600). 3·2·1은 Cinzel 600 15.7cqw를 같은 바닥 가운데에 파고 한 칸 창 안에서 넘어간다. 문구·상태 교체·짜 넣기 움직임은 14단계와 같다. 숫자 동안 안내 줄(`#countdown-caption`)은 문구만 두고 숨긴다(숫자와 글이 겹치지 않게).
-- **바닥 진행선:** 바닥 맨 아래 가운데 40cqw 홈(1920에서 1880줄). 카운트다운·쿨타임은 왼쪽에서 차오르고, 결과는 줄어든다. 사람이 서면 홈이 밝아진다(`#stage.is-present`).
+  - **대체:** 장면을 못 읽으면 캔버스를 숨기고 창 밖 띠(`.frame-margin`)에 1차 배경 사진 `assets/scene/snow-village-bg.png`와 글자만 보인다. D `frame` 줄 끝에 `scene 1080x1920, fit …, keyed …`(못 읽으면 `scene fallback background (…)`).
+- **쌓임:** 카메라 미리보기·결과 사진·준비 중 막(z 없음) < 장면(z 1) < 눈송이·글자·준비 중 글자·D 겹쳐 그리기·`P` 표시(z 2). 셔터 빛은 장면 아래(창 안만). 화면 필터가 켜지면 합성 그림 `#screen-filter`(z 3)가 이 층들을 덮고, 셔터 빛·준비 중 글자·D·`P`는 그 위(z 4)다.
+- **눈 바닥 글자 (15단계: 파인 홈):** 바닥 위끝 = 1651/1920(17단계 장면 실측: 눈벽 약 y1481~1651) + 2.78cqw(글자 묶음 1681부터, 숫자는 바닥 + 3.7cqw). 글자 색은 그리지 않고 모양(알파)만 SVG 조명 필터 `#snow-carve`(큰 숫자는 길이 값 2.4배 `#snow-carve-lg`, `index.html`)에 넣는다: 알파를 흐려 뒤집은 높이(글자 안이 낮다)를 왼쪽 위 빛(방위 235°, 고도 40°)으로 비춰 평평한 밝기보다 어두운 홈 벽은 남보라 그늘(최대 0.7), 밝은 벽은 흰 빛(최대 0.85), 홈 바닥은 옅은 그늘(가장자리 쪽 짙게), 안쪽 눈 알갱이(`feTurbulence`), 바깥 둘레에 밀려 올라온 눈의 밝은 테. 평평한 곳은 투명이라 장면의 눈 바닥이 그대로 보인다. 필터 다음에 바닥 원근으로 24° 눕힌다(`perspective`). 길이 값은 1080 폭 기준 `data-base`이고 `main.js` `scaleSnowCarve`가 화면 폭에 맞춰 곱한다(가안 수치). 한국어 Pretendard 500 5.19cqw, 영어 Cinzel 600 2.59cqw(자간 0.2em, 가는 획은 홈이 얕아 600). 3·2·1은 Cinzel 600 15.7cqw를 같은 바닥 가운데에 파고 한 칸 창 안에서 넘어간다. 문구·상태 교체·짜 넣기 움직임은 14단계와 같다. 숫자 동안 안내 줄(`#countdown-caption`)은 문구만 두고 숨긴다(숫자와 글이 겹치지 않게).
+- **바닥 진행선:** 17단계에 번쩍이는 평면선을 없앴다(사용자 허용). `#countdown-progress-fill` 등 요소·애니메이션은 시간 신호와 검사용으로 남고 `visibility: hidden`이다.
 - **눈송이:** 창 위·아래 띠에서만 장면 위로 두 겹 내린다(15초·10초 반복).
-- **동작 줄이기:** 눈송이·준비 중 선을 멈춘다. 숫자는 위치 움직임 없이 투명도만, 진행선은 그대로.
+- **동작 줄이기:** 눈송이·준비 중 선을 멈춘다. 숫자는 위치 움직임 없이 투명도만.
 
 | 상태 | 보이는 것 (위 띠에는 장면 그림만) |
 |---|---|
 | 대기 | 장면 + 눈 바닥 "발자국 위에 서 주세요" / "Step onto the footprints" |
-| 인식 | 바닥 진행선 홈이 밝아진다 |
-| 카운트다운 | 눈 바닥 가운데 새긴 숫자 3·2·1(안내 줄 숨김), 바닥 진행선이 차오름 |
+| 인식 | 표시 없음 (D로만 확인, 17단계에 바닥 진행선을 없앴다) |
+| 카운트다운 | 눈 바닥 가운데 새긴 숫자 3·2·1(안내 줄 숨김) |
 | 촬영 순간 | 창 안에만 따뜻한 흰 빛(최대 0.7, 동작 줄이기 0.3) |
-| 결과 | 사진은 창 자리 그대로(캐릭터가 걸친 부분은 화면에서만 가림), 눈 바닥 뒤 따뜻한 빛(`#result-paper`) + "사진이 완성되었습니다" / "Your holiday portrait is ready", 바닥 진행선이 남은 시간. 끝나기 0.7초 전 걷힌다(`data-leaving`) |
+| 결과 | 사진은 창 자리 그대로(캐릭터가 걸친 부분은 화면에서만 가림), 눈 바닥 뒤 따뜻한 빛(`#result-paper`) + "사진이 완성되었습니다" / "Your holiday portrait is ready". 끝나기 0.7초 전 걷힌다(`data-leaving`) |
 | 결과 (출력 중, 이후) | 종료 시계가 멈추면 선을 숨기고 "사진을 출력하고 있습니다" / "Printing your portrait" |
-| 쿨타임 | 눈 바닥 "다음 촬영을 준비하고 있습니다" / "Preparing the next portrait"(한 단계 작게), 바닥 진행선이 차오름 |
+| 쿨타임 | 눈 바닥 "다음 촬영을 준비하고 있습니다" / "Preparing the next portrait"(한 단계 작게) |
 | 준비 중·직원 문의 | 창 자리에 깊은 밤빛 막(`#status-veil`, 장면 아래라 창틀·캐릭터는 그대로), 창 가운데 `#status` 두 줄: "준비 중입니다."(Noto Serif KR Light 7.4cqw) / 둘째 줄(Pretendard 3.5cqw). 위 가는 빛이 준비 중이면 숨 쉬고 직원 문의면 멈춘다 |
 
 - **운영자 표시 `#pause-badge`:** 눈 바닥 오른쪽 아래, 1.5cqw (위 띠에는 두지 않는다). `D`·`E` 운영자 화면 기능은 그대로다.
@@ -826,6 +827,22 @@ const detector = await FaceDetector.createFromOptions(fileset, {
 - 책임: `config/filter-source.js` 비실행 판독/검증, `filter-values.js` 수치 매핑/이행, `filter-builtin.json` 동봉 데이터, `effect/filter-shaders.js` 지원 GLSL 연결, `filter-updates.js` GPU와 저장 흐름, `ui/filter-tuning.js` 데이터 기반 UI, `bin/server/filter-api.ps1` 고정 다운로드/검산/원자 저장, `bin/server/filter-source.cs` 서버 독립 비실행 원문 판독. 후자는 Windows PowerShell 5.1의 기본 .NET `Add-Type`으로 저장소 로컬 코드만 컴파일한다(원격 코드 컴파일·실행 없음). Node·별도 서버·설치 도구가 필요 없다. 처음 후보 검산 때 컴파일에 실패하면 기존판을 유지하고 후보를 거부한다. 기존 schema 1 저장판에 uiFingerprint가 없더라도 오프라인 복원은 유지하며, 새 후보에는 두 지문을 모두 요구한다.
 
 검증 명령: `node tools/filter-browser-check.mjs --capture`(합성), `--real --capture`(실제 장치, OBS 우선). 자기 서버·임시 프로필에서 시험하고 작업 폴더 설정을 백업/복원한다. 실제 프레임은 파일에 쓰지 않는다. 개발용 Node만 필요하며 현장 실행에는 Node가 필요 없다. 카메라/GPU를 열지 않는 HTTP 경계 검증은 `node tools/filter-api-check.mjs`로 실행한다. 서버 독립 판독 검증은 공식 원문을 ignored runtime 하위 폴더의 module.txt/gallery.html로 받은 뒤 `node tools/filter-source-check.mjs runtime/stage13-review`로 실행한다(개발 전용, 실제 PS 함수 + 모의 요청 stream, HTTP는 앞 명령으로 별도 검증). 자세한 실측·한계는 [13단계 로그](logs/2026-11-06-01-filter-updates.md), [검수 보완 로그](logs/2026-11-06-02-filter-review-fixes.md), [선언·schema 재검수 로그](logs/2026-11-06-03-filter-boundary-review.md).
+
+### 최종 화면 필터 (17단계)
+
+> **출력 계약 (사용자 확정 2026-11-09):** 화면 필터가 켜진 동안 화면에서 본 유화 느낌을 사진에도 반영한다. 화면과 사진에 서로 다른 유화 수치를 쓰지 않는다. 장식·캐릭터·문구는 사진·인쇄에 들어가지 않는다. 끄면 예전처럼 카메라 효과 수치로 미리보기 = 결과다.
+
+- **구조 (`effect/screen-compositor.js`):** 틱마다 2D 소스 한 장에 카메라 층(또는 셔터 고정 그림) → 장면(`#scene-plate`, 무필터·키 뺀 그림) → 결과 빛·눈송이·눈 글씨(`ui/screen-layers.js`)를 합성하고 oil2f를 **한 번** 입혀 `#screen-filter`(불투명)에 보인다. Mirror(`004_PuvillaMirror`)의 "장면 전체를 소스 한 장으로 합성해 엔진 한 번" 구조를 따랐다. 필터 밖(z 4): 셔터 빛, 준비 중·직원 문의 글자, D·`P`.
+- **필터 로딩:** 카메라 필터의 활성 번들(13단계 검증 경계: 고정 출처·GLSL 슬롯·fingerprint)을 그대로 쓰고, 없거나 만들지 못하면 기본 제공판(`config/filter-builtin.json`)이다. Mirror의 패키지 계약(검증 → 활성판, 실패 시 내장판, 운영자 명시 업데이트·복원)은 13단계 경로로 충족하고, Mirror의 blob 모듈 실행은 이식하지 않았다(CSP `script-src 'self'`와 "원격 JS 실행 금지" 경계). 번들이 바뀌면 렌더러를 다시 만든다.
+- **카메라 층 (유화 1회):** 합성 중 `effect-preview`는 자체 표시·틱을 멈추고(`setCompositeMode`), 합성기가 틱마다 `drawCompositeFrame`으로 **유화 없이 출력 단계만** 그린 결과 크기 카메라 층을 받아 합성에서 줄여 쓴다(회색조 유화면 회색·레벨). 화면의 유화는 합성 위 1회뿐이다.
+- **사진·인쇄 (`renderStill`, 같은 유화):** 사진 전용 렌더러(화면과 같은 번들)가 셔터 순간 카메라 층을 화면과 같은 유화 수치·같은 seed로 칠한다. 입력이 카메라 층뿐이라 배경·캐릭터·글자는 들어갈 수 없다(합성 그림을 자르지 않는다). 흑백 방식·점 방식·용지는 필터 섹션 값이고(`core/screen-layout.js` `screenPhotoSettings`), 회색 계열은 층에 이미 레벨이 있어 다시 쓰지 않는다. 이후 흑백 변환·인쇄 데이터 경로(`photo-effect.js`)는 그대로다. 합성 중에는 필터 섹션의 유화 켬/끔·유화 수치를 쓰지 않고 저장값은 보존한다(끄면 다시 쓴다). `effect/screen-compositor.js` `createPhotoSource`가 사진 입구이고, 끔·장애·사진 렌더 실패면 기존 카메라 효과 경로다.
+- **셔터 고정:** 셔터부터 결과 끝까지 카메라 층 사본과 그 그림 번호를 메모리에 둔다(`setFreeze`, 파일·저장소 없음). 그동안 화면도 같은 seed이고 효과 소스 프레임을 건드리지 않는다. `CAPTURING`·`RESULT`를 벗어나면(취소·실패 포함) 사본을 비운다.
+- **감열지 시험:** 화면 필터(배경 포함)는 그대로 돌고, 사진 렌더러가 같은 유화 결과를 1비트로 만든 점을 `#screen-dots`에 그려 창 자리에만 보인다(장면이 불투명한 틀·캐릭터 자리는 지운다). 점 위에 유화를 다시 입히지 않는다.
+- **눈 글씨:** DOM 요소가 상태·위치의 기준이고 합성할 때 값만 읽는다(`offsetTop`·`getComputedStyle` 변환·투명도). 같은 SVG 필터 `#snow-carve(-lg)`를 캔버스 `filter`로 걸고 CSS `perspective rotateX(24°)`를 줄 단위로 재현한다(`core/screen-layout.js`). 글자는 화면 CSS 화소로 그린 뒤 합성 크기로 맞춘다. 켜진 동안 DOM 글자는 `visibility: hidden`이다.
+- **끔·장애:** 끔(원본 보기)·WebGL/렌더 실패·컨텍스트 손실·장면 실패면 `#screen-filter`를 숨겨 기존 DOM 화면(무필터 장면 + 카메라 효과)으로 돌아가고, 사진도 카메라 효과 경로다.
+- **조절값:** `E` **화면** 섹션(`config/screen.local.json`, `ui/screen-tuning.js`): 켬/끔, 처리 해상도(기본 0.75 = 810×1440), 활성 번들의 조절 항목(필터 세기·그림체·붓 등, 기본은 번들의 받은 기본값). 저장·취소·기본값·닫을 때 되돌리기는 다른 섹션과 같다. 파일이 없거나 손상되면 기본값으로 시작한다. 기존 `*.local.json`은 건드리지 않는다.
+- **D `screen` 줄:** 상태(이유), 처리 크기, fps, 초당 그림, 프레임 시간, 획 수, 필터판, 고정 여부.
+- **확인 도구:** 기존 시나리오는 화면 필터를 끈 경로로 돈다(`screen.local.json` `enabled:false`, 끝나면 백업으로 되돌림, 데모는 `?screen=off`). `최종 화면 필터` 시나리오만 켜서 합성·고정·해제·`E` 화면 섹션, 결과 사진 = 화면 창 안(밝기 블록 비교)·장식 색 없음, 감열지 시험의 점·인쇄 경로를 확인한다.
 
 ### 시험 조합: 유화 켬/끔 × 흑백 켬/끔 (WISHFUL HOLIDAY)
 

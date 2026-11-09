@@ -7,8 +7,8 @@
 //   실제로 닫히는 순간 모든 섹션의 저장하지 않은 변경을 다시 확인해 되돌린다 (9단계 검수 1: 기다리는 동안 다른 섹션을 바꾸면 남았다).
 // - 마지막으로 본 섹션은 기억하지만 저장하지 않는다(새로고침하면 카메라 섹션부터). Node 테스트: test/ui/operator-panel.test.mjs
 
-export const PanelSection = Object.freeze({ CAMERA: 'camera', PRESENCE: 'presence', TIMING: 'timing', EFFECT: 'effect' });
-const ORDER = Object.freeze([PanelSection.CAMERA, PanelSection.PRESENCE, PanelSection.TIMING, PanelSection.EFFECT]);
+export const PanelSection = Object.freeze({ CAMERA: 'camera', PRESENCE: 'presence', TIMING: 'timing', EFFECT: 'effect', SCREEN: 'screen' });
+const ORDER = Object.freeze([PanelSection.CAMERA, PanelSection.PRESENCE, PanelSection.TIMING, PanelSection.EFFECT, PanelSection.SCREEN]);
 
 /**
  * 원본 창(9-2)을 보일지: 패널이 열려 있고 카메라·인식 섹션이 보일 때. 필터 섹션에서는 효과 미리보기 자체를 보므로 숨기고,

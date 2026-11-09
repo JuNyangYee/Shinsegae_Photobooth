@@ -144,8 +144,8 @@ body {
   --frame-left: calc(100cqw * var(--frame-left-frac));
   --frame-w: calc(100cqw * var(--frame-width-frac));
   --frame-right: calc(var(--frame-left) + var(--frame-w));
-  --ground-top: calc(var(--stage-h) * 5 / 6); /* 장면의 눈벽 아래 눈 바닥 (16단계 장면, 1920 → 1600) */
-  --band-top: calc(var(--ground-top) + 4.6296cqw); /* 글자 묶음 위끝 (1920 → 1650) */
+  --ground-top: calc(var(--stage-h) * 1651 / 1920); /* 장면의 눈벽 아래 눈 바닥 (17단계 장면 실측, 1920 → 1651) */
+  --band-top: calc(var(--ground-top) + 2.7778cqw); /* 글자 묶음 위끝 (1920 → 1681) */
   --rule-top: calc(var(--stage-h) - 3.7037cqw); /* 바닥 진행선 (1920 → 1880) */
   --rule-w: 40cqw;
   --pad: 6.6667cqw; /* 1080 폭 72px */
@@ -261,6 +261,12 @@ body {
 }
 
 /* 바닥 진행선: 눈 바닥 맨 아래 가운데 짧은 홈. 카운트다운·쿨타임 동안 따뜻한 빛이 왼쪽에서 차오른다. 사람이 서면 홈이 밝아진다 */
+/* 17단계: 번쩍이는 평면 게이지를 없앴다(사용자 허용). 진행 시간은 3·2·1과 문구로 충분하다. 요소·애니메이션은 시간 신호와 검사용으로 남고 보이지 않는다 */
+.frame-rule,
+.result-timer {
+  visibility: hidden;
+}
+
 .frame-rule {
   left: calc(50% - var(--rule-w) / 2);
   width: var(--rule-w);
@@ -336,8 +342,8 @@ body {
 /* 영어 줄: Cinzel의 소문자는 작은 대문자라 새긴 글자처럼 보인다 */
 .line.is-en {
   margin-top: 1.2963cqw;
-  font: 600 2.5926cqw / 1.4 var(--font-display); /* 가는 획은 홈이 얕아 보여 600 */
-  letter-spacing: 0.2em;
+  font: 600 3.7cqw / 1.4 var(--font-display); /* 가는 획은 홈이 얕아 보여 600. 17단계: 화면 유화에서도 읽히게 키웠다 (2.59 → 3.7) */
+  letter-spacing: 0.12em;
 }
 
 .line.is-ko + .line.is-en {
@@ -535,6 +541,33 @@ body {
 }
 
 /* 개발용 감지 박스·영역 겹쳐 그리기 (D 키). 9:16 영역 좌표 그대로 그린다 (이미 반전 후 좌표). */
+/* 최종 화면 필터 (17단계): 합성 그림이 관람객 화면을 불투명으로 덮는다. 켜진 동안 아래 DOM은 그리지 않고(글자 필터 등 비용) 위치·애니메이션만 값으로 읽힌다.
+   셔터 빛, 준비 중 안내, 운영자 표시는 필터 밖 맨 위 */
+.screen-filter {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.stage[data-screen-filter="on"] > :not(.screen-filter, .preview, .flash, .status, .dev-overlay, .tuning-layer, .pause-badge) {
+  visibility: hidden;
+}
+
+.stage[data-screen-filter="on"] > :is(.guide, .notice, .result-note) {
+  filter: none;
+}
+
+.stage[data-screen-filter="on"] .countdown-digit {
+  filter: none;
+}
+
+.stage[data-screen-filter="on"] > :is(.flash, .status, .dev-overlay, .pause-badge) {
+  z-index: 4;
+}
+
 .dev-overlay {
   position: absolute;
   inset: 0;

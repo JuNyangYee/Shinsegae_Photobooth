@@ -119,6 +119,8 @@ export function createEffectPreview({
   let prepared = '';
   let prepareId = null;
   let prepareMs = null;
+  // 최종 화면 합성 (17단계): 합성 중에는 화면 합성기가 틱마다 drawCompositeFrame으로 표시용 카메라 층을 그리게 하고 자체 표시·유화를 멈춘다
+  let compositeMode = false;
 
   function setStatus(next, reason = fault) {
     const changed = next !== status || reason !== fault;
@@ -231,19 +233,27 @@ export function createEffectPreview({
       dirty = true;
       return;
     }
+    if (compositeMode) return; // 합성기가 틱마다 drawCompositeFrame을 부른다
+    drawCamera(now(), { previewScale: settings.previewScale, renderSettings: settings, skipIfSame: true });
+  }
+
+  /**
+   * 카메라를 효과 캔버스에 그린다. renderSettings는 이번 그림의 패스(합성 중에는 유화 없이 출력 단계만), lastDrawing에는 늘 진짜 설정을 남긴다
+   * (결과 사진 renderStill이 같은 소스 프레임을 저장된 설정으로 그린다). 그렸으면 true
+   */
+  function drawCamera(t, { previewScale, renderSettings, skipIfSame = false }) {
     const cameraKey = cameraKeyOf(cameraFrame.getSettings());
     const next = computeEffectView({
-      cameraView: cameraFrame.getView(video.videoWidth, video.videoHeight), color: cameraFrame.getColor(), previewScale: settings.previewScale,
+      cameraView: cameraFrame.getView(video.videoWidth, video.videoHeight), color: cameraFrame.getColor(), previewScale,
     });
     const sizeChanged = !view || !sameView(next, view);
-    const t = now();
     const tick = drawingTick(t, drawFpsOf(settings));
-    if (!dirty && !sizeChanged && tick === lastTick && status === EffectStatus.RUNNING) return;
+    if (skipIfSame && !dirty && !sizeChanged && tick === lastTick && status === EffectStatus.RUNNING) return false;
     view = next;
     const seed = seedForTick(tick);
     try {
       const { cpuMs } = renderer.render(video, {
-        settings, width: view.width, height: view.height, seed, sourceAffine: view.sourceAffine, sourceColor: view.sourceColor,
+        settings: renderSettings, width: view.width, height: view.height, seed, sourceAffine: view.sourceAffine, sourceColor: view.sourceColor,
         displayWidth: view.resultWidth, displayHeight: view.resultHeight, // 감열지 화면은 결과 크기 (결과 사진 화면용과 같게)
       });
       lastTick = tick;
@@ -258,9 +268,9 @@ export function createEffectPreview({
         log.clear('effect');
         setStatus(EffectStatus.RUNNING, '');
       }
-      show(true);
+      if (!compositeMode) show(true);
     } catch (error) {
-      if (renderer?.gl?.isContextLost?.()) return; // 곧 webglcontextlost 이벤트가 온다
+      if (renderer?.gl?.isContextLost?.()) return false; // 곧 webglcontextlost 이벤트가 온다
       renderFailures += 1;
       const reason = error instanceof EffectError ? error.message : `${EffectFault.RENDER_FAILED}: ${error?.message ?? error}`;
       log.warn('effect', `effect render failed -> camera preview (${reason})`);
@@ -269,9 +279,10 @@ export function createEffectPreview({
       lastDrawing = null;
       forgetPrepared();
       setStatus(EffectStatus.FALLBACK, reason);
-      return;
+      return false;
     }
     schedulePrepare();
+    return true;
   }
 
   /**
@@ -361,6 +372,25 @@ export function createEffectPreview({
       onChange();
       return issues;
     },
+    /** 화면 합성 표시 경로로 바꾼다 (17단계). 켜면 효과 캔버스를 숨기고 자체 틱을 멈춘다. 끄면 다음 화면 갱신에 기존 경로로 돌아온다 */
+    setCompositeMode(on) {
+      if (compositeMode === on) return;
+      compositeMode = on;
+      dirty = true;
+      lastTick = null;
+      if (on) show(false);
+    },
+    /**
+     * 합성용 카메라 층을 한 장 그려 효과 캔버스를 돌려준다(같은 작업 안에서 drawImage해야 한다). 유화 패스 없이 출력 단계만 (유화는 화면 전체에 한 번).
+     * 그리지 못하면 null (카메라 대기·효과 장애)
+     */
+    drawCompositeFrame({ previewScale }) {
+      if (!compositeMode || !renderer || (status !== EffectStatus.RUNNING && status !== EffectStatus.WAITING_CAMERA)) return null;
+      if (!camera.isReady() || !(video.videoWidth > 0 && video.videoHeight > 0)) return null;
+      // 감열지는 점 위에 유화가 번지지 않게 컬러 층을 넘긴다 (점은 유화 뒤에 만든다)
+      const renderSettings = settings.outputMode === 'thermal' ? { ...settings, outputMode: 'off', oil: false } : { ...settings, oil: false };
+      return drawCamera(now(), { previewScale, renderSettings }) ? canvas : null;
+    },
     getSettings: () => settings,
     getBundle: () => filterBundle,
     replaceFilter(bundle, nextSettings, requireCamera = true) {
@@ -392,6 +422,7 @@ export function createEffectPreview({
         status,
         fault,
         shown,
+        composite: compositeMode,
         contextLosses,
         renderFailures,
         width: view?.width ?? 0,

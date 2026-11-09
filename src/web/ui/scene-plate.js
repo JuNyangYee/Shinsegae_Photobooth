@@ -1,8 +1,6 @@
 // 관람객 화면 장면 (14단계, 가안): 생성 장면 이미지 한 장을 9:16 캔버스(#scene-plate)에 그리고, 사진 창 자리에서만 단색 그린을 빼서
 // 카메라·결과가 비쳐 보이게 한다 (config.scene). 이미지는 처음 한 번만 처리하고 그 뒤 그리지 않는다(미리보기·감지 성능과 무관).
-// 15단계: 장면 전체(배경·캐릭터·창틀·눈벽·바닥)에 유화를 한 번 입힌다(paint, main.js가 effect/scene-paint.js를 넘긴다).
-//   키 알파를 먼저 구해 두고, 창 자리 색을 중립 밤빛으로 채운 불투명 그림을 칠한 뒤 알파를 다시 씌운다(그린이 획으로 번지지 않게).
-//   칠하기는 카메라 효과와 다른 렌더러·설정이라 카메라 미리보기·결과·인쇄에 겹쳐 적용되지 않는다. 실패하면 칠하지 않은 장면을 쓴다.
+// 17단계: 장면은 필터 없는 생성 원본 그대로 그린다. 유화는 effect/screen-compositor.js가 합성된 화면 전체에 마지막에 한 번 입힌다(여기서 굽지 않는다).
 // 16단계: 사방 나무틀. 생성 이미지의 그린 개구부를 균일 배율로 사진 틀 높이에 맞추고(fit), 틀 밖에 남은 그린은 나무틀을 거울로 이어 채운다.
 //   키는 사진 틀 직사각형 ± 여유에서만 뺀다(좌우 기둥·여백 배경은 키 밖).
 // 장면은 화면 장식이라 촬영 사진·인쇄 데이터 경로(capture·photo-effect)와 만나지 않는다.
@@ -10,9 +8,6 @@
 
 import { applyGreenKey } from '../core/chroma-key.js';
 import { photoFrameRect } from '../core/photo-frame.js';
-
-// 칠하기 전에 창 자리(키로 빠지는 화소)를 채우는 색: 장면 밤빛에 가까운 중립색 (가장자리 획이 이 색과 섞인다)
-export const PAINT_FILL = Object.freeze([46, 44, 86]);
 
 /**
  * 띠 맞춤(14단계 config.scene.layout)을 원본 줄 단위로: 위 띠 원본 [0, topCut)을 topShift만큼, 아래 띠 원본 [bottomCut, height)를 bottomShift만큼 옮긴다.
@@ -145,20 +140,6 @@ export function sealOutsideFrame(part, keyed, frameRect) {
   return sealed;
 }
 
-/**
- * 칠할 그림 준비 (제자리): 키로 반투명·투명이 된 화소의 색을 알파만큼 fill 쪽으로 섞고 알파를 255로 (불투명 그림). 순수 함수
- * @param {Uint8ClampedArray} data RGBA
- */
-export function flattenForPaint(data, fill = PAINT_FILL) {
-  for (let i = 0; i < data.length; i += 4) {
-    const a = data[i + 3];
-    if (a === 255) continue;
-    const t = a / 255;
-    for (let c = 0; c < 3; c += 1) data[i + c] = Math.round(data[i + c] * t + fill[c] * (1 - t));
-    data[i + 3] = 255;
-  }
-}
-
 /** 전체 RGBA(폭 width)에서 직사각형 rect를 새 배열로 */
 function readRect(data, width, rect) {
   const out = new Uint8ClampedArray(rect.width * rect.height * 4);
@@ -182,16 +163,14 @@ function writeRect(data, width, rect, part) {
  *   layout?: { fit: { left: number, top: number, right: number, bottom: number } }
  *     | { topCut: number, topShift: number, bottomCut: number, bottomShift: number } | null,
  *   size?: { width: number, height: number } | null,
- *   paint?: ((source: HTMLCanvasElement, width: number, height: number) => Promise<Uint8ClampedArray>) | null,
  *   loadImage?: (src: string) => Promise<CanvasImageSource & { width: number, height: number }> }} options
- *   size: 그리는 크기(기본: 이미지 크기). layout: 16단계 맞춤(fit) 또는 14단계 띠 맞춤. paint: 불투명 RGBA 그림(캔버스)을 받아
- *   같은 크기의 칠한 RGBA(위 줄부터)를 돌려준다
+ *   size: 그리는 크기(기본: 이미지 크기). layout: 16단계 맞춤(fit) 또는 14단계 띠 맞춤.
  * @returns {{ ready: Promise<{ ok: boolean, width?: number, height?: number, keyed?: { left: number, top: number, width: number, height: number },
- *   cleared?: number, edge?: number, despilled?: number, gapFilled?: number, gapEdges?: object, sealed?: number, fit?: object, painted?: boolean, paintMs?: number,
- *   paintError?: string, error?: string }> }}
+ *   cleared?: number, edge?: number, despilled?: number, gapFilled?: number, gapEdges?: object, sealed?: number, fit?: object,
+ *   error?: string }> }}
  */
 export function createScenePlate({
-  canvas, src, frame, key, keyMarginFrac, layout = null, size = null, paint = null, loadImage = defaultLoadImage,
+  canvas, src, frame, key, keyMarginFrac, layout = null, size = null, loadImage = defaultLoadImage,
 }) {
   canvas.hidden = true;
   const ready = loadImage(src).then(async (image) => {
@@ -232,36 +211,11 @@ export function createScenePlate({
     const keyed = readRect(all.data, width, rect);
     const counts = applyGreenKey(keyed, key, rect.width);
     const sealed = fit ? sealOutsideFrame(keyed, rect, frameRect) : 0;
-    let painted = false;
-    let paintMs;
-    let paintError;
-    if (paint) {
-      try {
-        const t0 = performance.now();
-        const flat = new Uint8ClampedArray(keyed);
-        flattenForPaint(flat);
-        writeRect(all.data, width, rect, flat);
-        ctx.putImageData(all, 0, 0);
-        const out = await paint(canvas, width, height);
-        if (!out || out.length !== width * height * 4) throw new Error(`painted size ${out?.length} != ${width * height * 4}`);
-        for (let y = 0; y < rect.height; y += 1) {
-          for (let x = 0; x < rect.width; x += 1) out[((rect.top + y) * width + rect.left + x) * 4 + 3] = keyed[(y * rect.width + x) * 4 + 3];
-        }
-        ctx.putImageData(new ImageData(out, width, height), 0, 0);
-        painted = true;
-        paintMs = Math.round(performance.now() - t0);
-      } catch (error) {
-        paintError = String(error?.message ?? error);
-      }
-    }
-    if (!painted) {
-      writeRect(all.data, width, rect, keyed);
-      ctx.putImageData(all, 0, 0);
-    }
+    writeRect(all.data, width, rect, keyed);
+    ctx.putImageData(all, 0, 0);
     canvas.hidden = false;
     return {
-      ok: true, width, height, bands, ...(fit ? { fit, gapFilled: gap.filled, gapEdges: gap.edges, sealed } : {}), keyed: rect, ...counts, painted,
-      ...(paintMs === undefined ? {} : { paintMs }), ...(paintError ? { paintError } : {}),
+      ok: true, width, height, bands, ...(fit ? { fit, gapFilled: gap.filled, gapEdges: gap.edges, sealed } : {}), keyed: rect, ...counts,
     };
   }).catch((error) => ({ ok: false, error: String(error?.message ?? error) }));
   return { ready };

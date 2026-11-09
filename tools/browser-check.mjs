@@ -35,8 +35,9 @@ const CAMERA_SETTINGS_FILE = join(repo, 'config', 'camera.local.json');
 const CAMERA_SETTINGS_API = '/local-api/camera-settings';
 const TIMING_SETTINGS_FILE = join(repo, 'config', 'timing.local.json');
 const TIMING_SETTINGS_API = '/local-api/timing-settings';
+const SCREEN_SETTINGS_FILE = join(repo, 'config', 'screen.local.json');
 // 운영자 화면(E, 9-2·10)의 섹션 요소 id
-const SECTION_IDS = Object.freeze({ camera: 'camera-panel', presence: 'tuning-panel', timing: 'timing-panel', effect: 'effect-panel' });
+const SECTION_IDS = Object.freeze({ camera: 'camera-panel', presence: 'tuning-panel', timing: 'timing-panel', effect: 'effect-panel', screen: 'screen-panel' });
 const MODEL_PATTERN = '*blaze_face_short_range.tflite*';
 // MediaPipe 사용 통계 전송은 CSP로 막는 것이 의도된 동작이다(docs/SYSTEM.md 1절). 이 주소의 CSP 메시지는 실패로 세지 않는다.
 const EXPECTED_CSP_HOST = 'odml.pa.googleapis.com';
@@ -87,7 +88,7 @@ const log = (...parts) => console.log(`[${elapsed()}]`, ...parts);
 
 // ---------- 정리 대상 (이 도구가 만든 것만) ----------
 
-const owned = { server: null, chrome: null, profile: null, cdp: null, settingsBackup: null, effectBackup: null, cameraBackup: null, timingBackup: null };
+const owned = { server: null, chrome: null, profile: null, cdp: null, settingsBackup: null, effectBackup: null, cameraBackup: null, timingBackup: null, screenBackup: null };
 let cleaning = null;
 
 // 조절값 파일은 시작할 때 바이트 그대로(또는 "없음") 백업하고, 모든 정리 경로에서 파일 시스템으로 직접 되돌린다
@@ -102,7 +103,7 @@ function restoreSettings(reason) {
     try { rmdirSync(TIMING_SETTINGS_FILE); } catch (error) { log('WARN timing placeholder folder:', error.message); }
   }
   for (const [label, backup] of [['settings', owned.settingsBackup], ['effect settings', owned.effectBackup], ['camera settings', owned.cameraBackup],
-    ['timing settings', owned.timingBackup]]) {
+    ['timing settings', owned.timingBackup], ['screen settings', owned.screenBackup]]) {
     if (!backup) continue;
     const result = restoreFile(backup);
     if (!result.ok || result.detail !== 'unchanged') log(`${label} file ${result.ok ? 'OK' : 'FAIL'} (${reason}): ${result.detail}`);
@@ -1593,7 +1594,7 @@ async function runScenarios(app, origin) {
       await app.slide('fps', 18);
       const tabs = await app.waitFor('tab dots', async () => {
         const text = await app.evaluate(`[...document.querySelectorAll('#operator-panel [data-section]')].map((b) => b.dataset.section + ':' + b.dataset.save).join(' ')`);
-        return /^camera:saved presence:saved timing:[\w-]+ effect:dirty$/.test(text) ? text : null;
+        return /^camera:saved presence:saved timing:[\w-]+ effect:dirty screen:[\w-]+$/.test(text) ? text : null;
       }, 3000);
       // 섹션별 기본값: 카메라 섹션 "기본값으로"는 카메라 값만 (인식 값 그대로)
       await app.openSection('camera');
@@ -2186,6 +2187,177 @@ async function runScenarios(app, origin) {
     return details.join('; ');
   });
 
+  await scenario('최종 화면 필터(17단계): 켜면 합성·유화 캔버스가 화면을 덮고, S 회차 동안 카메라 층 고정·해제, 사진·인쇄 경로 그대로, 끄면 기존 화면', async () => {
+    writeFileSync(SCREEN_SETTINGS_FILE, JSON.stringify({ version: 1, enabled: true, filter: {} }));
+    const details = [];
+    try {
+      await app.open();
+      await waitReady(app);
+      const running = await app.waitFor('screen filter running', async () => { const l = (await app.dev()).get('screen') ?? ''; return /^running/.test(l) ? l : null; }, 15000);
+      details.push(running);
+      const layerState = "(() => { const c = document.getElementById('screen-filter'), st = document.getElementById('stage'); const b = c.getBoundingClientRect(); return { on: st.dataset.screenFilter, hidden: c.hidden, w: Math.round(b.width), h: Math.round(b.height), effectHidden: document.getElementById('effect').hidden }; })()";
+      const on = await app.evaluate(layerState);
+      expect(on.on === 'on' && !on.hidden && on.w === 1080 && on.h === 1920, `layer ${JSON.stringify(on)}`);
+      expect(on.effectHidden, 'camera effect canvas is hidden while compositing');
+      const cleanShot = async (name) => { await app.evaluate("document.getElementById('dev-info').hidden = true"); await shot(name); await app.evaluate("document.getElementById('dev-info').hidden = false"); };
+      await sleep(1000);
+      await cleanShot('screen-1-idle');
+      // E 화면 섹션: 끄면 바로 기존 화면, 저장하지 않고 닫으면 되돌림, 저장하면 파일에 남는다
+      await app.openSection('screen');
+      const clickScreen = (selector) => app.evaluate(`document.querySelector('#screen-panel ${selector}').click()`);
+      await clickScreen('input[data-key="enabled"]');
+      await app.waitFor('screen off from panel', async () => /^bypass \(disabled\)/.test((await app.dev()).get('screen') ?? ''), 3000);
+      await app.closePanel();
+      await app.waitFor('reverted on close', async () => /^running/.test((await app.dev()).get('screen') ?? ''), 3000);
+      await app.openSection('screen');
+      await clickScreen('input[data-key="enabled"]');
+      await clickScreen('button[data-action="save"]');
+      await app.waitFor('saved to file', () => JSON.parse(readFileSync(SCREEN_SETTINGS_FILE, 'utf8')).enabled === false, 3000);
+      details.push('panel off, revert on close, save to file');
+      await clickScreen('input[data-key="enabled"]');
+      await clickScreen('button[data-action="save"]');
+      await app.waitFor('saved on again', () => JSON.parse(readFileSync(SCREEN_SETTINGS_FILE, 'utf8')).enabled === true, 3000);
+      await app.closePanel();
+      await app.waitFor('running again', async () => /^running/.test((await app.dev()).get('screen') ?? ''), 3000);
+      // 새 계약(사용자 확정 2026-11-09): 결과 사진 = 화면에서 본 유화 (같은 프레임·엔진·수치·seed), 장식 없음.
+      // 화면 스크린샷의 창 안(캐릭터가 없는 가운데)과 결과 사진의 같은 곳을 밝기 블록으로 비교한다. 화면은 합성 위 유화(810x1440), 사진은 카메라만(1080x1920)이라 화소 동일은 아니다
+      const compareWithResult = async () => {
+        await app.evaluate("document.getElementById('dev-info').hidden = true; document.getElementById('dev-overlay').hidden = true");
+        const { data } = await app.cdp.send('Page.captureScreenshot', { format: 'png' });
+        await app.evaluate("document.getElementById('dev-info').hidden = false; document.getElementById('dev-overlay').hidden = false");
+        return app.evaluate(`(async () => {
+          const bytes = Uint8Array.from(atob(${JSON.stringify(data)}), (c) => c.charCodeAt(0));
+          const shot = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+          const img = document.getElementById('result');
+          const read = (image, sx, sy, w, h) => { const c = new OffscreenCanvas(w, h).getContext('2d', { willReadFrequently: true }); c.drawImage(image, sx, sy, w, h, 0, 0, w, h); return c.getImageData(0, 0, w, h).data; };
+          const W = 450, H = 560, X = 330, Y = 420, B = 20;
+          const a = read(shot, X, Y, W, H), b = read(img, X - 135, Y - 360, W, H);
+          const luma = (d, i) => 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+          let sum = 0, n = 0, chroma = 0;
+          for (let y = 0; y + B <= H; y += B) for (let x = 0; x + B <= W; x += B) {
+            let la = 0, lb = 0;
+            for (let j = 0; j < B; j += 2) for (let i = 0; i < B; i += 2) {
+              const p = ((y + j) * W + x + i) * 4;
+              la += luma(a, p); lb += luma(b, p);
+              chroma = Math.max(chroma, Math.max(b[p], b[p + 1], b[p + 2]) - Math.min(b[p], b[p + 1], b[p + 2]));
+            }
+            sum += Math.abs(la - lb) / 25; n += 1;
+          }
+          return { blockMeanDiff: sum / n, chroma, natural: [img.naturalWidth, img.naturalHeight] };
+        })()`);
+      };
+      await withAutoPaused(app, async () => {
+        await manualCycle(app, {
+          onResult: async () => {
+            await sleep(600);
+            await cleanShot('screen-3-result');
+            const cmp = await compareWithResult();
+            details.push(`window vs photo luma block diff ${cmp.blockMeanDiff.toFixed(2)}/255, photo chroma ${cmp.chroma}`);
+            expect(cmp.natural[0] === 810 && cmp.natural[1] === 1080, `photo size ${cmp.natural}`);
+            expect(cmp.chroma <= 2, `photo is achromatic (no decoration colors): ${cmp.chroma}`);
+            expect(cmp.blockMeanDiff < 16, `photo matches the window seen on screen: ${cmp.blockMeanDiff}`);
+            const line = (await app.dev()).get('screen') ?? '';
+            expect(/frozen/.test(line), `frozen during result: ${line}`);
+            details.push('frozen in result');
+          },
+        });
+      });
+      const after = await app.dev();
+      expect(!/frozen/.test(after.get('screen') ?? ''), 'released after round');
+      await sleep(3000); // 시작 직후 평균이 아니라 안정된 뒤의 값을 남긴다
+      details.push(`steady: ${(await app.dev()).get('screen')}`);
+      expect(/576x768 1-bit/.test(after.get('print') ?? ''), `print path unchanged: ${after.get('print')}`);
+      details.push(after.get('print')?.slice(0, 40));
+      await app.key('KeyS');
+      await app.waitFor('countdown', async () => sessionState((await app.dev()).get('session')) === 'countdown', 3000);
+      await sleep(500);
+      await cleanShot('screen-2-countdown');
+      await app.key('KeyX');
+      // 감열지 시험: 화면 필터(배경 유화)는 그대로, 창에만 같은 유화의 1비트 점. 유화를 점 위에 다시 입히지 않는다
+      writeFileSync(EFFECT_SETTINGS_FILE, JSON.stringify({ version: 1, settings: { outputMode: 'thermal' } }));
+      await app.open();
+      await waitReady(app);
+      await app.waitFor('screen running in thermal', async () => /^running/.test((await app.dev()).get('screen') ?? ''), 15000);
+      await sleep(1500);
+      const dots = await app.evaluate(`(() => {
+        const c = document.getElementById('screen-dots');
+        if (c.hidden || !c.width) return { hidden: true };
+        const g = c.getContext('2d', { willReadFrequently: true });
+        const w = c.width, s = w / 1080;
+        const win = g.getImageData(Math.round(350 * s), Math.round(420 * s), Math.round(400 * s), Math.round(500 * s)).data;
+        // 감열지 화면은 점 격자를 정수배 최근접 + 경계 1화소만 섞어 확대한다(FS_THERMAL_SHOW): 종이·잉크가 대부분이고 나머지는 그 사이 경계뿐
+        const total = win.length / 4;
+        let paper = 0, ink = 0, between = 0, opaque = true;
+        for (let i = 0; i < win.length; i += 4) {
+          const v = win[i];
+          if (win[i + 3] !== 255) opaque = false;
+          if (v === 246) paper += 1; else if (v === 26) ink += 1; else between += 1;
+        }
+        const out = g.getImageData(Math.round(40 * s), Math.round(200 * s), 40, 40).data;
+        let outAlpha = 0;
+        for (let i = 3; i < out.length; i += 4) outAlpha = Math.max(outAlpha, out[i]);
+        return { hidden: false, opaque, paper: paper / total, ink: ink / total, between: between / total, outAlpha, filterShown: !document.getElementById('screen-filter').hidden };
+      })()`);
+      expect(!dots.hidden && dots.filterShown, `thermal dots on top of screen filter ${JSON.stringify(dots)}`);
+      expect(dots.opaque && dots.paper > 0.05 && dots.ink > 0.05 && dots.between < 0.5, `window shows paper/ink dots: ${JSON.stringify(dots)}`);
+      expect(dots.outAlpha === 0, `no dots outside the window: ${dots.outAlpha}`);
+      await cleanShot('screen-6-thermal');
+      // 창의 점 = 인쇄 점: 결과 화면용 PNG는 인쇄 마스크(사진 틀로 자른 점 격자)를 확대한 것이다(photo-effect.js upscaleSharp, 미리보기와 같은 정수식).
+      // 결과 동안 창의 #screen-dots(셔터 층·같은 seed)와 사진을 사진 틀 전체에서 화소 단위로 비교한다. 비교 제외: 틀·캐릭터가 덮어 점을 지운 화소(알파 < 255)
+      let dotMatch = null;
+      await withAutoPaused(app, () => manualCycle(app, {
+        onResult: async () => {
+          await sleep(500);
+          dotMatch = await app.evaluate(`(() => {
+            const dots = document.getElementById('screen-dots'), img = document.getElementById('result');
+            const x0 = Math.round(dots.width * 0.125), y0 = Math.round(dots.height * 0.1875), w = img.naturalWidth, h = img.naturalHeight;
+            const a = dots.getContext('2d', { willReadFrequently: true }).getImageData(x0, y0, w, h).data;
+            const c = new OffscreenCanvas(w, h).getContext('2d', { willReadFrequently: true });
+            c.imageSmoothingEnabled = false;
+            c.drawImage(img, 0, 0);
+            const b = c.getImageData(0, 0, w, h).data;
+            let compared = 0, excluded = 0, different = 0, maxDelta = 0;
+            for (let i = 0; i < a.length; i += 4) {
+              if (a[i + 3] !== 255) { excluded += 1; continue; }
+              compared += 1;
+              const d = Math.max(Math.abs(a[i] - b[i]), Math.abs(a[i + 1] - b[i + 1]), Math.abs(a[i + 2] - b[i + 2]));
+              if (d > 0) different += 1;
+              maxDelta = Math.max(maxDelta, d);
+            }
+            return { size: [dots.width, dots.height, w, h], compared, excluded, different, maxDelta, dotsClass: document.getElementById('result-card').classList.contains('is-dots') };
+          })()`);
+        },
+      }));
+      expect(dotMatch && dotMatch.dotsClass && dotMatch.compared > 0.7 * dotMatch.size[2] * dotMatch.size[3], `dot compare coverage ${JSON.stringify(dotMatch)}`);
+      expect(dotMatch.different === 0, `window dots = print dots: ${JSON.stringify(dotMatch)}`);
+      details.push(`window dots = print-derived photo: ${dotMatch.compared} px compared, ${dotMatch.excluded} excluded (frame/characters), ${dotMatch.different} different`);
+      const thermalDev = await app.dev();
+      expect(/576x768 1-bit/.test(thermalDev.get('print') ?? ''), `thermal print: ${thermalDev.get('print')}`);
+      details.push(`thermal dots window + filter kept (paper ${dots.paper.toFixed(2)} ink ${dots.ink.toFixed(2)} edge ${dots.between.toFixed(2)}), print ok`);
+      restoreFile(owned.effectBackup);
+      writeFileSync(SCREEN_SETTINGS_FILE, JSON.stringify({ version: 1, enabled: false, filter: {} }));
+      await app.open();
+      await waitReady(app);
+      const off = await app.waitFor('screen filter off', async () => { const l = (await app.dev()).get('screen') ?? ''; return /^bypass \(disabled\)/.test(l) ? l : null; }, 8000);
+      const offState = await app.evaluate(layerState);
+      expect(offState.on === undefined && offState.hidden, `off layer ${JSON.stringify(offState)}`);
+      details.push(off.slice(0, 20));
+      await sleep(600);
+      await cleanShot('screen-4-off');
+      await app.key('KeyS');
+      await app.waitFor('countdown off', async () => sessionState((await app.dev()).get('session')) === 'countdown', 3000);
+      await sleep(500);
+      await cleanShot('screen-5-off-countdown');
+      await app.key('KeyX');
+    } finally {
+      restoreFile(owned.effectBackup);
+      writeFileSync(SCREEN_SETTINGS_FILE, JSON.stringify({ version: 1, enabled: false, filter: {} }));
+      await app.open();
+      await waitReady(app);
+    }
+    return details.join('; ');
+  });
+
   await scenario('시안 데모(WISHFUL 시안, IMPRINT 이어받음, /demo/index.html, 카메라 없음): 앱과 같은 관람객 화면 마크업, 합성 장면 → 실제 효과·촬영·인쇄 데이터 576x768, 검토 조작(사람·안내·동작 줄이기·인쇄 연동 흐름 흉내) (--screens면 상태별 화면·인쇄 데이터)', async () => {
     const details = [];
     const demoShot = async (name) => {
@@ -2199,7 +2371,7 @@ async function runScenarios(app, origin) {
     const phase = () => app.evaluate("document.getElementById('stage').dataset.phase");
     await app.cdp.send('Emulation.setDeviceMetricsOverride', { width: 1464, height: 1920, deviceScaleFactor: 1, mobile: false });
     try {
-      await app.cdp.send('Page.navigate', { url: `${origin}/demo/index.html` });
+      await app.cdp.send('Page.navigate', { url: `${origin}/demo/index.html?screen=off` });
       await app.waitFor('demo ready', () => app.evaluate("document.body?.dataset.demoReady === 'true'"), 15000);
       await click('[data-demo="autoplay"]'); // 자동 시연을 끄고 직접 진행 (첫 도착 2.2초 전)
       const ids = await app.evaluate(`(async () => {
@@ -2322,7 +2494,7 @@ async function runScenarios(app, origin) {
         await app.open();
         await waitReady(app);
         await app.key('KeyD'); // open()이 켠 D를 끈다 (패널·원본 창만)
-        for (const section of ['camera', 'presence', 'timing', 'effect']) {
+        for (const section of ['camera', 'presence', 'timing', 'effect', 'screen']) {
           await app.openSection(section);
           await sleep(1500);
           const shot = await app.cdp.send('Page.captureScreenshot', { format: 'png' });
@@ -2491,6 +2663,10 @@ async function main() {
   log(`camera settings file backup: ${owned.cameraBackup.existed ? `${owned.cameraBackup.bytes.length} bytes` : 'none (will stay absent)'}`);
   if (existsSync(TIMING_SETTINGS_FILE) && statSync(TIMING_SETTINGS_FILE).isDirectory()) throw new Error(`${TIMING_SETTINGS_FILE} is a folder`);
   owned.timingBackup = backupFile(TIMING_SETTINGS_FILE);
+  // 17단계: 기존 시나리오(미리보기 = 결과 등)는 화면 필터를 끈 기존 화면 경로를 그대로 확인한다. 합성 시나리오만 켠다 (끝나면 위 백업으로 되돌린다)
+  owned.screenBackup = backupFile(SCREEN_SETTINGS_FILE);
+  mkdirSync(dirname(SCREEN_SETTINGS_FILE), { recursive: true });
+  writeFileSync(SCREEN_SETTINGS_FILE, JSON.stringify({ version: 1, enabled: false, filter: {} }));
   log(`timing settings file backup: ${owned.timingBackup.existed ? `${owned.timingBackup.bytes.length} bytes` : 'none (will stay absent)'}`);
   const port = await freePort();
   const origin = `http://localhost:${port}`;
