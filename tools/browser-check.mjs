@@ -2219,11 +2219,43 @@ async function runScenarios(app, origin) {
       await app.waitFor('saved on again', () => JSON.parse(readFileSync(SCREEN_SETTINGS_FILE, 'utf8')).enabled === true, 3000);
       await app.closePanel();
       await app.waitFor('running again', async () => /^running/.test((await app.dev()).get('screen') ?? ''), 3000);
+      // 새 계약(사용자 확정 2026-11-09): 결과 사진 = 화면에서 본 유화 (같은 프레임·엔진·수치·seed), 장식 없음.
+      // 화면 스크린샷의 창 안(캐릭터가 없는 가운데)과 결과 사진의 같은 곳을 밝기 블록으로 비교한다. 화면은 합성 위 유화(810x1440), 사진은 카메라만(1080x1920)이라 화소 동일은 아니다
+      const compareWithResult = async () => {
+        await app.evaluate("document.getElementById('dev-info').hidden = true; document.getElementById('dev-overlay').hidden = true");
+        const { data } = await app.cdp.send('Page.captureScreenshot', { format: 'png' });
+        await app.evaluate("document.getElementById('dev-info').hidden = false; document.getElementById('dev-overlay').hidden = false");
+        return app.evaluate(`(async () => {
+          const bytes = Uint8Array.from(atob(${JSON.stringify(data)}), (c) => c.charCodeAt(0));
+          const shot = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+          const img = document.getElementById('result');
+          const read = (image, sx, sy, w, h) => { const c = new OffscreenCanvas(w, h).getContext('2d', { willReadFrequently: true }); c.drawImage(image, sx, sy, w, h, 0, 0, w, h); return c.getImageData(0, 0, w, h).data; };
+          const W = 450, H = 560, X = 330, Y = 420, B = 20;
+          const a = read(shot, X, Y, W, H), b = read(img, X - 135, Y - 360, W, H);
+          const luma = (d, i) => 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+          let sum = 0, n = 0, chroma = 0;
+          for (let y = 0; y + B <= H; y += B) for (let x = 0; x + B <= W; x += B) {
+            let la = 0, lb = 0;
+            for (let j = 0; j < B; j += 2) for (let i = 0; i < B; i += 2) {
+              const p = ((y + j) * W + x + i) * 4;
+              la += luma(a, p); lb += luma(b, p);
+              chroma = Math.max(chroma, Math.max(b[p], b[p + 1], b[p + 2]) - Math.min(b[p], b[p + 1], b[p + 2]));
+            }
+            sum += Math.abs(la - lb) / 25; n += 1;
+          }
+          return { blockMeanDiff: sum / n, chroma, natural: [img.naturalWidth, img.naturalHeight] };
+        })()`);
+      };
       await withAutoPaused(app, async () => {
         await manualCycle(app, {
           onResult: async () => {
             await sleep(600);
             await cleanShot('screen-3-result');
+            const cmp = await compareWithResult();
+            details.push(`window vs photo luma block diff ${cmp.blockMeanDiff.toFixed(2)}/255, photo chroma ${cmp.chroma}`);
+            expect(cmp.natural[0] === 810 && cmp.natural[1] === 1080, `photo size ${cmp.natural}`);
+            expect(cmp.chroma <= 2, `photo is achromatic (no decoration colors): ${cmp.chroma}`);
+            expect(cmp.blockMeanDiff < 16, `photo matches the window seen on screen: ${cmp.blockMeanDiff}`);
             const line = (await app.dev()).get('screen') ?? '';
             expect(/frozen/.test(line), `frozen during result: ${line}`);
             details.push('frozen in result');
@@ -2239,6 +2271,40 @@ async function runScenarios(app, origin) {
       await sleep(500);
       await cleanShot('screen-2-countdown');
       await app.key('KeyX');
+      // 감열지 시험: 화면 필터(배경 유화)는 그대로, 창에만 같은 유화의 1비트 점. 유화를 점 위에 다시 입히지 않는다
+      writeFileSync(EFFECT_SETTINGS_FILE, JSON.stringify({ version: 1, settings: { outputMode: 'thermal' } }));
+      await app.open();
+      await waitReady(app);
+      await app.waitFor('screen running in thermal', async () => /^running/.test((await app.dev()).get('screen') ?? ''), 15000);
+      await sleep(1500);
+      const dots = await app.evaluate(`(() => {
+        const c = document.getElementById('screen-dots');
+        if (c.hidden || !c.width) return { hidden: true };
+        const g = c.getContext('2d', { willReadFrequently: true });
+        const w = c.width, s = w / 1080;
+        const win = g.getImageData(Math.round(350 * s), Math.round(420 * s), Math.round(400 * s), Math.round(500 * s)).data;
+        // 감열지 화면은 점 격자를 정수배 최근접 + 경계 1화소만 섞어 확대한다(FS_THERMAL_SHOW): 종이·잉크가 대부분이고 나머지는 그 사이 경계뿐
+        const total = win.length / 4;
+        let paper = 0, ink = 0, between = 0, opaque = true;
+        for (let i = 0; i < win.length; i += 4) {
+          const v = win[i];
+          if (win[i + 3] !== 255) opaque = false;
+          if (v === 246) paper += 1; else if (v === 26) ink += 1; else between += 1;
+        }
+        const out = g.getImageData(Math.round(40 * s), Math.round(200 * s), 40, 40).data;
+        let outAlpha = 0;
+        for (let i = 3; i < out.length; i += 4) outAlpha = Math.max(outAlpha, out[i]);
+        return { hidden: false, opaque, paper: paper / total, ink: ink / total, between: between / total, outAlpha, filterShown: !document.getElementById('screen-filter').hidden };
+      })()`);
+      expect(!dots.hidden && dots.filterShown, `thermal dots on top of screen filter ${JSON.stringify(dots)}`);
+      expect(dots.opaque && dots.paper > 0.05 && dots.ink > 0.05 && dots.between < 0.5, `window shows paper/ink dots: ${JSON.stringify(dots)}`);
+      expect(dots.outAlpha === 0, `no dots outside the window: ${dots.outAlpha}`);
+      await cleanShot('screen-6-thermal');
+      await withAutoPaused(app, () => manualCycle(app));
+      const thermalDev = await app.dev();
+      expect(/576x768 1-bit/.test(thermalDev.get('print') ?? ''), `thermal print: ${thermalDev.get('print')}`);
+      details.push(`thermal dots window + filter kept (paper ${dots.paper.toFixed(2)} ink ${dots.ink.toFixed(2)} edge ${dots.between.toFixed(2)}), print ok`);
+      restoreFile(owned.effectBackup);
       writeFileSync(SCREEN_SETTINGS_FILE, JSON.stringify({ version: 1, enabled: false, filter: {} }));
       await app.open();
       await waitReady(app);
@@ -2254,6 +2320,7 @@ async function runScenarios(app, origin) {
       await cleanShot('screen-5-off-countdown');
       await app.key('KeyX');
     } finally {
+      restoreFile(owned.effectBackup);
       writeFileSync(SCREEN_SETTINGS_FILE, JSON.stringify({ version: 1, enabled: false, filter: {} }));
       await app.open();
       await waitReady(app);

@@ -21,7 +21,7 @@ import { createTimingTuning } from './ui/timing-tuning.js';
 import { effectCombo, effectTunables, serializeEffectSettings } from './config/effect-settings.js';
 import { EffectStatus, createEffectPreview } from './effect/effect-preview.js';
 import { createFilterUpdates } from './effect/filter-updates.js';
-import { createScreenCompositor } from './effect/screen-compositor.js';
+import { createPhotoSource, createScreenCompositor } from './effect/screen-compositor.js';
 import { validateBundle } from './config/filter-source.js';
 import { loadInitialScreenSettings, serializeScreenSettings } from './config/screen-settings.js';
 import { createScreenLayers } from './ui/screen-layers.js';
@@ -175,7 +175,8 @@ function updateRawPreview() {
 
 // 최종 화면 필터 (17단계): 합성된 관람객 화면 전체에 oil2f를 마지막에 한 번. 조절값은 E 화면 섹션. 끔·장애면 기존 화면으로 돌아간다
 const screenCompositor = createScreenCompositor({
-  canvas: document.getElementById('screen-filter'), stage, effect,
+  canvas: document.getElementById('screen-filter'), dotsCanvas: document.getElementById('screen-dots'), stage, effect,
+  display: config.thermalDisplay,
   plateCanvas: document.getElementById('scene-plate'),
   layers: createScreenLayers({ doc: document, stage, frame: config.photoFrame }),
   cameraFallback: () => (effect.getState().status !== EffectStatus.RUNNING && rawCanvas.width > 2 ? rawCanvas : null),
@@ -268,8 +269,8 @@ const presenceSectionMonitor = {
 };
 
 // 촬영 결과에도 같은 효과: 셔터 순간 화면의 그림과 같은 프레임·seed로 결과 크기(짧은 변 1080)에 다시 그린다.
-// 효과를 그리지 못하면 원본 사진으로 대신한다 (photo-effect.js)
-const photoEffect = createPhotoEffect({ preview: effect });
+// 화면 필터가 켜지면 화면과 같은 엔진·수치로 카메라 층만 칠한다(사용자 확정 2026-11-09). 효과를 그리지 못하면 원본 사진으로 대신한다 (photo-effect.js)
+const photoEffect = createPhotoEffect({ preview: createPhotoSource({ effect, getCompositor: () => screenCompositor }) });
 
 const capture = createCapture({
   video, frame: cameraFrame, ...config.capture, getFrameInfo: camera.getFrameInfo,

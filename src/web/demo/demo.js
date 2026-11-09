@@ -23,7 +23,7 @@ import { IMPRINT_FONT_LOADS } from '../effect/imprint-page.js';
 import { createPhotoEffect } from '../effect/photo-effect.js';
 import { createGuestScreen } from '../ui/guest-screen.js';
 import { createScenePlate } from '../ui/scene-plate.js';
-import { createScreenCompositor } from '../effect/screen-compositor.js';
+import { createPhotoSource, createScreenCompositor } from '../effect/screen-compositor.js';
 import { createScreenLayers } from '../ui/screen-layers.js';
 import { defaultScreenSettings } from '../config/screen-settings.js';
 import { validateBundle } from '../config/filter-source.js';
@@ -100,7 +100,7 @@ rawPreview = createRawPreview({
   canvas: rawCanvas, video, camera, frame: cameraFrame,
   getSize: () => ({ width: 540, height: 960 }),
 });
-const photoEffect = createPhotoEffect({ preview: effect });
+const photoEffect = createPhotoEffect({ preview: createPhotoSource({ effect, getCompositor: () => screenCompositor }) });
 const capture = createCapture({ video, frame: cameraFrame, ...config.capture, getFrameInfo: camera.getFrameInfo, effect: photoEffect.apply });
 
 // ---- 흐름: 실제 상태 기계와 자동 시작 판정, 인식은 검토 조작 ----
@@ -131,7 +131,7 @@ let screenCompositor = null;
 if (new URLSearchParams(location.search).get('screen') !== 'off') {
   const stageEl = document.getElementById('stage');
   screenCompositor = createScreenCompositor({
-    canvas: document.getElementById('screen-filter'), stage: stageEl, effect,
+    canvas: document.getElementById('screen-filter'), dotsCanvas: document.getElementById('screen-dots'), stage: stageEl, effect, display: config.thermalDisplay,
     plateCanvas: document.getElementById('scene-plate'),
     layers: createScreenLayers({ doc: document, stage: stageEl, frame: config.photoFrame }),
     cameraFallback: () => (effect.getState().status !== EffectStatus.RUNNING && rawCanvas.width > 2 ? rawCanvas : null),

@@ -145,6 +145,8 @@
     <div id="flash" class="flash"></div>
     <!-- 최종 화면 필터 (17단계, effect/screen-compositor.js): 위 DOM 층을 합성해 oil2f를 한 번 입힌 그림. 켜지면 불투명으로 덮고, 끔·장애면 숨겨 아래 DOM이 그대로 보인다 -->
     <canvas id="screen-filter" class="screen-filter" aria-hidden="true" hidden></canvas>
+    <!-- 감열지 시험 중에만: 사진과 같은 유화 결과의 1비트 점을 창 자리에만 보인다 (틀·캐릭터 자리는 지운다) -->
+    <canvas id="screen-dots" class="screen-filter" aria-hidden="true" hidden></canvas>
     <canvas id="dev-overlay" class="dev-overlay" hidden></canvas>
     <!-- 운영자용 인식 영역 편집 (E 패널 인식 섹션). 관람객 화면에는 보이지 않는다. -->
     <div id="tuning-layer" class="tuning-layer" hidden>
@@ -440,7 +442,7 @@
           <p class="op-readout op-combo-info" data-combo-info></p>
         </fieldset>
         <fieldset class="op-group">
-          <legend>효과 <small>유화 · 획 (유화 필터를 끄면 쓰지 않음)</small></legend>
+          <legend>효과 <small>유화 · 획 (유화 필터를 끄면 쓰지 않음). 화면 필터가 켜지면 유화는 화면 섹션 수치를 쓰고 이 수치·유화 켬/끔은 쓰지 않는다</small></legend>
           <label class="op-row">
             <span class="op-label">강도<small>요철·광택·캔버스 결의 세기</small></span>
             <input type="range" data-key="strength">
@@ -560,7 +562,7 @@
     <section id="screen-panel" class="op-section" data-section-panel="screen" data-save="saved" aria-label="화면" hidden>
       <p class="op-live" data-live></p>
       <div class="op-body">
-        <p class="op-note">장면 원본은 필터 없이 두고, 합성된 화면 전체(배경·나무틀·캐릭터·카메라/결과·눈 글씨)에 유화를 마지막에 한 번 입힌다. 화면 표시 전용이다: 결과 사진·인쇄 데이터에는 들어가지 않는다. 필터 업데이트는 필터 섹션에서 한다.</p>
+        <p class="op-note">장면 원본은 필터 없이 두고, 합성된 화면 전체(배경·나무틀·캐릭터·카메라/결과·눈 글씨)에 유화를 마지막에 한 번 입힌다. 사진·인쇄는 같은 엔진·같은 수치·같은 셔터 프레임으로 카메라만 칠한다(배경·캐릭터·글자는 들어가지 않는다). 흑백·점은 필터 섹션 설정을 따른다. 필터 업데이트는 필터 섹션에서 한다.</p>
         <fieldset class="op-group">
           <legend>최종 화면 필터</legend>
           <label class="op-row op-switch-row">

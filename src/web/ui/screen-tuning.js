@@ -125,7 +125,7 @@ export function createScreenTuning({
 
   function renderLive() {
     const s = compositor.getState();
-    const why = s.state === 'bypass' && s.reason === 'thermal' ? ' (감열지 시험 중: 점이 번지지 않게 끔)' : s.state === 'fault' ? ` (${s.reason})` : '';
+    const why = s.state === 'fault' ? ` (${s.reason})` : '';
     liveText.textContent = `${STATE_TEXT[s.state] ?? s.state}${why} · ${s.width}x${s.height} · 초당 ${s.drawingsPerSecond}장 · 프레임 ${s.frameAvgMs === null ? '-' : s.frameAvgMs.toFixed(1)}ms · 필터판 ${s.bundle || '-'}`;
     liveText.classList.toggle('is-present', s.state === 'running');
   }

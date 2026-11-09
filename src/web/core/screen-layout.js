@@ -9,14 +9,32 @@ export function screenRenderSize(previewScale, base = { width: 1080, height: 192
   });
 }
 
+/** 화면 필터를 쓰지 않는 이유 (없으면 null) */
+export function screenFilterBypass({ enabled }) {
+  return enabled ? null : 'disabled';
+}
+
 /**
- * 화면 필터를 쓰지 않는 이유 (없으면 null).
- * 'thermal': 카메라 출력이 감열지(1비트 점)이면 위에 유화를 얹어 점이 번지지 않게 기존 화면으로 돌아간다 (가안, 출력 계약 답에 따라 정리)
+ * 화면 필터가 켜진 동안의 사진·인쇄 설정 (사용자 확정 2026-11-09: 화면에서 본 유화 느낌을 사진에도).
+ * 유화 수치는 화면 필터, 출력 단계(흑백 방식·점·용지)는 카메라 설정이다. 유화는 늘 켠다(입력은 유화 없는 카메라 층이라 1회다).
+ * 카메라 층에 이미 레벨을 입힌 회색 계열은 레벨을 다시 쓰지 않는다. 감열지는 컬러 층에 유화를 입힌 뒤 레벨 → 점이다.
  */
-export function screenFilterBypass({ enabled, outputMode }) {
-  if (!enabled) return 'disabled';
-  if (outputMode === 'thermal') return 'thermal';
-  return null;
+export function screenPhotoSettings(filter, camera) {
+  const thermal = camera.outputMode === 'thermal';
+  return Object.freeze({
+    ...filter,
+    oil: true,
+    outputMode: camera.outputMode,
+    monoMode: camera.monoMode,
+    dither: camera.dither,
+    paperDots: camera.paperDots,
+    bwStyle: camera.bwStyle,
+    bwTexture: camera.bwTexture,
+    lineSpacing: camera.lineSpacing,
+    brightness: thermal ? camera.brightness : 0,
+    contrast: thermal ? camera.contrast : 1,
+    gamma: thermal ? camera.gamma : 1,
+  });
 }
 
 const rad = (degrees) => (degrees * Math.PI) / 180;

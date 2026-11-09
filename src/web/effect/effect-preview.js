@@ -387,7 +387,9 @@ export function createEffectPreview({
     drawCompositeFrame({ previewScale }) {
       if (!compositeMode || !renderer || (status !== EffectStatus.RUNNING && status !== EffectStatus.WAITING_CAMERA)) return null;
       if (!camera.isReady() || !(video.videoWidth > 0 && video.videoHeight > 0)) return null;
-      return drawCamera(now(), { previewScale, renderSettings: { ...settings, oil: false } }) ? canvas : null;
+      // 감열지는 점 위에 유화가 번지지 않게 컬러 층을 넘긴다 (점은 유화 뒤에 만든다)
+      const renderSettings = settings.outputMode === 'thermal' ? { ...settings, outputMode: 'off', oil: false } : { ...settings, oil: false };
+      return drawCamera(now(), { previewScale, renderSettings }) ? canvas : null;
     },
     getSettings: () => settings,
     getBundle: () => filterBundle,
