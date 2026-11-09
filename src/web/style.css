@@ -144,8 +144,8 @@ body {
   --frame-left: calc(100cqw * var(--frame-left-frac));
   --frame-w: calc(100cqw * var(--frame-width-frac));
   --frame-right: calc(var(--frame-left) + var(--frame-w));
-  --ground-top: calc(var(--stage-h) * 5 / 6); /* 장면의 눈벽 아래 눈 바닥 (16단계 장면, 1920 → 1600) */
-  --band-top: calc(var(--ground-top) + 4.6296cqw); /* 글자 묶음 위끝 (1920 → 1650) */
+  --ground-top: calc(var(--stage-h) * 1651 / 1920); /* 장면의 눈벽 아래 눈 바닥 (17단계 장면 실측, 1920 → 1651) */
+  --band-top: calc(var(--ground-top) + 2.7778cqw); /* 글자 묶음 위끝 (1920 → 1681) */
   --rule-top: calc(var(--stage-h) - 3.7037cqw); /* 바닥 진행선 (1920 → 1880) */
   --rule-w: 40cqw;
   --pad: 6.6667cqw; /* 1080 폭 72px */
@@ -342,8 +342,8 @@ body {
 /* 영어 줄: Cinzel의 소문자는 작은 대문자라 새긴 글자처럼 보인다 */
 .line.is-en {
   margin-top: 1.2963cqw;
-  font: 600 2.5926cqw / 1.4 var(--font-display); /* 가는 획은 홈이 얕아 보여 600 */
-  letter-spacing: 0.2em;
+  font: 600 3.7cqw / 1.4 var(--font-display); /* 가는 획은 홈이 얕아 보여 600. 17단계: 화면 유화에서도 읽히게 키웠다 (2.59 → 3.7) */
+  letter-spacing: 0.12em;
 }
 
 .line.is-ko + .line.is-en {

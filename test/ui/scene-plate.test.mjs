@@ -127,13 +127,16 @@ describe('scene-plate: 장면 유화 (15단계, 칠하기는 주입)', () => {
 });
 
 describe('scene-plate: 16단계 사방 나무틀 맞춤', () => {
-  it('fitPlacement: 그린 개구부 높이를 사진 틀 높이에 균일 배율로, 가로는 가운데 (16단계 장면 값 → 배율 1080/915)', () => {
-    const fit = fitPlacement(941, 1672, { left: 135, top: 360, width: 810, height: 1080 }, config.scene.layout.fit);
-    assert.ok(Math.abs(fit.scale - 1080 / 915) < 1e-9);
-    assert.ok(Math.abs(fit.y + 376 * fit.scale - 360) < 1e-9, '그린 위끝 → 360');
-    assert.ok(Math.abs(fit.y + 1291 * fit.scale - 1440) < 1e-9, '그린 아래끝 → 1440');
-    assert.ok(Math.abs(fit.x + 470 * fit.scale - 540) < 1e-9, '그린 가운데 → 540');
-    assert.ok(Math.abs(fit.width / fit.height - 941 / 1672) < 1e-12, '찌그러뜨리지 않는다');
+  it('fitPlacement: 채택 장면(982x1602, 키 x124~845·y339~1240)의 개구부를 고정 3:4 창에 균일 배율로 맞춘다 (17단계)', () => {
+    const frame = { left: 135, top: 360, width: 810, height: 1080 };
+    assert.equal(frame.width / frame.height, 3 / 4, '창은 3:4로 고정');
+    const fit = fitPlacement(982, 1602, frame, config.scene.layout.fit);
+    assert.ok(Math.abs(fit.scale - 1080 / 902) < 1e-9, '실측 키 높이 902 → 1080');
+    assert.ok(Math.abs(fit.y + 339 * fit.scale - 360) < 1e-9, '그린 위끝 → 360');
+    assert.ok(Math.abs(fit.y + 1241 * fit.scale - 1440) < 1e-9, '그린 아래끝 → 1440');
+    assert.ok(Math.abs(fit.x + 485 * fit.scale - 540) < 1e-9, '그린 가운데 → 540');
+    assert.ok(722 * fit.scale >= frame.width, '그린 폭이 창 폭 이상: 3:4 창이 틀에 가려지지 않는다');
+    assert.ok(Math.abs(fit.width / fit.height - 982 / 1602) < 1e-12, '찌그러뜨리지 않는다');
   });
 
   it('fillFrameGap: 틀 밖에 남은 그린을 나무 경계(줄마다 잰 가운데값) 축 거울로 채우고, 캐릭터 화소는 그대로', () => {
