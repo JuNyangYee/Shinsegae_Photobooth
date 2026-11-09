@@ -2264,6 +2264,8 @@ async function runScenarios(app, origin) {
       });
       const after = await app.dev();
       expect(!/frozen/.test(after.get('screen') ?? ''), 'released after round');
+      await sleep(3000); // 시작 직후 평균이 아니라 안정된 뒤의 값을 남긴다
+      details.push(`steady: ${(await app.dev()).get('screen')}`);
       expect(/576x768 1-bit/.test(after.get('print') ?? ''), `print path unchanged: ${after.get('print')}`);
       details.push(after.get('print')?.slice(0, 40));
       await app.key('KeyS');
