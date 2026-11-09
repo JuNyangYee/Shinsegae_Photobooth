@@ -26,10 +26,13 @@ export const config = Object.freeze({
     // 맞춤 (16단계, 가안, ui/scene-plate.js fitPlacement): 원본 이미지는 그대로 두고, 그린 개구부(이미지 비율 left·top·right·bottom,
     // right·bottom은 끝 다음 화소)를 균일 배율로 사진 틀 높이에 맞추고 가로 가운데를 맞춘다(찌그러뜨리지 않는다). 생성 개구부가 3:4보다
     // 넓으면 틀 밖 좌우에 남은 그린을 나무 기둥을 거울로 이어 채운다(fillFrameGap). 나중의 캐릭터 영상도 같은 넷 값·같은 규칙으로 그린다.
-    // 17단계 장면(982x1602, 필터 없는 원본, 직접 실측): 키 d>=140 x124~845·y339~1240(포함) = 722x902 → 배율 1080/902 ≈ 1.1973,
-    // 화면 그린 폭 864.5 ≥ 창 810이라 3:4 창이 가려지지 않고, 좌우 약 27px를 기둥으로 채운다(fillFrameGap). 눈벽 윗선 약 y1481, 눈 바닥 약 y1651.
+    // 18단계 장면(941x1672, 필터 없는 원본 그대로, 직접 실측): 키 d>=140 줄·열 가운데값 x77~861·y310~1232(포함) = 785x923(비율 0.85, 창 3:4보다 납작).
+    // PNG는 고치지 않고 표시할 때만 맞춘다(ui/scene-plate.js stretchPlacement): 그린 폭 → 960 균일 배율 1.2229, 위 띠(원본 y<340)·아래 띠(y>=960)는 그 배율 그대로,
+    // 캐릭터 없는 원본 y340~960(직접 확인: 안쪽 폭 전체 그린은 y321~984)만 세로 약 1.2배 더 늘린다. 눈벽 윗선 약 y1544, 눈 바닥 약 y1750.
     // (14·15단계 장면의 띠 맞춤 { topCut, topShift, bottomCut, bottomShift }도 계속 읽는다)
-    layout: Object.freeze({ fit: Object.freeze({ left: 124 / 982, top: 339 / 1602, right: 846 / 982, bottom: 1241 / 1602 }) }),
+    layout: Object.freeze({ fit: Object.freeze({
+      left: 77 / 941, top: 310 / 1672, right: 862 / 941, bottom: 1233 / 1672, stretchFrom: 340 / 1672, stretchTo: 960 / 1672,
+    }) }),
     // 그리는 크기 (15단계): 화면 기준 1080x1920으로 그려 유화 붓 크기가 화면에 맞게 한다 (띠 맞춤도 이 높이 기준 비율 그대로)
     size: Object.freeze({ width: 1080, height: 1920 }),
   }),

@@ -130,7 +130,7 @@ body {
 
 /* ---- 관람객 화면 (14단계 눈 마을 장면, 가안 — ui/guest-screen.js·ui/scene-plate.js).
    화면 = 생성 장면 한 장(#scene-plate, 1080x1920 기준): 위 띠(0~212) DOF 눈 마을과 위 나무 들보에 걸친 푸빌라·후트, 가운데 사진 창(x60~1020·y250~1530, 3:4)은
-   장면의 그린을 빼서 카메라·결과가 비치고, 아래 눈벽(1540~1690)에 깨또·포코, 그 아래 눈 바닥(1690~1920)에 새긴 글씨·3·2·1.
+   장면의 그린을 빼서 카메라·결과가 비치고, 아래 눈벽(1544~1750)에 깨또·포코, 그 아래 눈 바닥(1750~1920)에 새긴 글씨·3·2·1.
    위 띠에는 관람객 UI(글자·숫자·진행선·표시)를 두지 않는다.
    쌓임: 카메라·결과·준비 중 막(z 없음) < 장면(z 1) < 눈송이·글자·진행선·준비 중 글자·D 겹쳐 그리기(z 2). 창 안에는 글자·눈송이를 두지 않는다.
    제목·날짜·시각은 없다. 움직임은 transform·opacity만, 동작 줄이기(:root[data-motion="reduce"])에서는 늘 도는 움직임을 멈춘다. ---- */
@@ -144,9 +144,9 @@ body {
   --frame-left: calc(100cqw * var(--frame-left-frac));
   --frame-w: calc(100cqw * var(--frame-width-frac));
   --frame-right: calc(var(--frame-left) + var(--frame-w));
-  --ground-top: calc(var(--stage-h) * 1690 / 1920); /* 장면의 눈벽 아래 눈 바닥 (18단계 구도 기준 1920 → 1690, 장면 수신 뒤 실측값으로 맞춘다) */
-  --band-top: calc(var(--ground-top) + 2.7778cqw); /* 글자 묶음 위끝 (1920 → 1720) */
-  --rule-top: calc(var(--stage-h) - 3.7037cqw); /* 바닥 진행선 (1920 → 1880) */
+  --ground-top: calc(var(--stage-h) * 1750 / 1920); /* 장면의 눈벽 아래 눈 바닥 (18단계 장면 원본 y1413 → 표시 1750) */
+  --band-top: calc(var(--ground-top) + 0.5556cqw); /* 글자 묶음 위끝 (1920 → 1756. 18단계: 바닥이 170px라 바짝 붙인다) */
+  --rule-top: calc(var(--stage-h) - 2.037cqw); /* 바닥 진행선 (1920 → 1898) */
   --rule-w: 40cqw;
   --pad: 6.6667cqw; /* 1080 폭 72px */
   --gap: 3.7037cqw; /* 1080 폭 40px */
@@ -372,7 +372,7 @@ body {
   position: absolute;
   left: 0;
   right: 0;
-  top: calc(var(--ground-top) + 3.7037cqw);
+  top: calc(var(--ground-top) + 0.7407cqw);
   height: 0.94em;
   margin: 0;
   overflow: hidden;

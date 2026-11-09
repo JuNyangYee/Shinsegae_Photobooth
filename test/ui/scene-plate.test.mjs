@@ -2,8 +2,9 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { config } from '../../src/web/config/config.js';
+import { photoFrameRect } from '../../src/web/core/photo-frame.js';
 import {
-  bandPlacement, createScenePlate, fillFrameGap, fitPlacement, keyRect, sealOutsideFrame,
+  bandPlacement, createScenePlate, fillFrameGap, fitPlacement, stretchPlacement, keyRect, sealOutsideFrame,
 } from '../../src/web/ui/scene-plate.js';
 
 // 14·15단계 키·칠하기 규칙은 화면 폭 전체 틀(예전 기본값)로 본다. 16단계 사방 틀은 아래 맞춤 테스트
@@ -127,16 +128,63 @@ describe('scene-plate: 장면 유화 (15단계, 칠하기는 주입)', () => {
 });
 
 describe('scene-plate: 16단계 사방 나무틀 맞춤', () => {
-  it('fitPlacement: 채택 장면(982x1602, 키 x124~845·y339~1240)의 개구부를 고정 3:4 창에 균일 배율로 맞춘다 (17단계)', () => {
+  it('fitPlacement: 17단계 장면(982x1602, 키 x124~845·y339~1240)의 개구부를 고정 3:4 창에 균일 배율로 맞춘다', () => {
     const frame = { left: 135, top: 360, width: 810, height: 1080 };
     assert.equal(frame.width / frame.height, 3 / 4, '창은 3:4로 고정');
-    const fit = fitPlacement(982, 1602, frame, config.scene.layout.fit);
+    const fit = fitPlacement(982, 1602, frame, { left: 124 / 982, top: 339 / 1602, right: 846 / 982, bottom: 1241 / 1602 });
     assert.ok(Math.abs(fit.scale - 1080 / 902) < 1e-9, '실측 키 높이 902 → 1080');
     assert.ok(Math.abs(fit.y + 339 * fit.scale - 360) < 1e-9, '그린 위끝 → 360');
     assert.ok(Math.abs(fit.y + 1241 * fit.scale - 1440) < 1e-9, '그린 아래끝 → 1440');
     assert.ok(Math.abs(fit.x + 485 * fit.scale - 540) < 1e-9, '그린 가운데 → 540');
     assert.ok(722 * fit.scale >= frame.width, '그린 폭이 창 폭 이상: 3:4 창이 틀에 가려지지 않는다');
     assert.ok(Math.abs(fit.width / fit.height - 982 / 1602) < 1e-12, '찌그러뜨리지 않는다');
+  });
+
+  it('stretchPlacement: 18단계 장면(941x1672, 키 x77~861·y310~1232)을 960x1280 창에 맞춘다. 위·아래 띠는 균일, 캐릭터 없는 가운데만 세로로 늘린다', () => {
+    const f = config.scene.layout.fit;
+    const frame = photoFrameRect(1080, 1920, config.photoFrame);
+    const p = stretchPlacement(941, 1672, frame, f);
+    assert.ok(Math.abs(p.scale - 960 / 785) < 1e-9, '그린 폭 785 → 960');
+    assert.ok(Math.abs(p.x + 77 * p.scale - 60) < 1e-9 && Math.abs(p.x + 862 * p.scale - 1020) < 1e-9, '그린 좌우 끝 → 창 좌우 끝');
+    assert.ok(p.x <= 0 && p.x + p.width >= 1080, '이미지가 화면 폭을 덮는다');
+    const [top, middle, bottom] = p.bands;
+    assert.ok(Math.abs(top.h / top.sh - p.scale) < 1e-9 && Math.abs(bottom.h / bottom.sh - p.scale) < 1e-9, '위·아래 띠는 균일 배율');
+    assert.ok(Math.abs(top.y + 310 * p.scale - 250) < 1e-9, '그린 위끝 → 250');
+    assert.ok(Math.abs(bottom.y + (1233 - 960) * p.scale - 1530) < 1e-9, '그린 아래끝 → 1530');
+    assert.ok(top.y <= 0 && bottom.y + bottom.h >= 1920, '이미지가 화면 높이를 덮는다');
+    assert.equal(top.to, middle.from, '위 띠와 가운데 사이 빈 줄 없음');
+    assert.equal(middle.to, bottom.from, '가운데와 아래 띠 사이 빈 줄 없음');
+    assert.ok(Number.isInteger(middle.from) && Number.isInteger(middle.to), '경계는 정수 줄');
+    assert.ok(p.middleScale > p.scale && p.middleScale / p.scale < 1.25, `가운데만 더 늘린다 (${(p.middleScale / p.scale).toFixed(3)}배)`);
+    assert.ok(f.stretchFrom * 1672 >= 321 && f.stretchTo * 1672 <= 984, '절단선은 전체가 그린인 원본 줄 321~984 안');
+  });
+
+  it('createScenePlate: 세로 늘림 맞춤은 띠마다 자기 줄에 잘라 그린다', async () => {
+    const calls = [];
+    const W = 108;
+    const H = 192;
+    const data = new Uint8ClampedArray(W * H * 4);
+    const canvas = {
+      hidden: true, width: 0, height: 0,
+      getContext: () => ({
+        save: () => calls.push(['save']), restore: () => calls.push(['restore']), beginPath() {}, clip: () => calls.push(['clip']),
+        rect: (...a) => calls.push(['rect', ...a]), drawImage: (...a) => calls.push(['draw', ...a.slice(1)]),
+        getImageData: (x, top, w, h) => ({ data: data.slice(top * w * 4, (top + h) * w * 4) }),
+        putImageData: (pixels, x, top) => data.set(pixels.data, top * W * 4),
+      }),
+    };
+    const frame = { left: 1 / 18, top: 25 / 192, width: 8 / 9, height: 2 / 3 };
+    const fit = { left: 0.1, top: 0.3, right: 0.9, bottom: 0.7, stretchFrom: 0.4, stretchTo: 0.6 };
+    const r = await createScenePlate({
+      canvas, src: 'p.png', frame, key: config.scene.key, keyMarginFrac: 0, layout: { fit },
+      size: { width: W, height: H }, loadImage: async () => ({ width: 100, height: 300 }),
+    }).ready;
+    assert.equal(r.ok, true, r.error);
+    const rects = calls.filter((c) => c[0] === 'rect');
+    assert.equal(rects.length, 3, '세 띠');
+    assert.equal(calls.filter((c) => c[0] === 'draw').length, 3);
+    assert.equal(rects[0][2] + rects[0][4], rects[1][2], '위 띠 끝 = 가운데 시작');
+    assert.equal(rects[1][2] + rects[1][4], rects[2][2], '가운데 끝 = 아래 띠 시작');
   });
 
   it('fillFrameGap: 틀 밖에 남은 그린을 나무 경계(줄마다 잰 가운데값) 축 거울로 채우고, 캐릭터 화소는 그대로', () => {
