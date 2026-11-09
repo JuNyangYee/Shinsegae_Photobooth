@@ -172,12 +172,15 @@ export function createScreenCompositor({
     const opacity = frozen ? layers.resultOpacity() : 1;
     // 고정 중에는 효과의 소스 프레임을 건드리지 않는다 (결과 렌더가 같은 프레임을 읽는다). 결과가 걷히기 시작하면 다시 읽어 아래에 깐다
     if (!frozen || opacity < 1) updateCameraLayer(width, height);
+    // 감열지 시험의 층은 컬러다(점은 유화 뒤에 만든다). 캐릭터 가장자리 반투명 틈으로 카메라 색이 비치지 않게 합성에는 회색으로 쓴다
+    ctx.filter = effect.getSettings().outputMode === 'thermal' ? 'grayscale(1)' : 'none';
     ctx.drawImage(cameraLayer, 0, 0, width, height);
     if (frozen) {
       ctx.globalAlpha = opacity;
       ctx.drawImage(frozen, 0, 0, width, height);
       ctx.globalAlpha = 1;
     }
+    ctx.filter = 'none';
     layers.drawUnderScene(ctx, width, height);
     ctx.drawImage(plateCanvas, 0, 0, width, height);
     layers.drawOverScene(ctx, width, height, t);
