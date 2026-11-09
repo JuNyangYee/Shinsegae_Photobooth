@@ -29,8 +29,8 @@ function fakeCanvas(width, height, paint) {
 describe('scene-plate: 장면 이미지의 창 줄 키', () => {
   it('키 줄 = 사진 틀 줄 ± 여유 (1920 → 240~1590 ± 30)', () => {
     assert.deepEqual(keyRect(1080, 1920, OLD_FRAME, config.scene.keyMarginFrac), { left: 0, top: 210, width: 1080, height: 1410 });
-    assert.deepEqual(keyRect(1080, 1920, config.photoFrame, config.scene.keyMarginFrac), { left: 105, top: 330, width: 870, height: 1140 },
-      '16단계 사방 틀 ± 30');
+    assert.deepEqual(keyRect(1080, 1920, config.photoFrame, config.scene.keyMarginFrac), { left: 30, top: 220, width: 1020, height: 1340 },
+      '18단계 사방 틀 ± 30');
     assert.deepEqual(keyRect(64, 64, { top: 0, height: 1 }, 1 / 64), { left: 0, top: 0, width: 64, height: 64 });
   });
 

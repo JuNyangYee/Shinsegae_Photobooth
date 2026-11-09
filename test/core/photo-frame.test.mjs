@@ -7,6 +7,7 @@ import { config } from '../../src/web/config/config.js';
 import {
   clipRegionToFrame, cropRect, cropRows, isFullFrame, padColumns, photoFrameAspect, photoFrameCols, photoFrameRect, photoFrameRows,
 } from '../../src/web/core/photo-frame.js';
+import { upscaleSharp } from '../../src/web/core/thermal.js';
 import { STAGE_MAPPING, classifyFaces, initialPresenceState, stepPresence } from '../../src/web/core/presence.js';
 
 const frame = config.photoFrame;
@@ -14,21 +15,49 @@ const frame = config.photoFrame;
 const IMPRINT_FRAME = Object.freeze({ top: 7 / 64, height: 45 / 64 });
 
 describe('photo-frame: 줄 범위', () => {
-  it('기본 틀(16단계 가로 1/8~7/8 · 세로 3/16~3/4)은 9:16 화면에서 정확한 3:4이고 결과·인쇄·4K·감지 입력에서 모두 정수 열·줄이다', () => {
-    assert.equal(photoFrameAspect(9 / 16, frame), 0.75);
-    assert.deepEqual(photoFrameRect(1080, 1920, frame), { left: 135, top: 360, width: 810, height: 1080 });
-    assert.deepEqual(photoFrameRect(576, 1024, frame), { left: 72, top: 192, width: 432, height: 576 });
-    assert.deepEqual(photoFrameRect(2160, 3840, frame), { left: 270, top: 720, width: 1620, height: 2160 });
-    assert.deepEqual(photoFrameRect(360, 640, frame), { left: 45, top: 120, width: 270, height: 360 });
-    for (const [W, H] of [[1080, 1920], [576, 1024], [2160, 3840], [360, 640]]) {
-      assert.ok(Number.isInteger(H * frame.top) && Number.isInteger(H * (frame.top + frame.height)), `${H}`);
-      assert.ok(Number.isInteger(W * frame.left) && Number.isInteger(W * (frame.left + frame.width)), `${W}`);
+  it('기본 틀(18단계 가로 1/18~17/18 · 세로 25/192~153/192)은 9:16 화면에서 3:4이고 화면·결과·4K에서 정수 열·줄이다', () => {
+    assert.ok(Math.abs(photoFrameAspect(9 / 16, frame) - 0.75) < 1e-12);
+    assert.deepEqual(photoFrameRect(1080, 1920, frame), { left: 60, top: 250, width: 960, height: 1280 });
+    assert.deepEqual(photoFrameRect(2160, 3840, frame), { left: 120, top: 500, width: 1920, height: 2560 });
+    for (const [W, H] of [[1080, 1920], [2160, 3840]]) {
+      assert.ok(Math.abs(H * frame.top - Math.round(H * frame.top)) < 1e-9 && Math.abs(H * (frame.top + frame.height) - Math.round(H * (frame.top + frame.height))) < 1e-9, `${H}`);
+      assert.ok(Math.abs(W * frame.left - Math.round(W * frame.left)) < 1e-9 && Math.abs(W * (frame.left + frame.width) - Math.round(W * (frame.left + frame.width))) < 1e-9, `${W}`);
       const r = photoFrameRect(W, H, frame);
       assert.equal(r.width * 4, r.height * 3, `${W}x${H} 3:4`);
     }
-    // 결과 직사각형과 인쇄 직사각형이 같은 화면 영역을 덮는다 (1080 → 576은 1.875배)
-    assert.equal(135 / 1080, 72 / 576);
-    assert.equal(360 / 1920, 192 / 1024);
+  });
+
+  it('인쇄 격자(576x1024)와 감지(360x640)는 위끝만 반올림한다: 열·아래끝은 정확, 같은 화면 영역과 1줄 미만 차이', () => {
+    const print = photoFrameRect(576, 1024, frame);
+    assert.deepEqual(print, { left: 32, top: 133, width: 512, height: 683 }, '정확값 위끝 133.33 → 133, 아래끝 816');
+    assert.deepEqual(photoFrameRect(360, 640, frame), { left: 20, top: 83, width: 320, height: 427 });
+    const screen = photoFrameRect(1080, 1920, frame);
+    const k = 1080 / 576;
+    assert.equal(print.left * k, screen.left);
+    assert.equal((print.left + print.width) * k, screen.left + screen.width);
+    assert.equal((print.top + print.height) * k, screen.top + screen.height);
+    assert.ok(Math.abs(print.top * k - screen.top) < k / 2, '위끝 차이는 반 점 미만');
+  });
+
+  it('화면 창의 가장자리 화소는 인쇄 사진의 첫·끝 줄과 열을 그대로 보여 준다 (창 점 = 인쇄 점, 위끝 반올림은 창 밖 0.6px만 다르다)', () => {
+    const print = photoFrameRect(576, 1024, frame);
+    const screen = photoFrameRect(1080, 1920, frame);
+    const paper = [250, 240, 230];
+    const ink = [10, 20, 30];
+    const at = (rgba, x, y) => [...rgba.slice((y * 1080 + x) * 4, (y * 1080 + x) * 4 + 3)];
+    const rows = new Uint8Array(576 * 1024); // 인쇄 사진의 첫 줄·끝 줄만 흰 점
+    for (const r of [print.top, print.top + print.height - 1]) rows.fill(1, r * 576, (r + 1) * 576);
+    const a = upscaleSharp(rows, 576, 1024, 1080, 1920, paper, ink);
+    assert.deepEqual(at(a, 540, screen.top), paper, '창 첫 줄 = 인쇄 첫 줄');
+    assert.deepEqual(at(a, 540, screen.top + screen.height - 1), paper, '창 끝 줄 = 인쇄 끝 줄');
+    assert.deepEqual(at(a, 540, screen.top + screen.height), ink, '창 바로 아래는 인쇄 밖');
+    const cols = new Uint8Array(576 * 1024); // 인쇄 사진의 첫 열·끝 열만 흰 점
+    for (let y = 0; y < 1024; y += 1) { cols[y * 576 + print.left] = 1; cols[y * 576 + print.left + print.width - 1] = 1; }
+    const b = upscaleSharp(cols, 576, 1024, 1080, 1920, paper, ink);
+    assert.deepEqual(at(b, screen.left, 800), paper, '창 첫 열 = 인쇄 첫 열');
+    assert.deepEqual(at(b, screen.left + screen.width - 1, 800), paper, '창 끝 열 = 인쇄 끝 열');
+    assert.deepEqual(at(b, screen.left - 1, 800), ink, '창 왼쪽 밖은 인쇄 밖');
+    assert.deepEqual(at(b, screen.left + screen.width, 800), ink, '창 오른쪽 밖은 인쇄 밖');
   });
 
   it('left·width가 없는 예전 틀(14단계)은 화면 폭 전체', () => {
@@ -53,10 +82,10 @@ describe('photo-frame: 줄 범위', () => {
 });
 
 describe('photo-frame: 인식 영역을 틀 안으로', () => {
-  it('기본 인식 영역(0.1~0.9)은 틀 가로·세로 끝에 맞춰 줄어든다 (16단계: 가로도)', () => {
+  it('기본 인식 영역(0.1~0.9)은 틀 세로 끝에 맞춰 줄어든다 (18단계: 틀이 더 넓어 가로는 그대로)', () => {
     const { region, clipped } = clipRegionToFrame({ x: 0.1, y: 0.1, width: 0.8, height: 0.8 }, frame);
     assert.equal(clipped, true);
-    assert.deepEqual(region, { x: 1 / 8, y: 3 / 16, width: 3 / 4, height: 9 / 16 });
+    assert.deepEqual(region, { x: 0.1, y: frame.top, width: 0.8, height: frame.height });
   });
 
   it('예전 틀(화면 폭 전체)이면 가로는 그대로', () => {
