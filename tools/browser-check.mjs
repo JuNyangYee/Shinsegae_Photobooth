@@ -2300,7 +2300,35 @@ async function runScenarios(app, origin) {
       expect(dots.opaque && dots.paper > 0.05 && dots.ink > 0.05 && dots.between < 0.5, `window shows paper/ink dots: ${JSON.stringify(dots)}`);
       expect(dots.outAlpha === 0, `no dots outside the window: ${dots.outAlpha}`);
       await cleanShot('screen-6-thermal');
-      await withAutoPaused(app, () => manualCycle(app));
+      // 창의 점 = 인쇄 점: 결과 화면용 PNG는 인쇄 마스크(사진 틀로 자른 점 격자)를 확대한 것이다(photo-effect.js upscaleSharp, 미리보기와 같은 정수식).
+      // 결과 동안 창의 #screen-dots(셔터 층·같은 seed)와 사진을 사진 틀 전체에서 화소 단위로 비교한다. 비교 제외: 틀·캐릭터가 덮어 점을 지운 화소(알파 < 255)
+      let dotMatch = null;
+      await withAutoPaused(app, () => manualCycle(app, {
+        onResult: async () => {
+          await sleep(500);
+          dotMatch = await app.evaluate(`(() => {
+            const dots = document.getElementById('screen-dots'), img = document.getElementById('result');
+            const x0 = Math.round(dots.width * 0.125), y0 = Math.round(dots.height * 0.1875), w = img.naturalWidth, h = img.naturalHeight;
+            const a = dots.getContext('2d', { willReadFrequently: true }).getImageData(x0, y0, w, h).data;
+            const c = new OffscreenCanvas(w, h).getContext('2d', { willReadFrequently: true });
+            c.imageSmoothingEnabled = false;
+            c.drawImage(img, 0, 0);
+            const b = c.getImageData(0, 0, w, h).data;
+            let compared = 0, excluded = 0, different = 0, maxDelta = 0;
+            for (let i = 0; i < a.length; i += 4) {
+              if (a[i + 3] !== 255) { excluded += 1; continue; }
+              compared += 1;
+              const d = Math.max(Math.abs(a[i] - b[i]), Math.abs(a[i + 1] - b[i + 1]), Math.abs(a[i + 2] - b[i + 2]));
+              if (d > 0) different += 1;
+              maxDelta = Math.max(maxDelta, d);
+            }
+            return { size: [dots.width, dots.height, w, h], compared, excluded, different, maxDelta, dotsClass: document.getElementById('result-card').classList.contains('is-dots') };
+          })()`);
+        },
+      }));
+      expect(dotMatch && dotMatch.dotsClass && dotMatch.compared > 0.7 * dotMatch.size[2] * dotMatch.size[3], `dot compare coverage ${JSON.stringify(dotMatch)}`);
+      expect(dotMatch.different === 0, `window dots = print dots: ${JSON.stringify(dotMatch)}`);
+      details.push(`window dots = print-derived photo: ${dotMatch.compared} px compared, ${dotMatch.excluded} excluded (frame/characters), ${dotMatch.different} different`);
       const thermalDev = await app.dev();
       expect(/576x768 1-bit/.test(thermalDev.get('print') ?? ''), `thermal print: ${thermalDev.get('print')}`);
       details.push(`thermal dots window + filter kept (paper ${dots.paper.toFixed(2)} ink ${dots.ink.toFixed(2)} edge ${dots.between.toFixed(2)}), print ok`);
