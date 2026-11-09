@@ -21,7 +21,7 @@
 
 - 기준 판은 `backup/scene-compositor-2026-11-09` 태그로 보존했다. 원격 fetch 뒤 `master`와 `origin/master`는 모두 `2910e72`로 같았다.
 - 현장 설정 5개(`camera`, `effect`, `filter`, `presence`, `timing`의 `*.local.json`)는 단계 시작 백업 SHA256과 모두 일치했다. 현장 설정·runtime·artifacts는 이번 Git 변경에 없다.
-- 사용자가 master 병합·push까지 요청했다. 검수 후 정상 fast-forward 병합과 기존 `origin/master`로의 push를 진행한다. 강제 push는 하지 않는다.
+- 사용자 요청대로 검수 완료 판 `4651d5a`를 현장 작업 폴더의 `master`에 fast-forward 병합하고 기존 `origin/master`로 정상 push했다(`2910e72..4651d5a`). 강제 push는 하지 않았다.
 
 ## 남은 문제와 바로 다음 작업
 
