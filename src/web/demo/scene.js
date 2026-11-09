@@ -7,7 +7,7 @@ const W = 1080;
 const H = 1920;
 const FPS = 30;
 
-// 사진 틀(1080x1920 화면의 210~1560줄) 안에 얼굴이 오도록 놓은 사람 도형: 가운데 x, 머리 가운데 y, 머리 높이, 어깨 폭, 옷 밝기, 흔들림 위상
+// 사진 틀(1080x1920 화면의 250~1530줄) 안에 얼굴이 오도록 놓은 사람 도형: 가운데 x, 머리 가운데 y, 머리 높이, 어깨 폭, 옷 밝기, 흔들림 위상
 const PEOPLE = Object.freeze([
   Object.freeze({ x: 360, headY: 640, head: 250, shoulders: 430, tone: 58, from: -1, phase: 0 }),
   Object.freeze({ x: 724, headY: 600, head: 262, shoulders: 452, tone: 34, from: 1, phase: 1.7 }),

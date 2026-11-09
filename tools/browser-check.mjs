@@ -485,8 +485,8 @@ async function previewScaleOne(app) {
 }
 
 /**
- * 감열지 S 한 장: 효과 캔버스 그림을 기록하고 S → 결과 화면용 이미지(무손실 PNG, 사진 틀 810x1080)가 셔터 직전 그림의 틀 줄과 화소까지 같고,
- * 다른 그림과는 다르며, 종이색·잉크색과 그 사이(경계 화소)뿐이고, 인쇄 데이터가 576x768 1비트(사진 432x576 + 머리·꼬리, IMPRINT 시안)인지 본다 (6-1).
+ * 감열지 S 한 장: 효과 캔버스 그림을 기록하고 S → 결과 화면용 이미지(무손실 PNG, 사진 틀 960x1280)가 셔터 직전 그림의 틀 줄과 화소까지 같고,
+ * 다른 그림과는 다르며, 종이색·잉크색과 그 사이(경계 화소)뿐이고, 인쇄 데이터가 576x875 1비트(사진 512x683 + 머리·꼬리, IMPRINT 시안)인지 본다 (6-1).
  * withAutoPaused 안에서 부른다.
  */
 async function thermalShot(app, { method, check }) {
@@ -499,11 +499,11 @@ async function thermalShot(app, { method, check }) {
   expect(photoFree(resources), `resources ${dev.get('resources')}`);
   const fx = dev.get('photo-fx') ?? '';
   expect(new RegExp(`^applied thermal 576x1024 ${method} .*same drawing as preview, ${check}`).test(fx), `photo-fx ${fx}`);
-  expect(image.startsWith('810x1080') && /image\/png/.test(dev.get('capture') ?? ''), `result ${image}, capture ${dev.get('capture')}`);
+  expect(image.startsWith('960x1280') && /image\/png/.test(dev.get('capture') ?? ''), `result ${image}, capture ${dev.get('capture')}`);
   const print = dev.get('print') ?? '';
-  expect(/^576x768 1-bit \(imprint: photo 432x576 at row 84 col 72\), raster 72B\/row 55296B, png \d+B \(IHDR depth 1 color 0\)/.test(print), `print ${print}`);
+  expect(/^576x875 1-bit \(imprint: photo 512x683 at row 84 col 32\), raster 72B\/row 63000B, png \d+B \(IHDR depth 1 color 0\)/.test(print), `print ${print}`);
   // 화면용 이미지(b)는 결과 크기로 미리 확대한다(정수배 최근접 + 경계 1화소만 섞음). CSS 확대 방식은 쓰지 않는다
-  expect(c.size === '810x1080' && c.previewSize === '1080x1920' && c.shutterIndex >= 0, `compare ${JSON.stringify(c)}`);
+  expect(c.size === '960x1280' && c.previewSize === '1080x1920' && c.shutterIndex >= 0, `compare ${JSON.stringify(c)}`);
   expect(c.twoTone.ends.length === 2 && c.twoTone.offLine === 0, `result is not paper/ink only: ${JSON.stringify(c.twoTone)}`);
   expect(c.resultRendering === 'auto' && c.canvasRendering === 'auto', `image-rendering ${c.resultRendering} / ${c.canvasRendering}`);
   // 사진 틀 = 화면 폭 전체 (IMPRINT 시안: 점 사진도 결과 크기로 확대한 화면용이라 1080 화면 1:1)
@@ -518,7 +518,7 @@ async function thermalShot(app, { method, check }) {
 
 /**
  * 회색조 유화 S 한 장 (8단계 기본값): 결과(JPEG 1080x1920)가 셔터 직전 미리보기 그림과 같은 영역의 블록 평균(결과 10x10)으로 가장 가깝고,
- * 미리보기 그림이 무채색(R=G=B)이며 결과도 무채색에 가깝고(JPEG), 인쇄 데이터가 576x768 1비트(IMPRINT 시안 인쇄 쪽)이고, 결과 사진(틀 810x1080)이 화면 폭 전체인지 본다.
+ * 미리보기 그림이 무채색(R=G=B)이며 결과도 무채색에 가깝고(JPEG), 인쇄 데이터가 576x875 1비트(IMPRINT 시안 인쇄 쪽)이고, 결과 사진(틀 960x1280)이 화면 폭 전체인지 본다.
  * 미리보기가 결과와 같은 크기(처리 해상도 1)면 차이 1/255 미만이어야 한다. 기본값 0.5(540x960, 2026-10-19)는 같은 그림을 낮은 해상도로
  * 그려 화소가 다르므로(docs/SYSTEM.md 6절 "원본과의 차이") 셔터 직전 그림이 다른 그림보다 가까운지와 상한만 본다.
  * withAutoPaused 안에서 부른다.
@@ -533,10 +533,10 @@ async function grayOilShot(app, { method = 'blue-noise', check = 'gpu=cpu', prev
   expect(photoFree(resources), `resources ${dev.get('resources')}`);
   const fx = dev.get('photo-fx') ?? '';
   expect(new RegExp(`^applied gray-oil 1080x1920 print ${method} seed \\d+ tick \\d+ \\(same drawing as preview, ${check}\\)`).test(fx), `photo-fx ${fx}`);
-  expect(image.startsWith('810x1080') && /image\/jpeg/.test(dev.get('capture') ?? ''), `result ${image}, capture ${dev.get('capture')}`);
+  expect(image.startsWith('960x1280') && /image\/jpeg/.test(dev.get('capture') ?? ''), `result ${image}, capture ${dev.get('capture')}`);
   const print = dev.get('print') ?? '';
-  expect(/^576x768 1-bit \(imprint: photo 432x576 at row 84 col 72\), raster 72B\/row 55296B, png \d+B \(IHDR depth 1 color 0\)/.test(print), `print ${print}`);
-  expect(c.size === '810x1080' && c.previewSize === previewSize && c.shutterIndex >= 0, `compare ${JSON.stringify(c)}`);
+  expect(/^576x875 1-bit \(imprint: photo 512x683 at row 84 col 32\), raster 72B\/row 63000B, png \d+B \(IHDR depth 1 color 0\)/.test(print), `print ${print}`);
+  expect(c.size === '960x1280' && c.previewSize === previewSize && c.shutterIndex >= 0, `compare ${JSON.stringify(c)}`);
   const atShutter = c.drawings[c.shutterIndex];
   const others = c.drawings.filter((_, i) => i !== c.shutterIndex);
   const limit = previewSize === c.size ? 1 : SCALED_PREVIEW_DIFF_LIMIT;
@@ -943,7 +943,7 @@ async function runScenarios(app, origin) {
     return `${line.split(', fps')[0]}; ${m[2]} drawings/s at fps ${m[1]}; ${ready}; context lost → camera preview → restored → ${readyAgain}`;
   });
 
-  await scenario('촬영 결과(회색조 유화 기본값): 사진 틀 810x1080 JPEG = 셔터 순간 미리보기 그림의 틀 줄(540x960, 같은 영역 블록 비교), 미리보기·결과 무채색, 인쇄 데이터 576x768 1비트(사진 432x576 블루 노이즈, GPU = CPU, 머리·꼬리), 결과 폭 = 틀 폭(화면 폭 × 3/4)', async () => withAutoPaused(app, async () => {
+  await scenario('촬영 결과(회색조 유화 기본값): 사진 틀 960x1280 JPEG = 셔터 순간 미리보기 그림의 틀 줄(540x960, 같은 영역 블록 비교), 미리보기·결과 무채색, 인쇄 데이터 576x875 1비트(사진 512x683 블루 노이즈, GPU = CPU, 머리·꼬리), 결과 폭 = 틀 폭(화면 폭 × 8/9)', async () => withAutoPaused(app, async () => {
     const output = subLine(await app.devText(), 'output');
     expect(/^gray-oil \(input luma Rec\.709 -> oil2f -> gray\), print data on photo: paper 576 blue-noise/.test(output), `output ${output}`);
     const { fx, print, compare } = await grayOilShot(app);
@@ -976,7 +976,7 @@ async function runScenarios(app, origin) {
       const { completedDelta, resources, dev: after } = await withAutoPaused(app, () => manualCycle(app));
       // 회색조 유화 기본값: 원본 사진(결과 크기)을 입력 회색조·레벨로, 인쇄 데이터도 그 사진에서 (8단계)
       expect(/^RAW PHOTO gray-oil 1080x1920 /.test(after.get('photo-fx') ?? ''), `photo-fx ${after.get('photo-fx')}`);
-      expect(/^576x768 1-bit/.test(after.get('print') ?? ''), `print ${after.get('print')}`);
+      expect(/^576x875 1-bit/.test(after.get('print') ?? ''), `print ${after.get('print')}`);
       expect(completedDelta === 1, `S completed +${completedDelta}`);
       expect(resources && resources.urls === 0 && resources.canvases === 0 && resources.pending === 0, 'resources not released');
       return `${effect}; raw preview ${raw2[1]} (${raw2[2]} draws); camera ready, detector ok, S cycle ok`;
@@ -985,7 +985,7 @@ async function runScenarios(app, origin) {
     }
   });
 
-  await scenario('출력 모드 전환(E, 기본값 밖의 세 모드, 처리 해상도 1): 끔·회색조 그림 1080x1920 → 사진 틀 810x1080 JPEG, 감열지 Atkinson(CPU) PNG = 미리보기, 용지 384점·감마 저장 → 새로고침 유지', async () => {
+  await scenario('출력 모드 전환(E, 기본값 밖의 세 모드, 처리 해상도 1): 끔·회색조 그림 1080x1920 → 사진 틀 960x1280 JPEG, 감열지 Atkinson(CPU) PNG = 미리보기, 용지 384점·감마 저장 → 새로고침 유지', async () => {
     const details = [];
     try {
       await app.open();
@@ -1001,7 +1001,7 @@ async function runScenarios(app, origin) {
         const fx = dev.get('photo-fx') ?? '';
         expect(completedDelta === 1 && photoFree(resources), `${mode}: S +${completedDelta}, ${dev.get('resources')}`);
         expect(new RegExp(`^applied ${mode === 'gray' ? 'gray ' : ''}1080x1920 .*same drawing as preview`).test(fx), `${mode}: photo-fx ${fx}`);
-        expect(image.startsWith('810x1080') && /image\/jpeg/.test(dev.get('capture') ?? ''), `${mode}: ${image}, ${dev.get('capture')}`);
+        expect(image.startsWith('960x1280') && /image\/jpeg/.test(dev.get('capture') ?? ''), `${mode}: ${image}, ${dev.get('capture')}`);
         expect(dev.get('print') === '-', `${mode}: print ${dev.get('print')}`);
         details.push(`${mode} ${image.split(' ')[0]} jpeg`);
       }
@@ -1041,7 +1041,7 @@ async function runScenarios(app, origin) {
     }
   });
 
-  await scenario('시험 조합 4가지(WISHFUL 시안, E 필터 섹션 조합 버튼, 처리 해상도 1): 원본·유화 × 컬러·흑백 — 결과 사진(틀 810x1080) = 셔터 직전 미리보기 그림(같은 영역 블록 차 1/255 미만), 흑백이면 미리보기·결과 무채색·컬러면 색, 유화 끔이면 획 0, 인쇄 데이터는 흑백(회색조 유화)만, 유화 수치 유지, 닫으면 저장된 조합으로 (--screens면 조합별 결과 화면, 가짜 카메라만)', async () => {
+  await scenario('시험 조합 4가지(WISHFUL 시안, E 필터 섹션 조합 버튼, 처리 해상도 1): 원본·유화 × 컬러·흑백 — 결과 사진(틀 960x1280) = 셔터 직전 미리보기 그림(같은 영역 블록 차 1/255 미만), 흑백이면 미리보기·결과 무채색·컬러면 색, 유화 끔이면 획 0, 인쇄 데이터는 흑백(회색조 유화)만, 유화 수치 유지, 닫으면 저장된 조합으로 (--screens면 조합별 결과 화면, 가짜 카메라만)', async () => {
     const details = [];
     await app.open();
     await waitReady(app);
@@ -1091,16 +1091,16 @@ async function runScenarios(app, origin) {
       const fxPattern = mono ? `^applied gray-oil ${tag}1080x1920 print blue-noise seed \\d+ tick \\d+ \\(same drawing as preview, gpu=cpu\\)`
         : `^applied ${tag}1080x1920 seed \\d+ tick \\d+ \\(same drawing as preview\\)`;
       expect(new RegExp(fxPattern).test(fx), `${label}: photo-fx ${fx}`);
-      expect(image.startsWith('810x1080') && /image\/jpeg/.test(dev.get('capture') ?? ''), `${label}: ${image}, ${dev.get('capture')}`);
+      expect(image.startsWith('960x1280') && /image\/jpeg/.test(dev.get('capture') ?? ''), `${label}: ${image}, ${dev.get('capture')}`);
       const print = dev.get('print') ?? '';
-      expect(mono ? /^576x768 1-bit \(imprint: photo 432x576 at row 84 col 72\)/.test(print) : print === '-', `${label}: print ${print}`);
-      expect(c.size === '810x1080' && c.previewSize === '1080x1920' && c.shutterIndex >= 0, `${label}: compare ${JSON.stringify(c)}`);
+      expect(mono ? /^576x875 1-bit \(imprint: photo 512x683 at row 84 col 32\)/.test(print) : print === '-', `${label}: print ${print}`);
+      expect(c.size === '960x1280' && c.previewSize === '1080x1920' && c.shutterIndex >= 0, `${label}: compare ${JSON.stringify(c)}`);
       const atShutter = c.drawings[c.shutterIndex];
       expect(atShutter.diff < 1, `${label}: shutter drawing block diff ${atShutter.diff} (${JSON.stringify(c.drawings)})`);
       if (mono) expect(c.drawings.every((d) => d.chroma === 0) && c.resultChroma <= 1, `${label}: chroma preview ${c.drawings.map((d) => d.chroma).join('/')} result ${c.resultChroma}`);
       else expect(atShutter.chroma > 20 && c.resultChroma > 20, `${label}: color chroma preview ${atShutter.chroma} result ${c.resultChroma}`);
       const others = c.drawings.filter((_, i) => i !== c.shutterIndex).map((d) => d.diff);
-      details.push(`${label}: ${rate[2]}/${rate[1]} drawings/s, cpu avg ${cpu}ms, strokes ${strokes}, shutter diff ${atShutter.diff} (others ${others.join('/') || '-'}), chroma ${atShutter.chroma}/${c.resultChroma}, print ${mono ? '576x768' : 'none'}`);
+      details.push(`${label}: ${rate[2]}/${rate[1]} drawings/s, cpu avg ${cpu}ms, strokes ${strokes}, shutter diff ${atShutter.diff} (others ${others.join('/') || '-'}), chroma ${atShutter.chroma}/${c.resultChroma}, print ${mono ? '576x875' : 'none'}`);
     }
     expect((await oilValues()) === before, `oil values changed: ${before} -> ${await oilValues()}`);
     // 저장하지 않고 닫으면 저장된 조합(여기서는 파일 없음 = 기본값: 유화 켬·흑백 회색조 유화)으로 돌아간다
@@ -1189,7 +1189,7 @@ async function runScenarios(app, origin) {
       + ` CPU dither 576x1024: atkinson ${t.atkinson}ms, floyd-steinberg ${t['floyd-steinberg']}ms, bayer ${t.bayer}ms, blue-noise ${t['blue-noise']}ms`;
   });
 
-  await scenario('흑백 스타일 4가지(E, 감열지, 처리 해상도 1): 미리보기 캔버스 1080x1920·D 표시, 붓 결 선·흐름 선·질감 강조 점·톤 점 × 유화(14단계) 결과 = 셔터 순간 그림의 틀 줄(화면용 PNG 화소까지, 인쇄 576x768), 저장 → 새로고침 유지 (파일은 원래대로)', async () => {
+  await scenario('흑백 스타일 4가지(E, 감열지, 처리 해상도 1): 미리보기 캔버스 1080x1920·D 표시, 붓 결 선·흐름 선·질감 강조 점·톤 점 × 유화(14단계) 결과 = 셔터 순간 그림의 틀 줄(화면용 PNG 화소까지, 인쇄 576x875), 저장 → 새로고침 유지 (파일은 원래대로)', async () => {
     const details = [];
     try {
       await app.open();
@@ -1917,8 +1917,8 @@ async function runScenarios(app, origin) {
           // 셔터 순간 유화 사진은 그대로(applied), 인쇄 데이터는 확정된 사진에서 CPU로 (8단계 검수 1)
           const print = dev.get('print') ?? '';
           expect(/^applied gray-oil 1080x1920 print blue-noise .*\(same drawing as preview, cpu from photo\)/.test(fx), `${mode}: photo-fx ${fx}`);
-          expect(/^576x768 1-bit/.test(print) && expected[mode].test(print) && /from photo on CPU/.test(print), `${mode}: print ${print}`);
-          expect(image.startsWith('810x1080') && /image\/jpeg/.test(dev.get('capture') ?? ''), `${mode}: result ${image}, ${dev.get('capture')}`);
+          expect(/^576x875 1-bit/.test(print) && expected[mode].test(print) && /from photo on CPU/.test(print), `${mode}: print ${print}`);
+          expect(image.startsWith('960x1280') && /image\/jpeg/.test(dev.get('capture') ?? ''), `${mode}: result ${image}, ${dev.get('capture')}`);
           expect(photoFree(resources), `${mode}: resources ${dev.get('resources')}`);
           expect(/^running,/.test(dev.get('effect') ?? ''), `${mode}: preview after failure ${dev.get('effect')}`);
           details.push(`${mode} → applied, print from photo (${/GPU print failed: ([^)]*)/.exec(print)?.[1] ?? print})`);
@@ -1926,8 +1926,8 @@ async function runScenarios(app, origin) {
         }
         // 회색조 유화 기본값: 원본 사진(결과 크기)을 입력 회색조·레벨로, 인쇄 데이터도 그 사진에서 (8단계)
         expect(/^RAW PHOTO gray-oil 1080x1920 /.test(fx) && expected[mode].test(fx), `${mode}: photo-fx ${fx}`);
-        expect(image.startsWith('810x1080'), `${mode}: result image ${image}`);
-        expect(/^576x768 1-bit/.test(dev.get('print') ?? ''), `${mode}: print ${dev.get('print')}`);
+        expect(image.startsWith('960x1280'), `${mode}: result image ${image}`);
+        expect(/^576x875 1-bit/.test(dev.get('print') ?? ''), `${mode}: print ${dev.get('print')}`);
         expect(photoFree(resources), `${mode}: resources ${dev.get('resources')}`);
         if (mode === 'lose') {
           expect(/^context-lost/.test(dev.get('effect') ?? ''), `lose: preview ${dev.get('effect')}`);
@@ -1938,7 +1938,7 @@ async function runScenarios(app, origin) {
         }
         details.push(`${mode} → ${/\(([^)]*)\)/.exec(fx)?.[1] ?? fx}`);
       }
-      return `${details.join('; ')}; photo read failures: raw photo -> gray 1080x1920 on CPU -> frame 810x1080 with print data 576x768, preview running again`;
+      return `${details.join('; ')}; photo read failures: raw photo -> gray 1080x1920 on CPU -> frame 960x1280 with print data 576x875, preview running again`;
     } finally {
       await app.cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier });
     }
@@ -2040,8 +2040,8 @@ async function runScenarios(app, origin) {
   });
 
   // ---- 관람객 화면 (14단계 눈 마을 장면, 가안. WISHFUL·IMPRINT 시나리오를 이어받음) ----
-  // 사진 틀(4:5, config.photoFrame 8/64~53/64) 밖에만 글자가 있는지, 제목·날짜·시각이 없는지, 장면(#scene-plate)을 읽었는지(못 읽으면 대체 배경이라 결과에 적는다),
-  // 결과 사진이 틀 자리에 810x1080으로 놓이는지, 인쇄 쪽이 576x768(사진 432x576 가운데)인지, 동작 줄이기에서 위치 움직임이 없는지. --screens면 상태별 화면(가짜 카메라)
+  // 사진 틀(config.photoFrame) 밖에만 글자가 있는지, 제목·날짜·시각이 없는지, 장면(#scene-plate)을 읽었는지(못 읽으면 대체 배경이라 결과에 적는다),
+  // 결과 사진이 틀 자리에 960x1280으로 놓이는지, 인쇄 쪽이 576x875(사진 512x683 가운데)인지, 동작 줄이기에서 위치 움직임이 없는지. --screens면 상태별 화면(가짜 카메라)
   const shot = async (name) => {
     if (!options.screens) return;
     mkdirSync(options.screens, { recursive: true });
@@ -2074,7 +2074,7 @@ async function runScenarios(app, origin) {
   // 사진 틀 안이거나 위 띠에 걸친 관람객 UI (14단계: 위 띠에는 아무것도 없다. 준비 중 글자는 창 안 막 위라 따로 본다)
   const textOutsideFrame = (l) => Object.entries(l.boxes).filter(([id, [a]]) => id !== 'status' && a < l.bottom - 1).map(([id]) => id);
 
-  await scenario('관람객 화면(14단계 눈 마을 장면, 16단계 나무틀 3:4): 글자·숫자·진행선은 눈 바닥에만(위 띠·사진 틀(3:4, 사방 inset) 안 없음), 제목·날짜·시각 없음, 장면 읽음 여부, 결과 사진 = 틀 자리 810x1080, 인쇄 쪽 576x768(사진 432x576 가운데 · 머리·꼬리 글자), 동작 줄이기 (--screens면 상태별 화면)', async () => {
+  await scenario('관람객 화면(14단계 눈 마을 장면, 18단계 넓은 나무틀 3:4): 글자·숫자·진행선은 눈 바닥에만(위 띠·사진 틀(3:4, 사방 inset) 안 없음), 제목·날짜·시각 없음, 장면 읽음 여부, 결과 사진 = 틀 자리 960x1280, 인쇄 쪽 576x875(사진 512x683 가운데 · 머리·꼬리 글자), 동작 줄이기 (--screens면 상태별 화면)', async () => {
     const details = [];
     await app.open();
     await waitReady(app);
@@ -2128,11 +2128,11 @@ async function runScenarios(app, origin) {
       await app.key('KeyD');
       const dev = await app.dev();
       await app.key('KeyD');
-      expect(/^810x1080 /.test(dev.get('capture') ?? ''), `${label}: capture ${dev.get('capture')}`);
-      expect(/frame 810x1080 cols 135-945 rows 360-1440/.test(dev.get('photo-fx') ?? ''), `${label}: photo-fx ${dev.get('photo-fx')}`);
-      expect(/^576x768 1-bit \(imprint: photo 432x576 at row 84 col 72\), raster 72B\/row 55296B, png \d+B \(IHDR depth 1 color 0\)/.test(dev.get('print') ?? ''),
+      expect(/^960x1280 /.test(dev.get('capture') ?? ''), `${label}: capture ${dev.get('capture')}`);
+      expect(/frame 960x1280 cols 60-1020 rows 250-1530/.test(dev.get('photo-fx') ?? ''), `${label}: photo-fx ${dev.get('photo-fx')}`);
+      expect(/^576x875 1-bit \(imprint: photo 512x683 at row 84 col 32\), raster 72B\/row 63000B, png \d+B \(IHDR depth 1 color 0\)/.test(dev.get('print') ?? ''),
         `${label}: print ${dev.get('print')}`);
-      expect(/^photo 3:4 = stage cols 0\.125-0\.875 rows 0\.1875-0\.75 \(result 1080x1920 -> 810x1080@135,360, print 576x1024 -> 432x576@72,192\), presence region clipped to frame/.test(dev.get('frame') ?? ''),
+      expect(/^photo 3:4 = stage cols 0\.0556-0\.9444 rows 0\.1302-0\.7969 \(result 1080x1920 -> 960x1280@60,250, print 576x1024 -> 512x683@32,133\), presence region clipped to frame/.test(dev.get('frame') ?? ''),
         `${label}: frame ${dev.get('frame')}`);
       expect(/\(clipped to photo frame\)/.test(dev.get('criteria') ?? ''), `${label}: criteria ${dev.get('criteria')}`);
       const cooling = await app.waitFor(`${label} cooldown`, async () => { const l = await app.evaluate(IMPRINT_LAYOUT); return l.phase === 'cooldown' && l.boxes.notice ? l : null; }, 13000);
@@ -2253,7 +2253,7 @@ async function runScenarios(app, origin) {
             await cleanShot('screen-3-result');
             const cmp = await compareWithResult();
             details.push(`window vs photo luma block diff ${cmp.blockMeanDiff.toFixed(2)}/255, photo chroma ${cmp.chroma}`);
-            expect(cmp.natural[0] === 810 && cmp.natural[1] === 1080, `photo size ${cmp.natural}`);
+            expect(cmp.natural[0] === 960 && cmp.natural[1] === 1280, `photo size ${cmp.natural}`);
             expect(cmp.chroma <= 2, `photo is achromatic (no decoration colors): ${cmp.chroma}`);
             expect(cmp.blockMeanDiff < 16, `photo matches the window seen on screen: ${cmp.blockMeanDiff}`);
             const line = (await app.dev()).get('screen') ?? '';
@@ -2266,7 +2266,7 @@ async function runScenarios(app, origin) {
       expect(!/frozen/.test(after.get('screen') ?? ''), 'released after round');
       await sleep(3000); // 시작 직후 평균이 아니라 안정된 뒤의 값을 남긴다
       details.push(`steady: ${(await app.dev()).get('screen')}`);
-      expect(/576x768 1-bit/.test(after.get('print') ?? ''), `print path unchanged: ${after.get('print')}`);
+      expect(/576x875 1-bit/.test(after.get('print') ?? ''), `print path unchanged: ${after.get('print')}`);
       details.push(after.get('print')?.slice(0, 40));
       await app.key('KeyS');
       await app.waitFor('countdown', async () => sessionState((await app.dev()).get('session')) === 'countdown', 3000);
@@ -2332,7 +2332,7 @@ async function runScenarios(app, origin) {
       expect(dotMatch.different === 0, `window dots = print dots: ${JSON.stringify(dotMatch)}`);
       details.push(`window dots = print-derived photo: ${dotMatch.compared} px compared, ${dotMatch.excluded} excluded (frame/characters), ${dotMatch.different} different`);
       const thermalDev = await app.dev();
-      expect(/576x768 1-bit/.test(thermalDev.get('print') ?? ''), `thermal print: ${thermalDev.get('print')}`);
+      expect(/576x875 1-bit/.test(thermalDev.get('print') ?? ''), `thermal print: ${thermalDev.get('print')}`);
       details.push(`thermal dots window + filter kept (paper ${dots.paper.toFixed(2)} ink ${dots.ink.toFixed(2)} edge ${dots.between.toFixed(2)}), print ok`);
       restoreFile(owned.effectBackup);
       writeFileSync(SCREEN_SETTINGS_FILE, JSON.stringify({ version: 1, enabled: false, filter: {} }));
@@ -2358,7 +2358,7 @@ async function runScenarios(app, origin) {
     return details.join('; ');
   });
 
-  await scenario('시안 데모(WISHFUL 시안, IMPRINT 이어받음, /demo/index.html, 카메라 없음): 앱과 같은 관람객 화면 마크업, 합성 장면 → 실제 효과·촬영·인쇄 데이터 576x768, 검토 조작(사람·안내·동작 줄이기·인쇄 연동 흐름 흉내) (--screens면 상태별 화면·인쇄 데이터)', async () => {
+  await scenario('시안 데모(WISHFUL 시안, IMPRINT 이어받음, /demo/index.html, 카메라 없음): 앱과 같은 관람객 화면 마크업, 합성 장면 → 실제 효과·촬영·인쇄 데이터 576x875, 검토 조작(사람·안내·동작 줄이기·인쇄 연동 흐름 흉내) (--screens면 상태별 화면·인쇄 데이터)', async () => {
     const details = [];
     const demoShot = async (name) => {
       if (!options.screens) return;
@@ -2400,9 +2400,9 @@ async function runScenarios(app, origin) {
         return { w: img.naturalWidth, h: img.naturalHeight, pw: print.naturalWidth, ph: print.naturalHeight,
           caption: document.querySelector('[data-demo-print]').textContent };
       })()`);
-      expect(result.w === 810 && result.h === 1080 && result.pw === 576 && result.ph === 768 && /머리·꼬리 글자 포함/.test(result.caption)
+      expect(result.w === 960 && result.h === 1280 && result.pw === 576 && result.ph === 875 && /머리·꼬리 글자 포함/.test(result.caption)
         && !/서체 미적재/.test(result.caption), `demo result ${JSON.stringify(result)}`);
-      details.push(`result 810x1080, print PNG 576x768 ("${result.caption}")`);
+      details.push(`result 960x1280, print PNG 576x875 ("${result.caption}")`);
       if (options.screens) {
         // 인쇄 데이터 PNG를 같은 화소로 옮겨 저장한다 (blob: fetch는 CSP connect-src 'self'가 막는다 — 앱과 같은 정책). 합성 장면이다
         const png = await app.evaluate(`(() => { const img = document.getElementById('demo-print-image'), c = document.createElement('canvas');
@@ -2436,7 +2436,7 @@ async function runScenarios(app, origin) {
       })()`), 15000);
       const expectCaption = [[/^원본 · 컬러 — off · 유화 끔 .*인쇄 데이터 없음$/], [/^원본 · 흑백 — gray-oil · 유화 끔 .*인쇄 데이터 576×768 1비트$/],
         [/^유화 · 컬러 — off · 결과 .*인쇄 데이터 없음$/], [/^유화 · 흑백 — gray-oil · 결과 .*인쇄 데이터 576×768 1비트$/]];
-      expect(compare.every((c, i) => expectCaption[i][0].test(c.caption) && /셔터 순간 미리보기와 같은 그림/.test(c.caption) && c.w === 810 && c.h === 1080),
+      expect(compare.every((c, i) => expectCaption[i][0].test(c.caption) && /셔터 순간 미리보기와 같은 그림/.test(c.caption) && c.w === 960 && c.h === 1280),
         `demo compare ${JSON.stringify(compare)}`);
       const comboAfter = await app.evaluate("document.querySelector('[data-demo=\"combo\"][aria-pressed=\"true\"]').textContent");
       expect(comboAfter === '유화 · 흑백', `demo combo after compare ${comboAfter}`);
@@ -2445,7 +2445,7 @@ async function runScenarios(app, origin) {
         const { data } = await app.cdp.send('Page.captureScreenshot', { format: 'png' });
         writeFileSync(join(options.screens, 'demo-8-combo-compare.png'), Buffer.from(data, 'base64'));
       }
-      details.push('4-combo compare: 4 results 810x1080 via capture path, print data only for mono (gray-oil), combo restored');
+      details.push('4-combo compare: 4 results 960x1280 via capture path, print data only for mono (gray-oil), combo restored');
       // 감열지 톤 점 × 유화 (14단계): 흑백 방식 감열지 + 톤 점에서 질감 세기 0(순수 톤 점)·1·2를 바꾼다 (--screens면 화면, 합성 장면)
       if (options.screens) {
         const pick = (name, value) => app.evaluate(`(() => { const e = document.querySelector('[data-demo="${name}"]'); e.value = '${value}';

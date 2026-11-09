@@ -17,7 +17,7 @@ function span(size, start, length) {
 
 /**
  * 높이 height(줄)인 화면 그림에서 틀이 덮는 줄 범위. 위·아래 끝을 각각 반올림한다
- * (16단계 기본 3/16~3/4: 1920 → 360~1440, 1024 → 192~768, 3840 → 720~2880, 640 → 120~480). frame이 없으면 전체
+ * (18단계 기본 25/192~153/192: 1920 → 250~1530, 1024 → 133~816, 3840 → 500~3060, 640 → 83~510). frame이 없으면 전체
  * @returns {{ top: number, height: number }}
  */
 export function photoFrameRows(height, frame) {
@@ -27,7 +27,7 @@ export function photoFrameRows(height, frame) {
 }
 
 /**
- * 폭 width(열)인 화면 그림에서 틀이 덮는 열 범위 (16단계 기본 1/8~7/8: 1080 → 135~945, 576 → 72~504, 2160 → 270~1890, 360 → 45~315)
+ * 폭 width(열)인 화면 그림에서 틀이 덮는 열 범위 (18단계 기본 1/18~17/18: 1080 → 60~1020, 576 → 32~544, 2160 → 120~2040, 360 → 20~340)
  * @returns {{ left: number, width: number }}
  */
 export function photoFrameCols(width, frame) {
