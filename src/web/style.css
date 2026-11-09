@@ -664,7 +664,7 @@ body:has(#operator-panel:not([hidden]) #tuning-panel:not([hidden])) .dev-info {
 /* 운영자 표시: 자동 촬영 일시정지(P). 관람객이 봐도 거슬리지 않게 눈 바닥 오른쪽 아래에 작게 (가안. 위 두 모서리는 캐릭터 자리) */
 .pause-badge {
   position: absolute;
-  bottom: 2.7778cqw;
+  bottom: 0.3704cqw; /* 18단계: 눈 바닥이 좁아 글자 줄 아래로 */
   right: 3.7037cqw;
   display: flex;
   align-items: center;

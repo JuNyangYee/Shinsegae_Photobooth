@@ -2080,8 +2080,9 @@ async function runScenarios(app, origin) {
     await waitReady(app);
     await app.key('KeyD'); // 화면 캡처·배치에 D가 겹치지 않게 (D 값은 결과 때 잠깐 켜서 읽는다)
     const idle = await app.waitFor('idle guide', async () => { const l = await app.evaluate(IMPRINT_LAYOUT); return l.boxes.guide ? l : null; }, 5000);
-    expect(Math.abs(idle.top - idle.h * 3 / 16) <= 1 && Math.abs(idle.bottom - idle.h * 3 / 4) <= 1
-      && Math.abs(idle.left - idle.w / 8) <= 1 && Math.abs(idle.right - idle.w * 7 / 8) <= 1, `frame ${idle.left}-${idle.right} x ${idle.top}-${idle.bottom} of ${idle.w}x${idle.h}`);
+    const pf = config.photoFrame;
+    expect(Math.abs(idle.top - idle.h * pf.top) <= 1 && Math.abs(idle.bottom - idle.h * (pf.top + pf.height)) <= 1
+      && Math.abs(idle.left - idle.w * pf.left) <= 1 && Math.abs(idle.right - idle.w * (pf.left + pf.width)) <= 1, `frame ${idle.left}-${idle.right} x ${idle.top}-${idle.bottom} of ${idle.w}x${idle.h}`);
     expect(idle.removed.length === 0, `removed title/date/corner elements present ${JSON.stringify(idle.removed)}`);
     expect(idle.boxes.guide[0] >= idle.h * 5 / 6 - 1, `idle guide on snow ground ${JSON.stringify(idle.boxes)}`);
     expect(textOutsideFrame(idle).length === 0, `idle text inside frame: ${JSON.stringify(idle)}`);
@@ -2231,7 +2232,7 @@ async function runScenarios(app, origin) {
           const img = document.getElementById('result');
           const read = (image, sx, sy, w, h) => { const c = new OffscreenCanvas(w, h).getContext('2d', { willReadFrequently: true }); c.drawImage(image, sx, sy, w, h, 0, 0, w, h); return c.getImageData(0, 0, w, h).data; };
           const W = 450, H = 560, X = 330, Y = 420, B = 20;
-          const a = read(shot, X, Y, W, H), b = read(img, X - 135, Y - 360, W, H);
+          const a = read(shot, X, Y, W, H), b = read(img, X - 60, Y - 250, W, H);
           const luma = (d, i) => 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
           let sum = 0, n = 0, chroma = 0;
           for (let y = 0; y + B <= H; y += B) for (let x = 0; x + B <= W; x += B) {
@@ -2310,7 +2311,7 @@ async function runScenarios(app, origin) {
           await sleep(500);
           dotMatch = await app.evaluate(`(() => {
             const dots = document.getElementById('screen-dots'), img = document.getElementById('result');
-            const x0 = Math.round(dots.width * 0.125), y0 = Math.round(dots.height * 0.1875), w = img.naturalWidth, h = img.naturalHeight;
+            const x0 = Math.round(dots.width * ${config.photoFrame.left}), y0 = Math.round(dots.height * ${config.photoFrame.top}), w = img.naturalWidth, h = img.naturalHeight;
             const a = dots.getContext('2d', { willReadFrequently: true }).getImageData(x0, y0, w, h).data;
             const c = new OffscreenCanvas(w, h).getContext('2d', { willReadFrequently: true });
             c.imageSmoothingEnabled = false;
@@ -2434,8 +2435,8 @@ async function runScenarios(app, origin) {
         if (figs.length < 4 || document.querySelector('[data-demo="compare"]').getAttribute('aria-pressed') === 'true') return null;
         return figs.map((f) => ({ caption: f.querySelector('figcaption').textContent, w: f.querySelector('img').naturalWidth, h: f.querySelector('img').naturalHeight }));
       })()`), 15000);
-      const expectCaption = [[/^원본 · 컬러 — off · 유화 끔 .*인쇄 데이터 없음$/], [/^원본 · 흑백 — gray-oil · 유화 끔 .*인쇄 데이터 576×768 1비트$/],
-        [/^유화 · 컬러 — off · 결과 .*인쇄 데이터 없음$/], [/^유화 · 흑백 — gray-oil · 결과 .*인쇄 데이터 576×768 1비트$/]];
+      const expectCaption = [[/^원본 · 컬러 — off · 유화 끔 .*인쇄 데이터 없음$/], [/^원본 · 흑백 — gray-oil · 유화 끔 .*인쇄 데이터 576×875 1비트$/],
+        [/^유화 · 컬러 — off · 결과 .*인쇄 데이터 없음$/], [/^유화 · 흑백 — gray-oil · 결과 .*인쇄 데이터 576×875 1비트$/]];
       expect(compare.every((c, i) => expectCaption[i][0].test(c.caption) && /셔터 순간 미리보기와 같은 그림/.test(c.caption) && c.w === 960 && c.h === 1280),
         `demo compare ${JSON.stringify(compare)}`);
       const comboAfter = await app.evaluate("document.querySelector('[data-demo=\"combo\"][aria-pressed=\"true\"]').textContent");
